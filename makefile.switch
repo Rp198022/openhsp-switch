@@ -44,7 +44,9 @@ CFLAGS    := $(ARCH) $(DEFINES) $(INCLUDE) -O2 -Wno-write-strings \
              -ffunction-sections -fdata-sections
 CXXFLAGS  := $(CFLAGS) --exec-charset=UTF-8
 
-LDFLAGS   := -specs=$(LIBNX)/switch.specs -g $(ARCH) \
+LIBDIRS   := -L$(PORTLIBS)/lib -L$(LIBNX)/lib
+
+LDFLAGS   := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
              -Wl,-Map,$(TARGET).map -Wl,--gc-sections
 LIBS      := -lnx -lm
 
