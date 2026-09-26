@@ -1,0 +1,53 @@
+#include "hgimg4.as"
+#include "mod_posteffect.as"
+
+	;	ポストエフェクトモジュールを使う
+	;
+	title "HGIMG4 Post Effect Test"
+
+	gpreset
+	post_reset POST_RESET_OWNDRAW
+	post_getmaxid postid_max
+
+	setcls CLSMODE_SOLID, 0		; 画面クリア設定
+	setpos GPOBJ_CAMERA, 0,2,5	; カメラ位置を設定
+	gpload id_model,"res/tamane2"		; モデル読み込み
+	setscale id_model, 0.02,0.02,0.02
+
+	postid=12			; ポストエフェクトID
+*start
+	post_select postid
+*main
+	;	画面を描画する
+	post_drawstart
+	color 64,64,64:boxf		; 背景をクリア
+	gpdraw				; シーンの描画
+	post_drawend
+
+	;	メイン画面
+	gsel 0
+	redraw 0
+	color 255,255,255:gmode 1
+	pos 8,8:mes "HGIMG4 sample"
+	post_getname postname
+	mes "Effect : "+postname
+	redraw 1			; 描画終了
+	await 1000/60			; 待ち時間
+
+	;	入力チェック
+	stick key
+	if key&128 : goto *bye
+	if key&256 {
+		postid++
+		if postid>=postid_max : postid=0
+		goto *start
+	}
+
+	addang id_model,0,0.02		; ノード回転
+
+	goto *main
+
+*bye
+	end
+
+

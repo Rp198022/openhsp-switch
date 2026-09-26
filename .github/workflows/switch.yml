@@ -1,0 +1,54 @@
+name: Build switch NRO
+
+#	T2.2 - cross-compile the OpenHSP runtime for the Nintendo Switch.
+#
+#	The container image is the official devkitPro one (devkitPro/docker :: devkita64).
+#	Note: the repository also carries upstream's own .github/workflows/build.yml
+#	(Linux / emscripten / win32); that one is left untouched and is unrelated to
+#	the Switch port.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install devkitPro packages
+        #	dkp-pacman is the package manager inside the devkitPro containers.
+        #	Deliberately no -y / -Syu: the image already ships the package lists
+        #	and forcing a database refresh makes pkg.devkitpro.org answer 403.
+        run: |
+          dkp-pacman -S --noconfirm --needed \
+            switch-dev devkitA64 libnx switch-tools
+
+      - name: Show toolchain versions
+        #	The base image only exports DEVKITARM, so DEVKITA64 and the toolchain
+        #	directories have to be set explicitly.
+        run: |
+          export DEVKITA64="$DEVKITPRO/devkitA64"
+          export PATH="$DEVKITA64/bin:$DEVKITPRO/tools/bin:$DEVKITPRO/portlibs/switch/bin:$PATH"
+          which aarch64-none-elf-g++
+          aarch64-none-elf-g++ --version | head -n 1
+          which nacptool
+          which elf2nro
+
+      - name: Build hsp3switch.nro
+        run: |
+          export DEVKITA64="$DEVKITPRO/devkitA64"
+          export PATH="$DEVKITA64/bin:$DEVKITPRO/tools/bin:$DEVKITPRO/portlibs/switch/bin:$PATH"
+          make -f makefile.switch -j$(nproc)
+
+      - name: Upload hsp3switch.nro
+        uses: actions/upload-artifact@v4
+        with:
+          name: hsp3switch-nro
+          path: hsp3switch.nro
+          if-no-files-found: error

@@ -1,0 +1,796 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	<meta http-equiv="Content-Language" content="en">
+	<meta http-equiv="Content-Style-Type" content="text/css">
+	<meta http-equiv="Content-Script-Type" content="text/javascript">
+	<meta name="author" content="OpenHSP3 Project">
+	<meta name="keywords" content="HSP3,HotSoupProcessor3,HSP3Dish">
+	<meta name="description" content="Provides information about HSP3Dish.">
+	<link href="../main.css" rel="stylesheet" type="text/css" media="all">
+	<title>HSP3Dish Programming Manual / Basic Specification Guide</title>
+</head>
+<body>
+	<div id="CONTAINER">
+	<!-- ヘッダー -->
+	<p id="COPY">HSP : HSP3Dish / onion software 2024(c)</p>
+	<img src="hsp3dish.jpg" width="640" height="200" alt="title">
+	<h1>HSP3Dish Programming Manual</h1>
+
+	<!-- 目次 -->
+	<ol>
+		<li><a href="#ABOUT">What is HSP3Dish?</a></li>
+		<li><a href="#DISHUSE">How to use HSP3Dish</a></li>
+		<li><a href="#DRAWDIFF">Differences from HSP3</a></li>
+		<li><a href="#BUTTON">About Placed Objects</a><span class="new">（New!）</span></li>
+		<li><a href="#SPRITE">About Standard Sprites</a><span class="new">（New!）</span></li>
+		<li><a href="#SCREEN">About Changing Screen Size</a><span class="new">（New!）</span></li>
+		<li><a href="#VIEWCALC">About Coordinate Transformation using viewcalc Command</a><span class="new">（New!）</span></li>
+		<li><a href="#CELBITMAP">About Image Data Control using celbitmap Command</a><span class="new">（New!）</span></li>
+		<li><a href="#GMODE">About gmode Command</a></li>
+		<li><a href="#GMULCOLOR">About gmulcolor Command</a></li>
+		<li><a href="#GFILTER">About gfilter Command</a></li>
+		<li><a href="#SYSREQ">About setreq and getreq Commands<span class="new">（New!）</span></a></li>
+		<li><a href="#MTOUCH">About Acquiring Multi-touch Information</a></li>
+		<li><a href="#SOUND">About Sound Functions<span class="new">（New!）</span></a></li>
+		<li><a href="#HTTP">About http Communication Functions</a></li>
+		<li><a href="#SAMPLE">Sample Scripts</a></li>
+		<li><a href="#CMDLIST">HSP3Dish Command List</a></li>
+		<li><a href="#WINHRT">Creating Executable Files on Windows</a></li>
+		<li><a href="#INIFILE">About Startup Configuration Files</a></li>
+		<li><a href="#OBAQ">Support for OBAQ Physics Engine</a></li>
+		<li><a href="#EXCHANGE">Conversion to Other Platforms</a><span class="new">（New!）</span></li>
+		<li><a href="#MAXTEXTURE">About Maximum Number of Textures</a><span class="new">（New!）</span></li>
+		<li><a href="#PLUGIN">Support for Extended Plugins and External DLLs</a></li>
+		<li><a href="#INPUT">About Support for Various Input/Output</a></li>
+		<li><a href="#KNOWNBUG">About Known Bugs</a></li>
+		<li><a href="#LICENCE">Copyright and License</a></li>
+		<li><a href="#CONTACT">Contact Information</a></li>
+	</ol>
+
+	<h2 id="ABOUT">What is HSP3Dish?</h2>
+	<p>
+	HSP3Dish is an additional set for building the HSP3 execution environment
+	on various devices. It provides a mechanism for running scripts
+	developed on Windows on different operating systems.
+	</p>
+	<p>
+	The HSP3Dish runtime that runs on Windows has limited functionality
+	compared to the regular version of HSP3, and some special features are added.
+	By implementing the same functionality as this HSP3Dish runtime on
+	different systems such as iPhone/iPad or Android, it is possible to reuse scripts that run on the Windows version.
+	</p>
+	<p>
+	Although HSP3Dish is intended for special use, it also has advantages over
+	regular HSP3 when used on Windows, such as high-speed drawing using
+	DirectX/OpenGL, and standard support for alpha channels and PNG formats.<br>
+	Furthermore, the <a href="hgimg4.html">HGIMG4 runtime</a>, which supports 3D functions and advanced physics calculations, is also provided as a derivative of HSP3Dish.<br>
+	</p>
+	<p>
+	<a href="https://hsp.tv/make/hsp3linux_pi.html" target="_blank">HSP3 for Linux/Raspberry Pi</a>, which runs on Linux and small devices like Raspberry Pi, is distributed as a separate package version. For more details, please see
+	the <a href="https://hsp.tv/make/hsp3linux_pi.html" target="_blank">HSP3 for Linux/Raspberry Pi</a> page.
+	</p>
+	<p>
+	HSP3Dish is planned to continue evolving as a new direction for HSP3. Please look forward to it.
+	</p>
+	<p>
+	An introduction page for HSP3Dish is available on the official HSPTV! website.
+	It gathers the latest information about HSP3Dish, user creations, and useful materials, so please check it out.
+	</p>
+	<ul><p>
+	<a href="https://hsp.tv/make/hsp3dish.html" target="_blank">HSP3Dish Support Page<br>https://hsp.tv/make/hsp3dish.html</a><br>
+	</p><p>
+	<a href="https://hsp.tv/make/hsp3linux_pi.html" target="_blank">HSP3 for Linux/Raspberry Pi<br>https://hsp.tv/make/hsp3linux_pi.html</a><br>
+	</p><p>
+	<a href="https://hsp.tv/make/hgimg4.html" target="_blank">HGIMG4 development<br>https://hsp.tv/make/hgimg4.html</a><br>
+	</p></ul>
+
+	<h2 id="DISHUSE">How to use HSP3Dish</h2>
+	<p>
+	With HSP3Dish, you can develop using the normal HSP environment, such as the HSP3 script editor that runs on Windows.
+	Please use the latest version of HSP as much as possible for development.<br>
+	When creating a script that runs in the HSP3Dish environment,
+	you need to add the following code to the first line:
+	</p>
+	<pre>
+	#include "hsp3dish.as"
+	</pre>
+	<p>
+	From HSP3.7β7 onwards, the following description is also possible.
+	</p>
+	<pre>
+	#use hsp3dish
+	</pre>
+	<p>
+	After that, you can write the source code in the same way as a normal HSP3 script.
+	However, please keep in mind that the following functions cannot be used in order to operate on multiple platforms:
+	</p>
+	<ul>
+	<li>Extended plugin commands are not supported</li>
+	<li>COM object operations, COM type and Variant type variables are not supported</li>
+	<li>External DLL calling function is not supported</li>
+	<li>Functions related to module variables are not supported (the module function itself is supported)</li>
+	<br>
+	<ul>(*These restrictions do not apply as long as you are only using the Windows platform.)</ul>
+	</ul>
+	<p>
+	These use functions that cannot be reproduced on platforms other than Windows.
+	Please use the functions according to the platform's support.
+	</p>
+	<p>
+	Also, reflecting the memory and security constraints of smartphones,
+	the following functions are limited.
+	</p>
+	<ul>
+	<li>Output is limited to a single screen (ID#0)
+	(Multiple window displays are not supported)</li>
+	<li>Processing of image buffers created with the buffer command is not possible.
+	(Image assignment is possible, but drawing commands cannot be used.
+	However, HGIMG4 runtime partially supports this)</li>
+	<li>Complete font unification between devices is not possible
+	(The Japanese character font depends on the device)</li>
+	<li>Restrictions apply to writing to devices such as notesave and bsave commands.</li>
+	<li>Some placed objects other than button are not supported.
+	(chkbox and input are partially supported)</li>
+	</ul>
+	<p>
+	In HSP3Dish, many commands and functions can be used in the same way as in normal HSP3, but
+	the functions are limited in order to absorb the differences in the environment, which may be a hassle for those familiar with the Windows version. In future versions,
+	the goal is to apply it to a wide range of environments without being aware of the differences from the Windows version.
+	</p>
+	<p>
+	Some restrictions occur when passing through the HSP3 source converter to generate native code.
+	For more information, please refer to the HSP3 Source Converter Manual (hsp3cnv.txt).
+	</p>
+
+	<h2 id="DRAWDIFF">Differences from HSP3</h2>
+	<p>
+	HSP3Dish is designed for high-speed drawing and multi-platform support.
+	It differs from normal HSP3 in the following ways:
+	</p>
+	<ul>
+	<li>The screen needs to be updated with the redraw command</li>
+	<p>
+	For sources related to screen rewriting, please notify the start of drawing with redraw 0,
+	and notify the drawing completion timing with redraw 1.
+	This allows drawing commands to be executed efficiently.<br>
+	Unlike normal HSP3, specifying "redraw 0" will clear the screen
+	once, so the contents drawn up to that point will not remain.
+	Be aware that you need to draw what you want to display each time.
+	</p>
+	<pre>
+	redraw 0	; Start drawing (clear screen)
+	~Describe drawing commands here~
+	redraw 1	; Complete drawing (screen is updated)
+	await 1000/60	; Wait for a time (wait for 1/60 second)
+	</pre>
+	<p>
+	You must write "redraw 0" and "redraw 1" and write the drawing command in between.
+	The same is true for HSP3, but you need to insert a wait time in the loop.
+	Adjust the timing with the await or wait command.
+	</p>
+
+	<li>Handling of alpha channels</li>
+	<p>
+	It is possible to read image files including alpha channels using the picload and celload commands. (The recommended image format is PNG file)
+	For commands such as celput and gcopy, a copy including the alpha channel is executed. Therefore, the specification by gmode will be different in some ways.
+	For details, please refer to the "About gmode Command" section.
+	</p>
+
+	<li>Improved drawing speed</li>
+	<p>
+	In normal HSP3, drawing acceleration was limited, but
+	in HSP3Dish and HGIMG4, the functions of the graphics card are used to the maximum to
+	perform high-speed drawing and high-quality rotation, scaling, and reduction.
+	The difference is noticeable when using transparency and alpha channels.
+	</p>
+
+	<li>Strict timer management</li>
+	<p>
+	Wait management is performed by a more accurate timer than normal HSP.
+	The wait time with the wait/await command may be slightly different from normal HSP.
+	</p>
+
+	<li>Video playback not supported</li>
+	<p>
+	On platforms other than the Windows version, avi/mpg/wmv format
+	video playback using the mmload/mmplay command is not supported.
+	It is possible to use wav for sound effects and mp3 for BGM (sound), but
+	the supported formats may differ for each platform.
+	</p>
+	</ul>
+
+	<h2 id="BUTTON">About Placed Objects</h2>
+	<p>
+	Currently, the only placed object that is supported on all platforms is
+	the button created by the button command.
+	Please note that it differs from the standard object in the following ways.
+	</p>
+	<pre>
+	・By default, buttons use a gray gradient background.
+	・You can change the button background image with the objimage command.
+	・Button operation and focus movement via the keyboard are not supported.
+	・Buttons are drawn when the image is updated by redraw.
+	</pre>
+	<p>
+	The following layout objects are supported on Windows/Linux platforms:
+	</p>
+	<pre>
+	・Checkboxes (chkbox)
+	・Input boxes (input)
+	</pre>
+	<p>
+	We plan to widely support layout objects on many platforms in the future.
+	</p>
+
+
+	<h2 id="SPRITE">About Standard Sprites</h2>
+		<p>
+		HSP3Dish and HGIMG4 runtimes now support <a href="sprite.html">standard sprites</a> that can be used easily.<br>
+		The standard sprite commands are compatible with the commands that were added as the hspdx plugin, and it is possible to easily handle 2D drawing.
+		<p>
+		<p><img src="hsp3dish/es_test5.jpg"></p>
+		<p>
+		Several methods were available for using sprites (rectangular images) when performing 2D drawing in HSP3.
+		</p>
+		<pre class="quote">
+		・HSPDX plugin
+		・HGIMG/HGIMGX plugins
+		・HGIMG3 plugin
+		・HGIMG4 plugin
+		・mod_sprite module</pre>
+		<p>
+		Among these, the HSPDX, HGIMG, and HGIMGX plugins are from the HSP2 era and are no longer under development,
+		making it difficult to operate them in the current OS or environment.<br>
+		The HGIMG3/HGIMG4 plugins have 3D functions as well as high-performance 2D sprite
+		functions, but all coordinates are managed in real numbers, and although there are many functions,
+		the amount of content to learn also increases, making them difficult to handle easily.<br>
+		This time, based on the commands of the HSPDX plugin, which has the longest history and has been used by many users,
+		we have expanded easy-to-use 2D-specific sprite commands.<br>
+		It has a flexible system that allows you to display sprites with simple commands and freely register sprite images. In addition, sprite callbacks and map drawing, etc.,
+		Unique mechanisms have also been introduced, improving convenience compared to the original HSPDX plugin.<br>
+		The coordinates are also managed as integers, making them easy to handle for 2D games and UI displays.<br>
+		Of course, the traditional plugins can also be used for autonomous movement using event lists and coordination with 3D.<br>
+		Standard sprites run on all platforms supported by HSP3Dish and HGIMG4, and will also
+		be supported by the HSP3 standard runtime.<br>
+		For details on standard sprites, please refer to the <a href="sprite.html">"Standard Sprite Programming Guide"</a>.
+		</p>
+
+
+	<h2 id="SCREEN">About Changing Screen Size</h2>
+		<p>
+		HSP3Dish and HGIMG4 Windows/Linux versions now support dynamic screen (window) size changes. (HSP3.6β2 and later)<br>
+		Until now, the size was fixed at startup according to the size recorded in the hsp3dish.ini file, but
+		we received many requests for size changes and full-screen support, so we made the correction.
+		From HSP3.6, you can change the screen (window) size using the screen and bgscr commands.
+		</p><pre>
+	screen p1,p2,p3,p4,p5,p6
+
+	p1=0〜(0) : Window ID
+	p2=1〜(640): Initial screen size X (in pixels)
+	p3=1〜(480): Initial screen size Y (in pixels)
+	p4=0〜1(0) : Initial screen mode
+	p5=0〜(-1) : Window position X (in pixels)
+	p6=0〜(-1) : Window position Y (in pixels)
+		</pre><p>
+		The window ID for p1 is only 0.
+		The following values can be specified for the p4 initialization mode.
+		</p><pre>
+	  +4(screen_fixedsize) : Fixed-size window
+	  +8(screen_tool)      : Tool window
+	 +16(screen_frame)     : Window with a deep border
+	 +256                  : Full screen
+		</pre><p>
+		If 256 is specified for p4, it will be initialized as a full screen with the specified resolution.
+		(Please note that if you specify a resolution that the display does not support, it will end with an error.)<br>
+		Also, when changing the screen size, unlike the normal runtime, <b>all image buffers loaded up to that point will be lost</b>, so please be careful.
+		</p>
+
+
+	<h2 id="VIEWCALC">About Coordinate Conversion by viewcalc Command</h2>
+		<p><img src="img/hsp36_viewcalc.png"></p>
+		<p>
+		HSP3Dish and HGIMG4 have added the viewcalc command to set coordinate conversion during drawing.<br>
+		The viewcalc command is a powerful function that allows you to apply arbitrary calculations to the X and Y coordinates during 2D drawing.
+		You can perform scaling, moving, rotating, etc. of the entire drawn object.
+		</p><pre>
+	viewcalc p1,p2,p3,p4,p5
+
+	p1(0)   : Setting mode
+	p2(0.0) : Parameter 1 (real number)
+	p3(0.0) : Parameter 2 (real number)
+	p4(0.0) : Parameter 3 (real number)
+	p5(0.0) : Parameter 4 (real number)
+		</pre><p>
+		There are several types of setting modes specified by p1, and it is possible to perform a variety of conversions.
+		</p><pre>
+	Macro Name            Value   Content
+	-----------------------------------------------------
+	vptype_off           0   No coordinate conversion (default)
+	vptype_translate     1   Specify movement parameters
+	vptype_rotate        2   Specify rotation parameters
+	vptype_scale         3   Specify scale parameters
+	vptype_3dmatrix      4   Coordinate conversion using a 4×4 matrix
+	vptype_2d            5   Set 2D coordinate conversion
+	vptype_3d            6   Set 3D coordinate conversion
+		</pre><p>
+		vptype_2d is a mode that applies basic 2D coordinate conversion.
+		You can set the X and Y scale (magnification) and rotation angle (in radians) with parameters 1 to 3.
+		</p><pre>
+	viewcalc vptype_2d, 2.0, 2.0, 0.0
+		</pre><p>
+		If you specify it as above, it will be displayed at a scale of 2 times in the X and Y directions, and the angle will be 0.<br>
+		You can also specify various other parameters. For details, please refer to the help for the viewcalc command.
+		</p>
+
+
+	<h2 id="CELBITMAP">About Image Data Control by celbitmap Command</h2>
+		<p>
+		HSP3Dish and HGIMG4 have added the celbitmap command to treat the contents of a variable buffer as image data.<br>
+		Until now, HSP3Dish did not allow direct access to pixel-by-pixel image data, but this command allows you to read and write the contents of memory as image data.
+		</p><pre>
+	celbitmap p1,var,p2
+
+	p1(0)   : Window ID
+	var     : Array variable to replace the image
+	p2(0)   : Operation options
+		</pre><p>
+		When using the celbitmap command, you need to initialize the off-screen buffer created by the buffer command and the variable buffer for replacement in advance.<br>
+		Create the off-screen buffer by specifying the screen_offscreen option in the buffer command.
+		</p><pre>
+	buffer 2,256,256,screen_offscreen
+		</pre><p>
+		After that, create a variable buffer to replace the buffer.<br>
+		Create it by initializing a one-dimensional array with the dim command. The size to create is the X size x Y size of the off-screen buffer.
+		</p><pre>
+	dim bitmap, 256*256
+		</pre><p>
+		Now you are ready to use the celbitmap command.<br>
+		By specifying the off-screen buffer ID and array variable using the celbitmap command, the contents of the variable buffer are applied as they are as an image.
+		The variable buffer is 1 pixel per element. One pixel is RGB format data in which 32-bit elements are stored in 8-bit units for R, G, B, and A, respectively. (The order of RGB has changed between versions 3.6β2 and 3.6β3. Please note this.)<br>
+		For example, if you specify "$ff204080" (hexadecimal), A=$ff(255), B=$20(32), G=$40(64), and R=$80(128). (The values in parentheses are decimal numbers.)<br>
+		Replacing image data is a costly process, so be aware that the frame rate may drop if you replace large images.<br>
+		You can specify the replacement format and operation with the p2 parameter.
+		</p><pre>
+	 Value  Macro             Operation
+	---------------------------------------------------------
+	  0  celbitmap_rgb      Data is held in $aabbggrr format
+	  1  celbitmap_bgr      Data is held in $aarrggbb format
+	  16 celbitmap_capture  Read the contents of the drawing screen into a variable
+		</pre><p>
+		Normally, the celbitmap_rgb format, which conforms to the OpenGL standard, is used. If celbitmap_bgr is specified for the option, the arrangement will be ARGB, which conforms to the DirectX standard.<br>
+		If celbitmap_capture is specified, the data on the drawing destination screen is read into the array variable. (The reading size is the size of the off-screen buffer.)<br>
+		*The celbitmap_capture option is an experimental implementation. Please note that it can currently only be used in the Windows (excluding DirectX version HGIMG4) and Linux versions.
+		</p>
+
+
+	<h2 id="GMODE">About gmode Command</h2>
+	<p>
+	In hsp3dish, the image copy commands such as celput and gcopy will copy with the alpha channel included. Therefore, the specification of the copy mode by gmode will have some differences.
+	</p>
+	<pre>
+	gmode 0,1 : No alpha channel (ignored)
+	gmode 2   : Alpha channel enabled, transparency rate disabled
+	gmode 3,4 : Alpha channel enabled, transparency rate enabled
+	gmode 5   : Color addition/alpha channel enabled, transparency rate enabled
+	gmode 6   : Color subtraction/alpha channel enabled, transparency rate enabled
+	</pre>
+	<p>
+	The alpha channel is information attached to image data such as PNG format.
+	Please note that you cannot select the mode in which RGB in normal HSP becomes transparent when it is 0, or the mode in which a specific color code is transparent.<br>
+	<b>Please note that gmode 6 (color subtraction) is not supported in the android (NDK) runtime in the current version.</b>
+	</p>
+	<p>
+	In copy mode 2 or higher, it is possible to set "texture multiplication" that multiplies the image by a specific value.
+	For details, please refer to the section "About the gmulcolor command".
+	</p>
+
+	<h2 id="GMULCOLOR">About gmulcolor Command</h2>
+	<p>
+	The gmulcolor command for setting the texture multiplication value has been added from hsp3dish ver3.5b3.
+	</p>
+	<pre>
+	・By default, buttons use a gray gradient background.
+	・You can change the button background image with the objimage command.
+	・Button operation and focus movement via the keyboard are not supported.
+	・Buttons are drawn when the image is updated by redraw.
+	</pre>
+	<p>
+	The following layout objects are supported on Windows/Linux platforms:
+	</p>
+	<pre>
+	・Checkboxes (chkbox)
+	・Input boxes (input)
+	</pre>
+	<p>
+	We plan to widely support layout objects on many platforms in the future.
+	</p>
+
+
+	<h2 id="SPRITE">About Standard Sprites</h2>
+		<p>
+		HSP3Dish and HGIMG4 runtimes now support <a href="sprite.html">standard sprites</a> that can be used easily.<br>
+		The standard sprite commands are compatible with the commands that were added as the hspdx plugin, and it is possible to easily handle 2D drawing.
+		<p>
+		<p><img src="hsp3dish/es_test5.jpg"></p>
+		<p>
+		Several methods were available for using sprites (rectangular images) when performing 2D drawing in HSP3.
+		</p>
+		<pre class="quote">
+		・HSPDX plugin
+		・HGIMG/HGIMGX plugins
+		・HGIMG3 plugin
+		・HGIMG4 plugin
+		・mod_sprite module</pre>
+		<p>
+		Among these, the HSPDX, HGIMG, and HGIMGX plugins are from the HSP2 era and are no longer under development,
+		making it difficult to operate them in the current OS or environment.<br>
+		The HGIMG3/HGIMG4 plugins have 3D functions as well as high-performance 2D sprite
+		functions, but all coordinates are managed in real numbers, and although there are many functions,
+		the amount of content to learn also increases, making them difficult to handle easily.<br>
+		This time, based on the commands of the HSPDX plugin, which has the longest history and has been used by many users,
+		we have expanded easy-to-use 2D-specific sprite commands.<br>
+		It has a flexible system that allows you to display sprites with simple commands and freely register sprite images. In addition, sprite callbacks and map drawing, etc.,
+		Unique mechanisms have also been introduced, improving convenience compared to the original HSPDX plugin.<br>
+		The coordinates are also managed as integers, making them easy to handle for 2D games and UI displays.<br>
+		Of course, the traditional plugins can also be used for autonomous movement using event lists and coordination with 3D.<br>
+		Standard sprites run on all platforms supported by HSP3Dish and HGIMG4, and will also
+		be supported by the HSP3 standard runtime.<br>
+		For details on standard sprites, please refer to the <a href="sprite.html">"Standard Sprite Programming Guide"</a>.
+		</p>
+
+
+	<h2 id="SCREEN">About Changing Screen Size</h2>
+		<p>
+		HSP3Dish and HGIMG4 Windows/Linux versions now support dynamic screen (window) size changes. (HSP3.6β2 and later)<br>
+		Until now, the size was fixed at startup according to the size recorded in the hsp3dish.ini file, but
+		we received many requests for size changes and full-screen support, so we made the correction.
+		From HSP3.6, you can change the screen (window) size using the screen and bgscr commands.
+		</p><pre>
+	screen p1,p2,p3,p4,p5,p6
+
+	p1=0〜(0) : Window ID
+	p2=1〜(640): Initial screen size X (in pixels)
+	p3=1〜(480): Initial screen size Y (in pixels)
+	p4=0〜1(0) : Initial screen mode
+	p5=0〜(-1) : Window position X (in pixels)
+	p6=0〜(-1) : Window position Y (in pixels)
+		</pre><p>
+		The window ID for p1 is only 0.
+		The following values can be specified for the p4 initialization mode.
+		</p><pre>
+	  +4(screen_fixedsize) : Fixed-size window
+	  +8(screen_tool)      : Tool window
+	 +16(screen_frame)     : Window with a deep border
+	 +256                  : Full screen
+		</pre><p>
+		If 256 is specified for p4, it will be initialized as a full screen with the specified resolution.
+		(Please note that if you specify a resolution that the display does not support, it will end with an error.)<br>
+		Also, when changing the screen size, unlike the normal runtime, <b>all image buffers loaded up to that point will be lost</b>, so please be careful.
+		</p>
+
+
+	<h2 id="VIEWCALC">About Coordinate Conversion by viewcalc Command</h2>
+		<p><img src="img/hsp36_viewcalc.png"></p>
+		<p>
+		HSP3Dish and HGIMG4 have added the viewcalc command to set coordinate conversion during drawing.<br>
+		The viewcalc command is a powerful function that allows you to apply arbitrary calculations to the X and Y coordinates during 2D drawing.
+		You can perform scaling, moving, rotating, etc. of the entire drawn object.
+		</p><pre>
+	viewcalc p1,p2,p3,p4,p5
+
+	p1(0)   : Setting mode
+	p2(0.0) : Parameter 1 (real number)
+	p3(0.0) : Parameter 2 (real number)
+	p4(0.0) : Parameter 3 (real number)
+	p5(0.0) : Parameter 4 (real number)
+		</pre><p>
+		There are several types of setting modes specified by p1, and it is possible to perform a variety of conversions.
+		</p><pre>
+	Macro Name            Value   Content
+	-----------------------------------------------------
+	vptype_off           0   No coordinate conversion (default)
+	vptype_translate     1   Specify movement parameters
+	vptype_rotate        2   Specify rotation parameters
+	vptype_scale         3   Specify scale parameters
+	vptype_3dmatrix      4   Coordinate conversion using a 4×4 matrix
+	vptype_2d            5   Set 2D coordinate conversion
+	vptype_3d            6   Set 3D coordinate conversion
+		</pre><p>
+		vptype_2d is a mode that applies basic 2D coordinate conversion.
+		You can set the X and Y scale (magnification) and rotation angle (in radians) with parameters 1 to 3.
+		</p><pre>
+	viewcalc vptype_2d, 2.0, 2.0, 0.0
+		</pre><p>
+		If you specify it as above, it will be displayed at a scale of 2 times in the X and Y directions, and the angle will be 0.<br>
+		You can also specify various other parameters. For details, please refer to the help for the viewcalc command.
+		</p>
+
+
+	<h2 id="CELBITMAP">About Image Data Control by celbitmap Command</h2>
+		<p>
+		HSP3Dish and HGIMG4 have added the celbitmap command to treat the contents of a variable buffer as image data.<br>
+		Until now, HSP3Dish did not allow direct access to pixel-by-pixel image data, but this command allows you to read and write the contents of memory as image data.
+		</p><pre>
+	celbitmap p1,var,p2
+
+	p1(0)   : Window ID
+	var     : Array variable to replace the image
+	p2(0)   : Operation options
+		</pre><p>
+		When using the celbitmap command, you need to initialize the off-screen buffer created by the buffer command and the variable buffer for replacement in advance.<br>
+		Create the off-screen buffer by specifying the screen_offscreen option in the buffer command.
+		</p><pre>
+	buffer 2,256,256,screen_offscreen
+		</pre><p>
+		After that, create a variable buffer to replace the buffer.<br>
+		Create it by initializing a one-dimensional array with the dim command. The size to create is the X size x Y size of the off-screen buffer.
+		</p><pre>
+	dim bitmap, 256*256
+		</pre><p>
+		Now you are ready to use the celbitmap command.<br>
+		By specifying the off-screen buffer ID and array variable using the celbitmap command, the contents of the variable buffer are applied as they are as an image.
+		The variable buffer is 1 pixel per element. One pixel is RGB format data in which 32-bit elements are stored in 8-bit units for R, G, B, and A, respectively. (The order of RGB has changed between versions 3.6β2 and 3.6β3. Please note this.)<br>
+		For example, if you specify "$ff204080" (hexadecimal), A=$ff(255), B=$20(32), G=$40(64), and R=$80(128). (The values in parentheses are decimal numbers.)<br>
+		Replacing image data is a costly process, so be aware that the frame rate may drop if you replace large images.<br>
+		You can specify the replacement format and operation with the p2 parameter.
+		</p><pre>
+	 Value  Macro             Operation
+	---------------------------------------------------------
+	  0  celbitmap_rgb      Data is held in $aabbggrr format
+	  1  celbitmap_bgr      Data is held in $aarrggbb format
+	  16 celbitmap_capture  Read the contents of the drawing screen into a variable
+		</pre><p>
+		Normally, the celbitmap_rgb format, which conforms to the OpenGL standard, is used. If celbitmap_bgr is specified for the option, the arrangement will be ARGB, which conforms to the DirectX standard.<br>
+		If celbitmap_capture is specified, the data on the drawing destination screen is read into the array variable. (The reading size is the size of the off-screen buffer.)<br>
+		*The celbitmap_capture option is an experimental implementation. Please note that it can currently only be used in the Windows (excluding DirectX version HGIMG4) and Linux versions.
+		</p>
+
+
+	<h2 id="GMODE">About gmode Command</h2>
+	<p>
+	In hsp3dish, the image copy commands such as celput and gcopy will copy with the alpha channel included. Therefore, the specification of the copy mode by gmode will have some differences.
+	</p>
+	<pre>
+	gmode 0,1 : No alpha channel (ignored)
+	gmode 2   : Alpha channel enabled, transparency rate disabled
+	gmode 3,4 : Alpha channel enabled, transparency rate enabled
+	gmode 5   : Color addition/alpha channel enabled, transparency rate enabled
+	gmode 6   : Color subtraction/alpha channel enabled, transparency rate enabled
+	</pre>
+	<p>
+	The alpha channel is information attached to image data such as PNG format.
+	Please note that you cannot select the mode in which RGB in normal HSP becomes transparent when it is 0, or the mode in which a specific color code is transparent.<br>
+	<b>Please note that gmode 6 (color subtraction) is not supported in the android (NDK) runtime in the current version.</b>
+	</p>
+	<p>
+	In copy mode 2 or higher, it is possible to set "texture multiplication" that multiplies the image by a specific value.
+	For details, please refer to the section "About the gmulcolor command".
+	</p>
+
+	<h2 id="GMULCOLOR">About gmulcolor Command</h2>
+	<p>
+	The gmulcolor command for setting the texture multiplication value has been added from hsp3dish ver3.5b3.
+	</p>
+	<pre>
+	・By default, buttons use a gray gradient background.
+	・You can change the button background image with the objimage command.
+	・Button operation and focus movement via the keyboard are not supported.
+	・Buttons are drawn when the image is updated by redraw.
+	</pre>
+	<p>
+	The following layout objects are supported on Windows/Linux platforms:
+	</p>
+	<pre>
+	・Checkboxes (chkbox)
+	・Input boxes (input)
+	</pre>
+	<p>
+	We plan to widely support layout objects on many platforms in the future.
+	</p>
+
+
+	<h2 id="SPRITE">About Standard Sprites</h2>
+		<p>
+		HSP3Dish and HGIMG4 runtimes now support <a href="sprite.html">standard sprites</a> that can be used easily.<br>
+		The standard sprite commands are compatible with the commands that were added as the hspdx plugin, and it is possible to easily handle 2D drawing.
+		<p>
+		<p><img src="hsp3dish/es_test5.jpg"></p>
+		<p>
+		Several methods were available for using sprites (rectangular images) when performing 2D drawing in HSP3.
+		</p>
+		<pre class="quote">
+		・HSPDX plugin
+		・HGIMG/HGIMGX plugins
+		・HGIMG3 plugin
+		・HGIMG4 plugin
+		・mod_sprite module</pre>
+		<p>
+		Among these, the HSPDX, HGIMG, and HGIMGX plugins are from the HSP2 era and are no longer under development,
+		making it difficult to operate them in the current OS or environment.<br>
+		The HGIMG3/HGIMG4 plugins have 3D functions as well as high-performance 2D sprite
+		functions, but all coordinates are managed in real numbers, and although there are many functions,
+		the amount of content to learn also increases, making them difficult to handle easily.<br>
+		This time, based on the commands of the HSPDX plugin, which has the longest history and has been used by many users,
+		we have expanded easy-to-use 2D-specific sprite commands.<br>
+		It has a flexible system that allows you to display sprites with simple commands and freely register sprite images. In addition, sprite callbacks and map drawing, etc.,
+		Unique mechanisms have also been introduced, improving convenience compared to the original HSPDX plugin.<br>
+		The coordinates are also managed as integers, making them easy to handle for 2D games and UI displays.<br>
+		Of course, the traditional plugins can also be used for autonomous movement using event lists and coordination with 3D.<br>
+		Standard sprites run on all platforms supported by HSP3Dish and HGIMG4, and will also
+		be supported by the HSP3 standard runtime.<br>
+		For details on standard sprites, please refer to the <a href="sprite.html">"Standard Sprite Programming Guide"</a>.
+		</p>
+
+
+	<h2 id="SCREEN">About Changing Screen Size</h2>
+		<p>
+		HSP3Dish and HGIMG4 Windows/Linux versions now support dynamic screen (window) size changes. (HSP3.6β2 and later)<br>
+		Until now, the size was fixed at startup according to the size recorded in the hsp3dish.ini file, but
+		we received many requests for size changes and full-screen support, so we made the correction.
+		From HSP3.6, you can change the screen (window) size using the screen and bgscr commands.
+		</p><pre>
+	screen p1,p2,p3,p4,p5,p6
+
+	p1=0〜(0) : Window ID
+	p2=1〜(640): Initial screen size X (in pixels)
+	p3=1〜(480): Initial screen size Y (in pixels)
+	p4=0〜1(0) : Initial screen mode
+	p5=0〜(-1) : Window position X (in pixels)
+	p6=0〜(-1) : Window position Y (in pixels)
+		</pre><p>
+		The window ID for p1 is only 0.
+		The following values can be specified for the p4 initialization mode.
+		</p><pre>
+	  +4(screen_fixedsize) : Fixed-size window
+	  +8(screen_tool)      : Tool window
+	 +16(screen_frame)     : Window with a deep border
+	 +256                  : Full screen
+		</pre><p>
+		If 256 is specified for p4, it will be initialized as a full screen with the specified resolution.
+		(Please note that if you specify a resolution that the display does not support, it will end with an error.)<br>
+		Also, when changing the screen size, unlike the normal runtime, <b>all image buffers loaded up to that point will be lost</b>, so please be careful.
+		</p>
+
+
+	<h2 id="VIEWCALC">About Coordinate Conversion by viewcalc Command</h2>
+		<p><img src="img/hsp36_viewcalc.png"></p>
+		<p>
+		HSP3Dish and HGIMG4 have added the viewcalc command to set coordinate conversion during drawing.<br>
+		The viewcalc command is a powerful function that allows you to apply arbitrary calculations to the X and Y coordinates during 2D drawing.
+		You can perform scaling, moving, rotating, etc. of the entire drawn object.
+		</p><pre>
+	viewcalc p1,p2,p3,p4,p5
+
+	p1(0)   : Setting mode
+	p2(0.0) : Parameter 1 (real number)
+	p3(0.0) : Parameter 2 (real number)
+	p4(0.0) : Parameter 3 (real number)
+	p5(0.0) : Parameter 4 (real number)
+		</pre><p>
+		There are several types of setting modes specified by p1, and it is possible to perform a variety of conversions.
+		</p><pre>
+	Macro Name            Value   Content
+	-----------------------------------------------------
+	vptype_off           0   No coordinate conversion (default)
+	vptype_translate     1   Specify movement parameters
+	vptype_rotate        2   Specify rotation parameters
+	vptype_scale         3   Specify scale parameters
+	vptype_3dmatrix      4   Coordinate conversion using a 4×4 matrix
+	vptype_2d            5   Set 2D coordinate conversion
+	vptype_3d            6   Set 3D coordinate conversion
+		</pre><p>
+		vptype_2d is a mode that applies basic 2D coordinate conversion.
+		You can set the X and Y scale (magnification) and rotation angle (in radians) with parameters 1 to 3.
+		</p><pre>
+	viewcalc vptype_2d, 2.0, 2.0, 0.0
+		</pre><p>
+		If you specify it as above, it will be displayed at a scale of 2 times in the X and Y directions, and the angle will be 0.<br>
+		You can also specify various other parameters. For details, please refer to the help for the viewcalc command.
+		</p>
+
+
+	<h2 id="CELBITMAP">About Image Data Control by celbitmap Command</h2>
+		<p>
+		HSP3Dish and HGIMG4 have added the celbitmap command to treat the contents of a variable buffer as image data.<br>
+		Until now, HSP3Dish did not allow direct access to pixel-by-pixel image data, but this command allows you to read and write the contents of memory as image data.
+		</p><pre>
+	celbitmap p1,var,p2
+
+	p1(0)   : Window ID
+	var     : Array variable to replace the image
+	p2(0)   : Operation options
+		</pre><p>
+		When using the celbitmap command, you need to initialize the off-screen buffer created by the buffer command and the variable buffer for replacement in advance.<br>
+		Create the off-screen buffer by specifying the screen_offscreen option in the buffer command.
+		</p><pre>
+	buffer 2,256,256,screen_offscreen
+		</pre><p>
+		After that, create a variable buffer to replace the buffer.<br>
+		Create it by initializing a one-dimensional array with the dim command. The size to create is the X size x Y size of the off-screen buffer.
+		</p><pre>
+	dim bitmap, 256*256
+		</pre><p>
+		Now you are ready to use the celbitmap command.<br>
+		By specifying the off-screen buffer ID and array variable using the celbitmap command, the contents of the variable buffer are applied as they are as an image.
+		The variable buffer is 1 pixel per element. One pixel is RGB format data in which 32-bit elements are stored in 8-bit units for R, G, B, and A, respectively. (The order of RGB has changed between versions 3.6β2 and 3.6β3. Please note this.)<br>
+		For example, if you specify "$ff204080" (hexadecimal), A=$ff(255), B=$20(32), G=$40(64), and R=$80(128). (The values in parentheses are decimal numbers.)<br>
+		Replacing image data is a costly process, so be aware that the frame rate may drop if you replace large images.<br>
+		You can specify the replacement format and operation with the p2 parameter.
+		</p><pre>
+	 Value  Macro             Operation
+	---------------------------------------------------------
+	  0  celbitmap_rgb      Data is held in $aabbggrr format
+	  1  celbitmap_bgr      Data is held in $aarrggbb format
+	  16 celbitmap_capture  Read the contents of the drawing screen into a variable
+		</pre><p>
+		Normally, the celbitmap_rgb format, which conforms to the OpenGL standard, is used. If celbitmap_bgr is specified for the option, the arrangement will be ARGB, which conforms to the DirectX standard.<br>
+		If celbitmap_capture is specified, the data on the drawing destination screen is read into the array variable. (The reading size is the size of the off-screen buffer.)<br>
+		*The celbitmap_capture option is an experimental implementation. Please note that it can currently only be used in the Windows (excluding DirectX version HGIMG4) and Linux versions.
+		</p>
+
+
+	<h2 id="GMODE">About gmode Command</h2>
+	<p>
+	In hsp3dish, the image copy commands such as celput and gcopy will copy with the alpha channel included. Therefore, the specification of the copy mode by gmode will have some differences.
+	</p>
+	<pre>
+	gmode 0,1 : No alpha channel (ignored)
+	gmode 2   : Alpha channel enabled, transparency rate disabled
+	gmode 3,4 : Alpha channel enabled, transparency rate enabled
+	gmode 5   : Color addition/alpha channel enabled, transparency rate enabled
+	gmode 6   : Color subtraction/alpha channel enabled, transparency rate enabled
+	</pre>
+	<p>
+	The alpha channel is information attached to image data such as PNG format.
+	Please note that you cannot select the mode in which RGB in normal HSP becomes transparent when it is 0, or the mode in which a specific color code is transparent.<br>
+	<b>Please note that gmode 6 (color subtraction) is not supported in the android (NDK) runtime in the current version.</b>
+	</p>
+	<p>
+	In copy mode 2 or higher, it is possible to set "texture multiplication" that multiplies the image by a specific value.
+	For details, please refer to the section "About the gmulcolor command".
+	</p>
+
+	<h2 id="GMULCOLOR">About gmulcolor Command</h2>
+	<p>
+	The gmulcolor command for setting the texture multiplication value has been added from hsp3dish ver3.5b3.
+	</p>
+	</p>
+
+	<h2 id="LICENCE">Copyright and License</h2>
+	<p><b>
+	The rights to original software (executable files) created by users using HSP3Dish belong to the users who created them.<br>
+	It can be used in any form, whether commercial or non-commercial. Also, no license fee is required.
+	</b></p>
+	<p>
+	There is no obligation to include the copyright notice of onion software or to indicate that HSP is being used in the software created by the user.
+	Onion software will not assert copyright over original software.
+	For secondary development systems (game creation systems, etc.) created using HSP, please operate them under the responsibility of the author who created the system.
+	</p>
+	<p>
+	HSP3Dish is a part of the interpreter language Hot Soup Processor (HSP), and the copyright belongs to onion software.
+	Onion software does not guarantee any damages caused by this program.
+	Please use it within the scope of your own responsibility.
+	</p>
+	<p>
+	HSP3Dish is created from a derivation of OpenHSP technology.
+	The files and source code included in HSP3Dish and OpenHSP can be freely attached, copied, modified, and redistributed under the BSD license.
+	In that case, be sure to specify the <a href="License_j.txt">license notation (License_j.txt)</a>.
+	</p>
+	<p>
+	If you are considering operating software you have created for commercial purposes and would like to receive paid support, please
+	contact us by email at info@hsp.tv. We will provide you with details.
+	</p>
+
+	<!-- フッター -->
+	<ul id="FOOTER">
+		<li><a href="#CONTAINER">Return to the top of this page</a></li>
+		<li><a href="../index.htm">Return to index</a></li>
+	</ul>
+	<a href="https://www.onionsoft.net/">
+		<img src="onibtn.gif" width="147" height="50" alt="ONION software" id="ONIBTN">
+	</a>
+</div><!-- container -->
+</body>
+</html>

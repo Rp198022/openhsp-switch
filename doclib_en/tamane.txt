@@ -1,0 +1,101 @@
+
+------------------------------------------------------------------------------
+HSP3 Official 2D/3D Asset "Tamane"
+copyright 2014 (c) Ogawa Kosaku (Team GrisGris) / HSPTV!
+------------------------------------------------------------------------------
+
+■ HSP3 Official 3D Asset "Tamane"
+
+The HSP3 Official 3D Asset "Tamane" is an official asset that can be used with Hot Soup Processor (HSP).
+It contains data and scripts that can be displayed with HSP3, as well as the original data.
+The directory structure is organized by category as follows.
+This data can be incorporated into your own software.
+Please see the "Copyright and License" section for details.
+
+Check out the official page for the latest information on "Tamane"!
+http://hsp.tv/make/tamane3d.html
+
+■ HSP3 Official 2D Asset "Tamane"
+
+2D assets that can be displayed with HSP3 are included as standard.
+These include "tamaface.bmp" and "tamaface.png" for Tamane card designs,
+dot-art animation patterns ("tamadot.bmp" and "tamadot.png"), and
+other versatile assets.
+Sample games such as "Tamane's Jump Up♪", "Drop Puzzle", and "Card Battle" are also included.
+Check out the official page for the latest information on 2D assets!
+http://hsp.tv/make/tamane2d.html
+
+■ Running the Samples
+
+When running samples from HSP3, be sure to use the latest version (HSP3.4 or later).
+
+Information and downloads for Hot Soup Processor (HSP) are available on the official page:
+http://hsp.tv/
+
+The folder structure is as follows:
+
++---hsptv			2D Asset Data (BMP, PNG format)
++---sample
+        +---hgimg3		HGIMG3 Runtime Data & Scripts
+        |
+        +---hgimg4		HGIMG4 Runtime Data & Scripts
+              +---fbx		3D Data (FBX format)
+
+■ Copyright and License
+
+The 3D asset "Tamane" was created by Ogawa Kosaku (Team GrisGris) and is published by onion software.
+onion software does not guarantee any damages caused by this data.
+Use it at your own risk.
+
+The copyright of the 3D asset "Tamane" belongs to Ogawa Kosaku (Team GrisGris).
+The data of the 3D asset "Tamane" and its associated sample scripts and data can be attached, copied, modified, and redistributed, whether for commercial or non-commercial purposes, under the modified BSD license.
+No license fee is required.
+
+The rights to original software (executable files) created by users incorporating the 3D asset "Tamane" belong to the user who created them.
+Indication of copyright regarding the asset data is not required.
+If you would like to specify it in documents, etc., please use the following format:
+------------------------------------------------------------------------------
+HSP3 Official 3D Asset "Tamane"
+copyright 2014-2016 (c) Ogawa Kosaku (Team GrisGris)
+http://www.gris2.com/
+------------------------------------------------------------------------------
+
+■ fbx Folder
+
+Contains the original 3D data in FBX format.
+This data cannot be directly loaded from HSP3.
+
+	high_school_girl ・・・ Standard body type model
+	high_school_girlSD ・・ Deformed body type model
+
+■ hgimg3 Folder
+
+Contains data and scripts that run on the hgimg3 runtime.
+sample1 to 4 are sample scripts.
+Includes demos ranging from simple model display to running around on undulating terrain.
+The loadable model files (.x format) are as follows:
+
+	tamane_s.x	"Tamane" Idle Pose
+	tamane_w.x	"Tamane" Walking Pose
+	tamane_r.x	"Tamane" Running Pose
+
+	tamane2_s.x	Deformed version "Tamane" Idle Pose
+	tamane2_w.x	Deformed version "Tamane" Walking Pose
+	tamane2_r.x	Deformed version "Tamane" Running Pose
+
+■ hgimg4 Folder
+
+Contains data and scripts that run on the hgimg4 runtime.
+(When creating an executable file, the data contained in the res folder is also required.)
+hgimg4 is a plugin under development and is a preview version for model display and animation.
+Future versions will support more detailed animation control (motion blending, etc.).
+The loadable model files (.gpb format) are as follows:
+
+	tamane.gpb	"Tamane" Idle Pose
+	tamane2.gpb	Deformed version "Tamane" Idle Pose
+
+■ Acknowledgments
+
+We would like to thank Ogawa Kosaku (Team GrisGris) for creating the wonderful model.
+Here is the website of Team GrisGris, represented by Ogawa Kosaku:
+http://www.gris2.com/
