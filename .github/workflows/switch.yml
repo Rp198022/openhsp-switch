@@ -50,5 +50,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hsp3switch-nro
-          path: hsp3switch.nro
+          path: |
+            hsp3switch.nro
+            hsp3switch.elf
+            hsp3switch.map
           if-no-files-found: error
