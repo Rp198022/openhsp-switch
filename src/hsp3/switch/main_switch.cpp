@@ -49,6 +49,17 @@ int main( int argc, char *argv[] )
 		fflush( stdout );
 	}
 
+	//	Switch/libnx gives the process no environment block at all, so
+	//	getenv("HOME") returned NULL and hsp3ext_linux.cpp:63 handed that
+	//	straight to sbStrCopy(), whose strlen(NULL) aborted the first
+	//	hsp3cl_init() (real-hardware crash at PC+0x326d0).  Seat HOME here
+	//	instead of editing the upstream file.  The print below certifies the
+	//	value the interpreter will actually see.
+	//
+	setenv( "HOME", HSP3SWITCH_APPDIR, 1 );
+	printf( "hsp3switch: HOME=%s\n", getenv( "HOME" ) ? getenv( "HOME" ) : "(null)" );
+	fflush( stdout );
+
 	char *startfile = (char *)HSP3SWITCH_STARTAX;
 	if ( ( argc > 1 ) && ( argv[1] != NULL ) && ( argv[1][0] != 0 ) ) {
 		startfile = argv[1];
