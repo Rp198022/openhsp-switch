@@ -28,7 +28,7 @@ CC        := $(PREFIX)gcc
 CXX       := $(PREFIX)g++
 LD        := $(PREFIX)g++
 NACPTOOL  := $(TOOLS)/nacptool
-ELF2NRO   := $(DEVKITA64)/bin/elf2nro
+ELF2NRO   := $(TOOLS)/elf2nro
 
 TARGET      := hsp3switch
 APP_TITLE   := OpenHSP switch
