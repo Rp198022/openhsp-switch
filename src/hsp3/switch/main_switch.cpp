@@ -59,12 +59,18 @@ int main( int argc, char *argv[] )
 	hsp3cl_cmdline( "" );
 	hsp3cl_modname( (char *)( HSP3SWITCH_APPDIR "/hsp3switch.nro" ) );
 
+	printf( "hsp3switch: calling hsp3cl_init\n" );
+	fflush( stdout );
 	res = hsp3cl_init( startfile );
+	printf( "hsp3switch: hsp3cl_init -> %d\n", res );
+	fflush( stdout );
 	if ( res ) {
 		printf( "hsp3switch: startup failed (%d)\n", res );
 		fflush( stdout );
 	} else {
 		hsp3cl_option( 0 );
+		printf( "hsp3switch: calling hsp3cl_exec\n" );
+		fflush( stdout );
 		res = hsp3cl_exec();
 		printf( "hsp3switch: exit code %d\n", res );
 		fflush( stdout );

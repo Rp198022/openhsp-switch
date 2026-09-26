@@ -47,8 +47,14 @@ jobs:
           make -f makefile.switch -j$(nproc)
 
       - name: Upload hsp3switch.nro
+        #	The .elf and .map are uploaded as well on purpose: a real-hardware
+        #	crash only reports "load base + PC", so resolving it needs the symbol
+        #	table (addr2line) and the link map.  See risk R8.
         uses: actions/upload-artifact@v4
         with:
           name: hsp3switch-nro
-          path: hsp3switch.nro
+          path: |
+            hsp3switch.nro
+            hsp3switch.elf
+            hsp3switch.map
           if-no-files-found: error
