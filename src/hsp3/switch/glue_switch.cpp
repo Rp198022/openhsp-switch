@@ -24,6 +24,10 @@
 #include "../strbuf.h"
 #include "../hsp3ext.h"
 
+//	HSP3DEVINFO lives here.  On Linux the definition is pulled in indirectly by
+//	hsp3gr_linux.cpp; devctrl_io.h itself does not include it.
+#include "../../hsp3dish/hspwnd_dish.h"
+
 #include "../linux/hsp3extlib_ffi.h"
 #include "../linux/hsp3ext_sock.h"
 #include "../linux/devctrl_io.h"
