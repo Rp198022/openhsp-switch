@@ -16,6 +16,7 @@
 //
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -205,16 +206,35 @@ extern "C" FILE *__real_fopen( const char *path, const char *mode );
 extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 {
 	static int shown = 0;
+	static char fixed[512];
+	const char *use = path;
 	FILE *fp;
+	size_t i, n;
 
 	if ( path == NULL ) return __real_fopen( path, mode );
-	fp = __real_fopen( path, mode );
+
+	//	The script is a Windows program: it builds paths the Windows way, e.g.
+	//	"sdmc:/switch/openhsp\config.txt".  The Switch's devoptab only knows '/',
+	//	so every such path looks like a missing file - which is exactly where
+	//	Elona gave up: it could not read config.txt, and immediately after came
+	//	"err=7 (Array overflow)".  Normalising at the one place every open goes
+	//	through fixes all of the script's paths at once, reads and writes alike.
+	//
+	if ( strchr( path, '\\' ) != NULL ) {
+		n = strlen( path );
+		if ( n > sizeof( fixed ) - 1 ) n = sizeof( fixed ) - 1;
+		for ( i = 0; i < n; i++ ) fixed[i] = ( path[i] == '\\' ) ? '/' : path[i];
+		fixed[n] = 0;
+		use = fixed;
+	}
+
+	fp = __real_fopen( use, mode );
 	if ( fp == NULL ) {
-		printf( "hsp3file: FAIL '%s' (mode %s)\n", path, mode );
+		printf( "hsp3file: FAIL '%s' (mode %s)\n", use, mode );
 		fflush( stdout );
 	} else if ( shown < 150 ) {
 		shown++;
-		printf( "hsp3file: ok   '%s'\n", path );
+		printf( "hsp3file: ok   '%s'\n", use );
 		fflush( stdout );
 	}
 	return fp;
