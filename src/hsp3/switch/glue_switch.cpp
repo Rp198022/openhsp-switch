@@ -254,9 +254,16 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 	if ( code != HSPERR_NONE && code != HSPERR_INTJUMP && code != HSPERR_EXITRUN ) {
 		if ( shown < GLUE_MAX_ERRORS ) {
 			shown++;
-			printf( "hsp3switch: throw %d (%s) at line %d of %s\n",
+			//	The thrower's own address is what identifies the site: the
+			//	interpreter raises this error from several places (cmdfunc_mref,
+			//	the var-type fallbacks, ...) and the script line is not always
+			//	available.  Resolve it against hsp3dish.map, which is built with
+			//	-Map and shipped inside the artifact.
+			//
+			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p\n",
 				code, hspd_geterror( (HSPERROR)code ),
-				code_getdebug_line(), code_getdebug_name() );
+				code_getdebug_line(), code_getdebug_name(),
+				__builtin_return_address( 0 ) );
 			fflush( stdout );
 		}
 	}
