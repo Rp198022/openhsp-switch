@@ -14,7 +14,7 @@
 //	So instead of forking the glue, this file *translates* the gamepad into the
 //	keyboard events that glue already understands, and leaves the rest alone:
 //
-//	  * the pad is polled once per interpreter frame;
+//	  * the pad is polled once per rendered frame;
 //	  * a change in any mapped button is pushed into the SDL event queue as a
 //	    synthetic SDL_KEYDOWN/SDL_KEYUP with the scancode the Linux glue would
 //	    have seen for that key;
@@ -22,10 +22,25 @@
 //	    keypress, so `stick`, `getkey` and `onkey` all keep working with no
 //	    further changes and no new HSP key codes.
 //
-//	The per-frame hook is ctx->msgfunc.  linux/hsp3dish.cpp installs
-//	hsp3dish_msgfunc there during hsp3dish_init_sub(), and then calls
-//	hsp3typeinit_sock_extcmd() with the context attached - the one moment the
-//	reused glue hands us the HSPCTX.  We wrap msgfunc from there.
+//	WHERE THE PER-FRAME TICK COMES FROM (this is the part that bit us)
+//	-----------------------------------------------------------------
+//	The obvious hook is ctx->msgfunc, which linux/hsp3dish.cpp installs during
+//	hsp3dish_init_sub() and which this file can still wrap from the one place
+//	the reused glue hands over the HSPCTX (hsp3typeinit_sock_extcmd).
+//
+//	That hook does not work.  msgfunc is not a per-frame callback: it is
+//	entered once and then *loops internally* while the script waits
+//	(hsp3dish_msgfunc's own `while(1)` drives RUNMODE_WAIT/RUNMODE_AWAIT and
+//	calls handleEvent() from inside that loop).  Wrapping it therefore sampled
+//	the pad exactly once per program run.  On hardware that looked like a
+//	totally dead pad: the hook was verifiably installed, the controller was
+//	open and correctly mapped, and yet no key value ever moved, because the
+//	state was read once at startup and never again.
+//
+//	The frame tick that does work is in this port's own GL shim:
+//	hgio_reset() begins every frame with glClear(), so gles1_shim.cpp's
+//	sw_glClear() already counts frames there.  It calls switch_input_poll()
+//	once per frame, which is the sampling rate the event loop needs anyway.
 //
 //	Elona's full key set is P4 work (PLAN.md R5); this is the minimal mapping
 //	the P2 gate needs (official sample scripts driving stick/getkey).
@@ -35,13 +50,7 @@
 
 #include <SDL2/SDL.h>
 
-#include "../../hsp3/hsp3config.h"
-#include "../../hsp3/hsp3code.h"
-
 #include "switch_input.h"
-
-/*	Defined in the reused src/hsp3dish/linux/hsp3dish.cpp.	*/
-void hsp3dish_msgfunc( HSPCTX *hspctx );
 
 /*----------------------------------------------------------------*/
 /*	Mapping														  */
@@ -84,7 +93,6 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 /*	Analog stick acts as a d-pad so `stick` works without touching it.	*/
 #define SW_STICK_DEADZONE	12000
 
-static HSPCTX				*sw_ctx;
 static SDL_GameController	*sw_pad;
 static Uint8				sw_state[SW_KEYMAP_N];
 static int					sw_installed;
@@ -204,7 +212,7 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	sw_probe_event( sc, down, rc );
 }
 
-static void sw_poll( void )
+void switch_input_poll( void )
 {
 	int i;
 
@@ -228,22 +236,14 @@ static void sw_poll( void )
 }
 
 /*----------------------------------------------------------------*/
-/*	msgfunc hook												  */
-/*----------------------------------------------------------------*/
-
-static void switch_msgfunc( HSPCTX *ctx )
-{
-	sw_poll();
-	hsp3dish_msgfunc( ctx );
-}
-
-/*----------------------------------------------------------------*/
 /*	Install														  */
 /*----------------------------------------------------------------*/
 
 void switch_input_install( void *hspctx )
 {
-	sw_ctx = (HSPCTX *)hspctx;
+	(void)hspctx;		/* kept for the call site's shape; the pad is opened
+
+						   here and polled from the GL clear, not from msgfunc */
 
 	if ( !sw_installed ) {
 		sw_installed = 1;
@@ -275,12 +275,6 @@ void switch_input_install( void *hspctx )
 				if ( map != NULL ) SDL_free( map );
 			}
 		}
-		fflush( stdout );
-	}
-
-	if ( sw_ctx != NULL ) {
-		sw_ctx->msgfunc = switch_msgfunc;
-		printf( "hsp3switch: gamepad bridge installed (msgfunc=%p)\n", (void *)sw_ctx->msgfunc );
 		fflush( stdout );
 	}
 }

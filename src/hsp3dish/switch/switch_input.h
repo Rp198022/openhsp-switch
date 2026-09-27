@@ -11,4 +11,9 @@
 	one place in the reused Linux hsp3dish.cpp that receives it.	*/
 void switch_input_install( void *hspctx );
 
+/*	Sample the pad and inject the resulting key events.  MUST be called once
+	per rendered frame; see the header comment in switch_input.cpp for why
+	ctx->msgfunc cannot be used for this.								*/
+void switch_input_poll( void );
+
 #endif

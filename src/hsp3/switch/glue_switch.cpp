@@ -196,9 +196,10 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 #ifdef HSPDISH
 	//	T2.3: this is the one point where the reused Linux platform glue
 	//	(src/hsp3dish/linux/hsp3dish.cpp:780-785) hands the interpreter context
-	//	back to us, and it happens *after* it installed its own event-loop hook
-	//	(ctx->msgfunc = hsp3dish_msgfunc).  The graphical backend uses that to
-	//	insert the gamepad -> keyboard bridge without touching the upstream file.
+	//	back to us, so it is where the gamepad bridge is opened.  The bridge
+	//	cannot hang its per-frame work off ctx->msgfunc - that is entered once
+	//	and loops internally - so it is sampled from the GL shim's glClear
+	//	instead (switch_input.cpp explains both halves).
 	//
 	switch_input_install( info->hspctx );
 #endif

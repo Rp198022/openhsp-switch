@@ -37,6 +37,8 @@
 
 #include <GL/gl.h>
 
+#include "switch_input.h"		/* switch_input_poll(), driven from sw_glClear */
+
 /*----------------------------------------------------------------*/
 /*	Real GLES2 entry points										  */
 /*----------------------------------------------------------------*/
@@ -674,6 +676,13 @@ void sw_glClear( GLbitfield mask )
 {
 	sw_init();
 	if ( sw_ready ) {
+		/*	This is the only genuinely once-per-frame point this port owns:
+			hgio_reset() opens every frame with glClear().  It is therefore
+			also where the gamepad is sampled - wrapping ctx->msgfunc does not
+			work, since that is entered once and loops internally (see the
+			header comment in switch_input.cpp).							*/
+		switch_input_poll();
+
 		gl_clear( mask );
 		/*	Report a GL error once per run so a silently broken frame is at
 			least visible over nxlink.										*/
