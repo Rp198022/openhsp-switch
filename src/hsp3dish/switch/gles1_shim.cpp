@@ -79,6 +79,7 @@ typedef void (*PFN_glUniformMatrix4fv)( GLint, GLsizei, GLboolean, const GLfloat
 typedef void (*PFN_glEnableVertexAttribArray)( GLuint );
 typedef void (*PFN_glDisableVertexAttribArray)( GLuint );
 typedef void (*PFN_glVertexAttribPointer)( GLuint, GLint, GLenum, GLboolean, GLsizei, const void * );
+typedef GLboolean (*PFN_glIsProgram)( GLuint );
 
 static PFN_glClear						gl_clear;
 static PFN_glClearColor					gl_clearcolor;
@@ -118,6 +119,7 @@ static PFN_glUniformMatrix4fv			gl_uniformmatrix4fv;
 static PFN_glEnableVertexAttribArray	gl_enablevertexattribarray;
 static PFN_glDisableVertexAttribArray	gl_disablevertexattribarray;
 static PFN_glVertexAttribPointer		gl_vertexattribpointer;
+static PFN_glIsProgram					gl_isprogram;
 
 /*----------------------------------------------------------------*/
 /*	State carried over from the fixed-function API				  */
@@ -395,6 +397,7 @@ static void sw_init( void )
 	SW_LOAD( gl_enablevertexattribarray, "glEnableVertexAttribArray" );
 	SW_LOAD( gl_disablevertexattribarray, "glDisableVertexAttribArray" );
 	SW_LOAD( gl_vertexattribpointer, "glVertexAttribPointer" );
+	SW_LOAD( gl_isprogram, "glIsProgram" );
 
 	if ( missing != 0 ) {
 		/*	Almost always means "called before an SDL GL context existed" -
@@ -424,21 +427,30 @@ static void sw_init( void )
 	sw_say( "gles1shim: ready\n" );
 }
 
-void sw_glcompat_mark_context_ready( void )
-{
-	sw_init();
-}
+/*	The reused Linux platform glue rebuilds the window/GL context whenever the
+	script issues a `screen` command - src/hsp3dish/hsp3gr_dish.cpp:937-940 sets
+	RUNMODE_RESTART unconditionally for HSPLINUX targets, and hsp3excmd_rebuild_window()
+	then recreates the window and the context.  Every GL object the shim owns
+	becomes invalid at that point, so the shader program has to be built again.
 
-int sw_glcompat_is_ready( void )
+	Detecting it through glIsProgram() is deliberate: it does not depend on the
+	context handle changing (a freed/reallocated handle can reuse the same
+	address), and it is exactly the question that matters - "is our program still
+	a live object in the current context?".										*/
+static int sw_ensure_gl( void )
 {
+	if ( sw_init_failed ) return 0;
+	if ( !sw_ready ) sw_init();
+	if ( !sw_ready ) return 0;
+
+	if ( gl_isprogram != NULL && gl_isprogram( sw_prog ) == GL_FALSE ) {
+		sw_say( "gles1shim: program %u is gone (GL context was rebuilt) - recreating\n",
+			(unsigned)sw_prog );
+		sw_prog = 0;
+		sw_ready = 0;
+		sw_init();
+	}
 	return sw_ready;
-}
-
-void sw_glcompat_report( const char *tag )
-{
-	sw_say( "gles1shim: [%s] ready=%d failed=%d prog=%u point=%.1f tex2d=%d bound=%u\n",
-		tag, sw_ready, sw_init_failed, (unsigned)sw_prog,
-		sw_point_size, (int)sw_texture2d, (unsigned)sw_bound_tex );
 }
 
 /*----------------------------------------------------------------*/
@@ -611,8 +623,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 {
 	GLfloat mvp[16];
 
-	sw_init();
-	if ( !sw_ready ) return;
+	if ( !sw_ensure_gl() ) return;
 	if ( sw_vtx.ptr == NULL || sw_vtx.type != GL_FLOAT || count <= 0 ) return;
 
 	gl_useprogram( sw_prog );

@@ -33,6 +33,10 @@
 	directory, the same way the PC build resolves them relative to the cwd.	*/
 #define HSP3SWITCH_APPDIR	"sdmc:/switch/openhsp"
 #define HSP3SWITCH_STARTAX	"start.ax"
+/*	Project-local convention: the graphical runtime prefers its own script name
+	so a small T2.3/T2.4 test can sit next to Elona's start.ax on the card
+	instead of overwriting it.  Falls back to the conventional name.		*/
+#define HSP3SWITCH_DISHAX	"hsp3dish.ax"
 #define HSP3SWITCH_LOG		"hsp3dish_boot.log"
 
 static FILE *sw_log = NULL;
@@ -57,6 +61,24 @@ static void sw_say( const char *fmt, ... )
 		va_end( ap );
 		fflush( sw_log );
 	}
+}
+
+static const char *sw_pick_startfile( void )
+{
+	const char *cand[2];
+	FILE *fp;
+	int i;
+
+	cand[0] = HSP3SWITCH_DISHAX;
+	cand[1] = HSP3SWITCH_STARTAX;
+	for ( i = 0; i < 2; i++ ) {
+		fp = fopen( cand[i], "rb" );
+		if ( fp != NULL ) {
+			fclose( fp );
+			return cand[i];
+		}
+	}
+	return HSP3SWITCH_STARTAX;
 }
 
 int main( int argc, char *argv[] )
@@ -90,14 +112,17 @@ int main( int argc, char *argv[] )
 	sw_say( "hsp3dish: boot (nxlink fd = %d)\n", nxlink_fd );
 	sw_say( "hsp3dish: HOME=%s\n", getenv( "HOME" ) ? getenv( "HOME" ) : "(null)" );
 
-	startfile = (char *)HSP3SWITCH_STARTAX;
+	startfile = (char *)sw_pick_startfile();
 	if ( ( argc > 1 ) && ( argv[1] != NULL ) && ( argv[1][0] != 0 ) ) {
 		startfile = argv[1];
 	}
 	sw_say( "hsp3dish: start file = %s\n", startfile );
 
 	hsp3dish_cmdline( "" );
-	hsp3dish_modname( (char *)( HSP3SWITCH_APPDIR "/hsp3dish.nro" ) );
+	/*	dirinfo(1) ("the directory the executable lives in") is fed straight
+		into the TTF font path by hgio_init() - it concatenates "/ipaexg.ttf" -
+		so this must be the directory, not the .nro path.				*/
+	hsp3dish_modname( (char *)HSP3SWITCH_APPDIR );
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
 	res = hsp3dish_init( startfile );

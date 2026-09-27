@@ -239,16 +239,6 @@ void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffse
 						 GLenum format, GLenum type, const GLvoid *pixels );
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param );
 
-/*----------------------------------------------------------------*/
-/*	Shim control (not part of GL)								  */
-/*----------------------------------------------------------------*/
-
-/*	Set by the Switch entry point once the SDL GL context exists.  Until then
-	every wrapper is a no-op that reports the problem through nxlink.		*/
-void sw_glcompat_mark_context_ready( void );
-int  sw_glcompat_is_ready( void );
-void sw_glcompat_report( const char *tag );
-
 #ifdef __cplusplus
 }
 #endif
