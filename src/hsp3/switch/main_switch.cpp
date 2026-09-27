@@ -96,19 +96,8 @@ int main( int argc, char *argv[] )
 			svcSleepThread( 20000000L );		// 20 ms
 		}
 		consoleExit( NULL );
-		socketExit();
-	} else {
-		//	stdout/stderr are still the nxlink socket at this point.
-		//	socketExit() tears the BSD service down, but newlib closes every
-		//	open stream as part of exit(), so that close() landed on a dead
-		//	service and branched into freed libnx state.  Observed on
-		//	hardware as fatal 2168-0001 with PC inside the stack region, for
-		//	both the 273-byte self-test and the 14.7MB Elona start.ax.
-		//	Leaving the socket service up until process teardown is harmless.
-		//
-		printf( "hsp3switch: nxlink teardown (socketExit skipped)\n" );
-		fflush( stdout );
 	}
 
+	socketExit();
 	return res;
 }

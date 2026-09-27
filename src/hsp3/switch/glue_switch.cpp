@@ -142,4 +142,28 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 	//	nothing makes such commands report "not found" instead of silently
 	//	doing nothing.
 	//
+	//	Slot bookkeeping - this is where the interpreter's typeinfo table gets
+	//	its only uninitialised entry.  code_init() sizes the table to
+	//	HSP3_FUNC_MAX (18) entries and default-initialises ids 0..17.  Later
+	//	hsp3cl_init() asks code_gettypeinfo() for TYPE_USERDEF+1 (=19), which
+	//	grows the table to 20 entries but calls hsp3typeinit_default() for the
+	//	*requested* id only - so id 18 (HSP3_TYPE_USER, the gap between the two)
+	//	keeps whatever BlockRealloc left in the newly added memory.
+	//
+	//	At teardown code_termfunc() sweeps tinfo_cur-1 .. 0 and invokes every
+	//	non-NULL termfunc, so that stale value was entered and the process died
+	//	on exit: fatal 2168-0001, LR inside code_termfunc(), PC taken from the
+	//	stale pointer, X0=0 (the termfunc argument).  It is heap-content
+	//	dependent, which is why running from hbmenu (consoleInit path) survived
+	//	while every nxlink run crashed.
+	//
+	//	The caller hands us id 19, so id 18 is `info[-1]`.  The sock command set
+	//	is stubbed out above, so this slot has no term function to offer.
+	//
+	printf( "hsp3switch: typeinfo id %d termfunc=%p ; gap id %d termfunc=%p -> cleared\n",
+		HSP3_TYPE_USER + 1, (void *)info->termfunc,
+		HSP3_TYPE_USER, (void *)info[-1].termfunc );
+	fflush( stdout );
+
+	info[-1].termfunc = NULL;
 }
