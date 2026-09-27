@@ -43,4 +43,11 @@ void dllshim_install( HSP3TYPEINFO *info );
 //
 int dllshim_exec( int cmd, int mask, char *desc, int descsize );
 
+//	P3 diagnostics: prints the error the script left behind.  It must run during
+//	teardown, from a term function, because hspctx is destroyed before
+//	hsp3dish_exec() returns - and because a script that catches its own errors
+//	with ONERROR otherwise leaves hspctx->err as the only trace of them.
+//
+void dllshim_report_exit( void );
+
 #endif

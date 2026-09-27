@@ -178,6 +178,48 @@ hsp3::CDllManager & DllManager()
 /*	Socket command set - replaces hsp3ext_sock.cpp				  */
 /*----------------------------------------------------------------*/
 
+/*----------------------------------------------------------------*/
+/*	P3 diagnostics													*/
+/*----------------------------------------------------------------*/
+
+//	Runs during teardown (code_termfunc sweeps every registered termfunc before
+//	the context is destroyed), which is the only place left where the error an
+//	ONERROR handler swallowed can still be read.  See dllshim_report_exit().
+//
+static int glue_exit_report( int option )
+{
+	(void)option;
+	dllshim_report_exit();
+	return 0;
+}
+
+//	File-access trace.  Elona's startup quits without printing anything, so the
+//	files it asks for have to be observed from outside the script.  --wrap=fopen
+//	(maintained in makefile.switch) redirects every fopen made by this image,
+//	including the ones SDL makes on the runtime's behalf, without touching any
+//	upstream file.  Failures are always reported; successes are capped so a
+//	long run cannot flood nxlink.
+//
+extern "C" FILE *__real_fopen( const char *path, const char *mode );
+
+extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
+{
+	static int shown = 0;
+	FILE *fp;
+
+	if ( path == NULL ) return __real_fopen( path, mode );
+	fp = __real_fopen( path, mode );
+	if ( fp == NULL ) {
+		printf( "hsp3file: FAIL '%s' (mode %s)\n", path, mode );
+		fflush( stdout );
+	} else if ( shown < 150 ) {
+		shown++;
+		printf( "hsp3file: ok   '%s'\n", path );
+		fflush( stdout );
+	}
+	return fp;
+}
+
 void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 {
 	//	Network commands are not part of the T2.2 empty backend: registering
@@ -200,7 +242,9 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 	//	while every nxlink run crashed.
 	//
 	//	The caller hands us id 19, so id 18 is `info[-1]`.  The sock command set
-	//	is stubbed out above, so this slot has no term function to offer.
+	//	is stubbed out above, so that slot has no term function to offer; id 19
+	//	gets the P3 exit report instead, which therefore runs on every teardown
+	//	while the context is still alive.
 	//
 	printf( "hsp3switch: typeinfo id %d termfunc=%p ; gap id %d termfunc=%p -> cleared\n",
 		HSP3_TYPE_USER + 1, (void *)info->termfunc,
@@ -208,6 +252,7 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 	fflush( stdout );
 
 	info[-1].termfunc = NULL;
+	info->termfunc = glue_exit_report;
 
 #ifdef HSPDISH
 	//	T2.3: this is the one point where the reused Linux platform glue

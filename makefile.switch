@@ -56,8 +56,10 @@ CXXFLAGS    := $(CFLAGS) --exec-charset=UTF-8
 
 LIBDIRS     := -L$(PORTLIBS)/lib -L$(LIBNX)/lib
 
+#	--wrap=fopen routes every fopen through glue_switch.cpp's __wrap_fopen, the
+#	P3 file-access trace (see the P3 diagnostics section there).
 LDFLAGS     := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
-               -Wl,-Map,$(TARGET).map -Wl,--gc-sections
+               -Wl,-Map,$(TARGET).map -Wl,--gc-sections -Wl,--wrap=fopen
 LIBS        := -lnx -lm
 
 #---------------------------------------------------------------------------------
@@ -82,7 +84,7 @@ CFLAGS_DISH   := $(ARCH) $(DEFINES_DISH) $(INCLUDE_DISH) -O2 -Wno-write-strings 
 CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8
 
 LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
-                 -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections
+                 -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections -Wl,--wrap=fopen
 
 #	SDL2's static Switch build binds EGL/GLES through libglapi
 #	(SDL_VIDEO_STATIC_ANGLE), so those libraries must follow it on the link

@@ -288,6 +288,18 @@ void dllshim_install( HSP3TYPEINFO *info )
 	pmpval = info->hspexinfo->mpval;
 }
 
+void dllshim_report_exit( void )
+{
+	//	code_catcherror() records the code in hspctx->err and never clears it, so
+	//	even an error the script swallowed with ONERROR is still here.
+	//
+	if ( hspctx == NULL ) return;
+	printf( "hsp3switch: script end: err=%d (%s) runmode=%d endcode=%d\n",
+		(int)hspctx->err, hspd_geterror( hspctx->err ),
+		hspctx->runmode, hspctx->endcode );
+	fflush( stdout );
+}
+
 int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 {
 	STRUCTDAT *st;
