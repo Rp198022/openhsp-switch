@@ -695,10 +695,15 @@ void sw_glClear( GLbitfield mask )
 		}
 		/*	The backend begins every frame with hgio_reset() -> glClear(), so this
 			is the frame tick.  A periodic line is the only way to prove from the
-			nxlink log that frames are really being produced.					*/
+			nxlink log that frames are really being produced.
+			The timestamp is what makes the rate measurable: the capture window
+			also contains the nxlink push, so frame count over the window is a
+			lower bound at best.  With t= the rate is (delta frames)/(delta ms)
+			regardless of when the app actually started.						*/
 		sw_frame_no++;
 		if ( ( sw_frame_no % 60 ) == 0 ) {
-			sw_say( "gles1shim: frame %d, %d draws\n", sw_frame_no, sw_draw_no );
+			sw_say( "gles1shim: frame %d, %d draws, t=%u ms\n",
+				sw_frame_no, sw_draw_no, (unsigned)SDL_GetTicks() );
 		}
 	}
 }
