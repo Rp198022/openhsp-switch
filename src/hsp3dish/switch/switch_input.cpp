@@ -76,8 +76,14 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm	*/
 	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel	*/
-	{ SDL_CONTROLLER_BUTTON_X,				SW_NO_AXIS,		SDL_SCANCODE_Z },
-	{ SDL_CONTROLLER_BUTTON_Y,				SW_NO_AXIS,		SDL_SCANCODE_X },
+	/*	X/Y follow position, not spelling.  SDL's Switch mapping is
+		a:b1,b:b0,x:b3,y:b2, so its logical X is the pad's right-hand button
+		and its logical Y the left-hand one - confirmed on hardware, where
+		the first cut sent the pad's X to HSP's Z and its Y to HSP's X.
+		On a keyboard Z sits left of X, so the pad's left button (Y) is the
+		one that has to become Z.											*/
+	{ SDL_CONTROLLER_BUTTON_Y,				SW_NO_AXIS,		SDL_SCANCODE_Z },		/* left of pair	*/
+	{ SDL_CONTROLLER_BUTTON_X,				SW_NO_AXIS,		SDL_SCANCODE_X },		/* right of pair */
 
 	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_SPACE },
 	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },
@@ -96,79 +102,6 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 static SDL_GameController	*sw_pad;
 static Uint8				sw_state[SW_KEYMAP_N];
 static int					sw_installed;
-
-/*----------------------------------------------------------------*/
-/*	Hardware probe												  */
-/*	--------------------------------------------------------------  */
-/*	Temporary instrumentation for the T2.3 gate; it is read-only and is
-	removed once the bridge is verified.  The three things it has to
-	separate are:
-
-	  * is the msgfunc hook running at all			(poll#)
-	  * does the controller API report the presses	(A/DL/lx/ly columns)
-	  * do the synthetic key events reach keys[]		(keys* columns,
-		which read the glue's own table one frame later)
-
-	There is no on-screen console in a graphics build (R11 §5.3), so all of
-	this goes out over nxlink.										*/
-extern bool get_key_state( int sym );		/* src/hsp3dish/linux/hsp3dish.cpp */
-
-static int		sw_poll_calls;
-static Uint32	sw_probe_next;
-static int		sw_trace_left = 40;
-
-static void sw_probe( void )
-{
-	SDL_Joystick *js;
-	Uint32 now = SDL_GetTicks();
-	int jb = 0;
-	int j;
-
-	if ( (Sint32)( now - sw_probe_next ) < 0 ) return;
-	sw_probe_next = now + 1000;
-
-	/*	Raw joystick view: if the API above stays silent but these columns
-		move, the pad is talking and only the gamecontroller layer is at
-		fault.  If both stay silent, nothing is being scanned at all.	*/
-	js = ( sw_pad != NULL ) ? SDL_GameControllerGetJoystick( sw_pad ) : NULL;
-	for ( j = 0; js != NULL && j < 16; j++ ) {
-		if ( SDL_JoystickGetButton( js, j ) ) jb |= ( 1 << j );
-	}
-
-	printf( "swinput: poll#%d pad=%p attached=%d njoy=%d A=%d DL=%d lx=%d ly=%d"
-		" | js=%p jb=0x%04x jax0=%d jax1=%d"
-		" | evt joy=%d ctrl=%d"
-		" | keys L=%d R=%d Z=%d X=%d ESC=%d SPC=%d RET=%d\n",
-		sw_poll_calls, (void *)sw_pad,
-		sw_pad ? (int)SDL_GameControllerGetAttached( sw_pad ) : -1,
-		SDL_NumJoysticks(),
-		sw_pad ? (int)SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A ) : -1,
-		sw_pad ? (int)SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT ) : -1,
-		sw_pad ? (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX ) : -999,
-		sw_pad ? (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY ) : -999,
-		(void *)js, jb,
-		js ? (int)SDL_JoystickGetAxis( js, 0 ) : -999,
-		js ? (int)SDL_JoystickGetAxis( js, 1 ) : -999,
-		SDL_JoystickEventState( SDL_QUERY ),
-		SDL_GameControllerEventState( SDL_QUERY ),
-		(int)get_key_state( SDL_SCANCODE_LEFT ),
-		(int)get_key_state( SDL_SCANCODE_RIGHT ),
-		(int)get_key_state( SDL_SCANCODE_Z ),
-		(int)get_key_state( SDL_SCANCODE_X ),
-		(int)get_key_state( SDL_SCANCODE_ESCAPE ),
-		(int)get_key_state( SDL_SCANCODE_SPACE ),
-		(int)get_key_state( SDL_SCANCODE_RETURN ) );
-	fflush( stdout );
-}
-
-static void sw_probe_event( SDL_Scancode sc, int down, int rc )
-{
-	if ( sw_trace_left <= 0 ) return;
-	sw_trace_left--;
-	printf( "swinput: push sc=%d %s -> %d (%s)\n",
-		(int)sc, down ? "down" : "up", rc, rc > 0 ? "queued" : SDL_GetError() );
-	fflush( stdout );
-}
 
 /*----------------------------------------------------------------*/
 /*	Polling														  */
@@ -197,7 +130,6 @@ static int sw_entry_down( int i )
 static void sw_push_key( SDL_Scancode sc, int down )
 {
 	SDL_Event ev;
-	int rc;
 
 	memset( &ev, 0, sizeof( ev ) );
 	ev.type = down ? SDL_KEYDOWN : SDL_KEYUP;
@@ -208,23 +140,17 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	ev.key.keysym.sym = SDL_GetKeyFromScancode( sc );
 	ev.key.keysym.mod = KMOD_NONE;
 
-	rc = SDL_PushEvent( &ev );
-	sw_probe_event( sc, down, rc );
+	SDL_PushEvent( &ev );
 }
 
 void switch_input_poll( void )
 {
 	int i;
 
-	sw_poll_calls++;
-	sw_probe();
-
 	if ( sw_pad == NULL ) return;
 
-	/*	SDL_JoystickUpdate() is the documented manual pump; SDL's own "called
-		automatically by the event loop" only holds when joystick events are
-		enabled, and the probe reports that state too.  Calling it twice with
-		no change in between costs nothing.									*/
+	/*	SDL refreshes the joystick/controller state from inside the event
+		pump, so this must come before the reads below.					*/
 	SDL_PumpEvents();
 	SDL_JoystickUpdate();
 	for ( i = 0; i < SW_KEYMAP_N; i++ ) {
@@ -257,10 +183,6 @@ void switch_input_install( void *hspctx )
 			int n = SDL_NumJoysticks();
 			int i;
 			for ( i = 0; i < n; i++ ) {
-				printf( "hsp3switch: joystick %d = %s (gamecontroller=%d)\n",
-					i, SDL_JoystickNameForIndex( i ), SDL_IsGameController( i ) );
-			}
-			for ( i = 0; i < n; i++ ) {
 				if ( SDL_IsGameController( i ) ) {
 					sw_pad = SDL_GameControllerOpen( i );
 					break;
@@ -270,7 +192,11 @@ void switch_input_install( void *hspctx )
 				printf( "hsp3switch: no game controller among %d joystick(s)\n", n );
 			} else {
 				char *map = SDL_GameControllerMapping( sw_pad );
-				printf( "hsp3switch: game controller = %s\n", SDL_GameControllerName( sw_pad ) );
+				printf( "hsp3switch: game controller = %s (%d joystick(s))\n",
+					SDL_GameControllerName( sw_pad ), n );
+				/*	The mapping string is the only place the pad's button
+					numbering is visible; it is what showed that SDL's
+					Switch layout is a:b1,b:b0,x:b3,y:b2.				*/
 				printf( "hsp3switch: mapping = %s\n", map ? map : "(none)" );
 				if ( map != NULL ) SDL_free( map );
 			}
