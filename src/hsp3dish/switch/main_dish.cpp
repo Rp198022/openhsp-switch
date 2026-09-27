@@ -32,6 +32,12 @@
 
 #include "../linux/hsp3dish.h"
 
+/*	Declared here rather than by including hsp3ext_linux.h: the signature is the
+	one that header publishes, and this keeps hsp3code.h out of this file.
+	Used to show what dirinfo(1) actually yields at the moment hgio_init()
+	builds the font path from it.											*/
+extern char *hsp3ext_getdir( int id );
+
 /*	The .ax to execute and any data files are resolved relative to this
 	directory, the same way the PC build resolves them relative to the cwd.	*/
 #define HSP3SWITCH_APPDIR	"sdmc:/switch/openhsp"
@@ -176,8 +182,20 @@ int main( int argc, char *argv[] )
 	sw_probe_ttf( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
+	sw_say( "hsp3dish: before init, getdir(1) = \"%s\"\n", hsp3ext_getdir( 1 ) );
 	res = hsp3dish_init( startfile );
 	sw_say( "hsp3dish: hsp3dish_init -> %d\n", res );
+
+	/*	The two probes above open the font fine, while the call hgio_init() makes
+		on the very same path fails - and the only thing that happens in between
+		is SDL_Init(SDL_INIT_VIDEO).  These three lines tie the failure down: the
+		string dirinfo(1) really handed to hgio_init(), SDL_ttf's own reason for
+		the last failure (the error text survives until the next failing call),
+		and the identical probe re-run now that the video subsystem is up.	*/
+	sw_say( "hsp3dish: after init, getdir(1) = \"%s\"\n", hsp3ext_getdir( 1 ) );
+	sw_say( "hsp3dish: after init, TTF_GetError() = \"%s\"\n", TTF_GetError() );
+	sw_probe_ttf( "./ipaexg.ttf" );
+	sw_probe_ttf( "/ipaexg.ttf" );
 
 	if ( res == 0 ) {
 		hsp3dish_option( 0 );
