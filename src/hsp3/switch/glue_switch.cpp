@@ -228,21 +228,39 @@ static int glue_exit_report( int option )
 //	either carries on or ends "normally" with exit code 0.  Its startup now ends
 //	with err=7 (Array overflow) and nothing else to go on, while no DLL call and
 //	no file open fails, so the only useful next fact is *where* in the script it
-//	happened.  Wrapping code_catcherror() prints that at the moment it is raised,
-//	while the saved PC still points at the failing command.
+//	happened.  Printing at the throw reports that, and the saved PC still points
+//	at the command that failed.
 //
-//	--wrap takes the symbol as it appears in the object file, so a C++ function
-//	needs its mangled name (nm on _scratch/p3_mangling.cpp); see makefile.switch.
+//	The hook has to be the throw itself.  code_catcherror() would be the obvious
+//	place, but its only caller is in the same object file as its definition, and
+//	--wrap redirects *undefined* references only (the build with that flag came
+//	out byte-identical to the one without it, which is how this was found).  HSP
+//	raises every runtime error with `throw HSPERROR`, i.e. through __cxa_throw,
+//	which is undefined in our objects and therefore wraps properly.
 //
-extern "C" int __real__Z15code_catcherror8HSPERROR( HSPERROR code );
+//	HSPERR_INTJUMP and HSPERR_EXITRUN are excluded: the interpreter uses them for
+//	control flow (`goto rerun` in code_execcmd), so they fire constantly and are
+//	not errors.
+//
+#define GLUE_MAX_ERRORS 200
 
-extern "C" int __wrap__Z15code_catcherror8HSPERROR( HSPERROR code )
+extern "C" void __real___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) );
+
+extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) )
 {
-	printf( "hsp3switch: HSP error %d (%s) at line %d of %s\n",
-		(int)code, hspd_geterror( code ), code_getdebug_line(),
-		code_getdebug_name() );
-	fflush( stdout );
-	return __real__Z15code_catcherror8HSPERROR( code );
+	static int shown = 0;
+	int code = ( thrown != NULL ) ? *(int *)thrown : -1;
+
+	if ( code != HSPERR_NONE && code != HSPERR_INTJUMP && code != HSPERR_EXITRUN ) {
+		if ( shown < GLUE_MAX_ERRORS ) {
+			shown++;
+			printf( "hsp3switch: throw %d (%s) at line %d of %s\n",
+				code, hspd_geterror( (HSPERROR)code ),
+				code_getdebug_line(), code_getdebug_name() );
+			fflush( stdout );
+		}
+	}
+	__real___cxa_throw( thrown, tinfo, dest );
 }
 
 extern "C" FILE *__real_fopen( const char *path, const char *mode );

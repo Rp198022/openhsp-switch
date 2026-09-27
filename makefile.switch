@@ -1,4 +1,4 @@
-#---------------------------------------------------------------------------------
+﻿#---------------------------------------------------------------------------------
 # OpenHSP -> Nintendo Switch
 #
 #	T2.2 : interpreter core + empty (console) backend   -> hsp3switch.nro
@@ -57,13 +57,13 @@ CXXFLAGS    := $(CFLAGS) --exec-charset=UTF-8
 LIBDIRS     := -L$(PORTLIBS)/lib -L$(LIBNX)/lib
 
 #	The P3 diagnostics in glue_switch.cpp hook two upstream entry points:
-#	  --wrap=fopen      file-access trace (every open in the image)
-#	  code_catcherror   prints the script line of an error before the script's
-#	                    ONERROR handler can swallow it; wrapped by its mangled
-#	                    name because --wrap matches the object-file symbol.
+#	  --wrap=fopen       file-access trace (every open in the image)
+#	  --wrap=__cxa_throw prints the script line of an error before the script's
+#	                     ONERROR handler can swallow it (HSP raises every runtime
+#	                     error with `throw HSPERROR`).
 LDFLAGS     := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
                -Wl,-Map,$(TARGET).map -Wl,--gc-sections \
-               -Wl,--wrap=fopen -Wl,--wrap=_Z15code_catcherror8HSPERROR
+               -Wl,--wrap=fopen -Wl,--wrap=__cxa_throw
 LIBS        := -lnx -lm
 
 #---------------------------------------------------------------------------------
@@ -89,7 +89,7 @@ CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8
 
 LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
                  -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections \
-                 -Wl,--wrap=fopen -Wl,--wrap=_Z15code_catcherror8HSPERROR
+                 -Wl,--wrap=fopen -Wl,--wrap=__cxa_throw
 
 #	SDL2's static Switch build binds EGL/GLES through libglapi
 #	(SDL_VIDEO_STATIC_ANGLE), so those libraries must follow it on the link
