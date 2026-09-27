@@ -18,11 +18,16 @@ start.ax
 
 # Built outputs - Nintendo Switch target (makefile.switch)
 *.swo
+*.swd
 /hsp3switch
 /hsp3switch.elf
 /hsp3switch.nro
 /hsp3switch.nacp
 /hsp3switch.map
+/hsp3dish.elf
+/hsp3dish.nro
+/hsp3dish.nacp
+/hsp3dish.map
 
 # User-specific files
 *.rsuser

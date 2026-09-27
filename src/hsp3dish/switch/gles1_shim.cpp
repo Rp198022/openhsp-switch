@@ -1,0 +1,773 @@
+//
+//	src/hsp3dish/switch/gles1_shim.cpp
+//	GLES1 fixed-function -> GLES2 implementation for the Nintendo Switch (T2.3)
+//
+//	See ../glcompat/GL/gl.h for why this exists and how upstream is kept
+//	untouched.  In short: OpenHSP's shared SDL2 drawing backend
+//	(src/hsp3dish/emscripten/hgiox.cpp, hgtex.cpp) submits geometry through the
+//	fixed-function pipeline - a matrix stack, client-side vertex/colour/texcoord
+//	arrays addressed by glVertexPointer/glColorPointer/glTexCoordPointer,
+//	glEnableClientState, and glDrawArrays.  GLES2 has none of that; the Switch
+//	only offers GLES2/GLES3 (docs/R11_report.md).
+//
+//	This file reimplements exactly the slice of that API the backend uses:
+//
+//	  * a projection/model-view matrix pair, with glOrtho/glOrthof/glFrustum/
+//	    glLoadMatrixf/glLoadIdentity/glMatrixMode
+//	  * a single GLSL ES 1.00 program that consumes the recorded client arrays
+//	    as generic vertex attributes, so glDrawArrays keeps working unchanged
+//	  * the state bits the backend toggles (GL_TEXTURE_2D, GL_BLEND, point size)
+//	  * a texture pass-through that repairs the one real ES2 gap the backend
+//	    walks into: NPOT textures with the default GL_REPEAT wrap are incomplete
+//	    in ES2 (and would sample black), so wrap is forced to CLAMP_TO_EDGE for
+//	    NPOT textures - matching what desktop GL silently allows.
+//
+//	All real GL entry points are resolved through SDL_GL_GetProcAddress() rather
+//	than linked.  That keeps the link line identical to the verified R11 probe
+//	(-lEGL -lglapi -ldrm_nouveau, all of which SDL2's static EGL/GLES binding
+//	needs anyway) and avoids any chance of colliding with the real gl* symbols.
+//
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <math.h>
+
+#include <SDL2/SDL.h>
+
+#include <GL/gl.h>
+
+/*----------------------------------------------------------------*/
+/*	Real GLES2 entry points										  */
+/*----------------------------------------------------------------*/
+
+typedef void (*PFN_glClear)( GLbitfield );
+typedef void (*PFN_glClearColor)( GLclampf, GLclampf, GLclampf, GLclampf );
+typedef void (*PFN_glViewport)( GLint, GLint, GLsizei, GLsizei );
+typedef void (*PFN_glEnable)( GLenum );
+typedef void (*PFN_glDisable)( GLenum );
+typedef void (*PFN_glBlendFunc)( GLenum, GLenum );
+typedef void (*PFN_glGenTextures)( GLsizei, GLuint * );
+typedef void (*PFN_glDeleteTextures)( GLsizei, const GLuint * );
+typedef void (*PFN_glBindTexture)( GLenum, GLuint );
+typedef void (*PFN_glTexImage2D)( GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void * );
+typedef void (*PFN_glTexSubImage2D)( GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void * );
+typedef void (*PFN_glTexParameteri)( GLenum, GLenum, GLint );
+typedef void (*PFN_glDrawArrays)( GLenum, GLint, GLsizei );
+typedef void (*PFN_glReadPixels)( GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void * );
+typedef void (*PFN_glLineWidth)( GLfloat );
+typedef GLenum (*PFN_glGetError)( void );
+
+typedef GLuint (*PFN_glCreateShader)( GLenum );
+typedef void (*PFN_glShaderSource)( GLuint, GLsizei, const char *const *, const GLint * );
+typedef void (*PFN_glCompileShader)( GLuint );
+typedef void (*PFN_glGetShaderiv)( GLuint, GLenum, GLint * );
+typedef void (*PFN_glGetShaderInfoLog)( GLuint, GLsizei, GLsizei *, char * );
+typedef GLuint (*PFN_glCreateProgram)( void );
+typedef void (*PFN_glAttachShader)( GLuint, GLuint );
+typedef void (*PFN_glBindAttribLocation)( GLuint, GLuint, const char * );
+typedef void (*PFN_glLinkProgram)( GLuint );
+typedef void (*PFN_glGetProgramiv)( GLuint, GLenum, GLint * );
+typedef void (*PFN_glGetProgramInfoLog)( GLuint, GLsizei, GLsizei *, char * );
+typedef void (*PFN_glDeleteShader)( GLuint );
+typedef void (*PFN_glUseProgram)( GLuint );
+typedef GLint (*PFN_glGetUniformLocation)( GLuint, const char * );
+typedef void (*PFN_glUniform1i)( GLint, GLint );
+typedef void (*PFN_glUniform1f)( GLint, GLfloat );
+typedef void (*PFN_glUniform4f)( GLint, GLfloat, GLfloat, GLfloat, GLfloat );
+typedef void (*PFN_glUniformMatrix4fv)( GLint, GLsizei, GLboolean, const GLfloat * );
+typedef void (*PFN_glEnableVertexAttribArray)( GLuint );
+typedef void (*PFN_glDisableVertexAttribArray)( GLuint );
+typedef void (*PFN_glVertexAttribPointer)( GLuint, GLint, GLenum, GLboolean, GLsizei, const void * );
+
+static PFN_glClear						gl_clear;
+static PFN_glClearColor					gl_clearcolor;
+static PFN_glViewport					gl_viewport;
+static PFN_glEnable						gl_enable;
+static PFN_glDisable					gl_disable;
+static PFN_glBlendFunc					gl_blendfunc;
+static PFN_glGenTextures				gl_gentextures;
+static PFN_glDeleteTextures				gl_deletetextures;
+static PFN_glBindTexture				gl_bindtexture;
+static PFN_glTexImage2D					gl_teximage2d;
+static PFN_glTexSubImage2D				gl_texsubimage2d;
+static PFN_glTexParameteri				gl_texparameteri;
+static PFN_glDrawArrays					gl_drawarrays;
+static PFN_glReadPixels					gl_readpixels;
+static PFN_glLineWidth					gl_linewidth;
+static PFN_glGetError					gl_geterror;
+
+static PFN_glCreateShader				gl_createshader;
+static PFN_glShaderSource				gl_shadersource;
+static PFN_glCompileShader				gl_compileshader;
+static PFN_glGetShaderiv				gl_getshaderiv;
+static PFN_glGetShaderInfoLog			gl_getshaderinfolog;
+static PFN_glCreateProgram				gl_createprogram;
+static PFN_glAttachShader				gl_attacheshader;
+static PFN_glBindAttribLocation			gl_bindattriblocation;
+static PFN_glLinkProgram				gl_linkprogram;
+static PFN_glGetProgramiv				gl_getprogramiv;
+static PFN_glGetProgramInfoLog			gl_getprograminfolog;
+static PFN_glDeleteShader				gl_deleteshader;
+static PFN_glUseProgram					gl_useprogram;
+static PFN_glGetUniformLocation			gl_getuniformlocation;
+static PFN_glUniform1i					gl_uniform1i;
+static PFN_glUniform1f					gl_uniform1f;
+static PFN_glUniform4f					gl_uniform4f;
+static PFN_glUniformMatrix4fv			gl_uniformmatrix4fv;
+static PFN_glEnableVertexAttribArray	gl_enablevertexattribarray;
+static PFN_glDisableVertexAttribArray	gl_disablevertexattribarray;
+static PFN_glVertexAttribPointer		gl_vertexattribpointer;
+
+/*----------------------------------------------------------------*/
+/*	State carried over from the fixed-function API				  */
+/*----------------------------------------------------------------*/
+
+#define SW_ATTR_POS		0
+#define SW_ATTR_TEX		1
+#define SW_ATTR_COL		2
+
+typedef struct {
+	GLint			size;
+	GLenum			type;
+	GLsizei			stride;
+	const GLvoid	*ptr;
+	GLboolean		enabled;
+} sw_array;
+
+static sw_array		sw_vtx;
+static sw_array		sw_col;
+static sw_array		sw_tex;
+static GLboolean	sw_col_client_enabled;	/* glEnableClientState(GL_COLOR_ARRAY)	*/
+static GLboolean	sw_tex_client_enabled;	/* glEnableClientState(GL_TEXTURE_COORD_ARRAY) */
+
+static GLboolean	sw_texture2d;			/* glEnable(GL_TEXTURE_2D)				*/
+static GLuint		sw_bound_tex;
+static GLfloat		sw_point_size;
+
+/*	Matrix state (column-major, same layout glLoadMatrixf expects)		*/
+static GLenum		sw_matrix_mode = GL_MODELVIEW;
+static GLfloat		sw_mat_proj[16];
+static GLfloat		sw_mat_model[16];
+
+static GLuint		sw_prog;
+static GLint		sw_u_mvp, sw_u_tex, sw_u_usetex, sw_u_usecol, sw_u_color, sw_u_pointsize;
+
+static int			sw_ready;				/* entry points resolved			*/
+static int			sw_init_failed;
+static int			sw_frames_reported;
+
+/*----------------------------------------------------------------*/
+/*	Helpers														  */
+/*----------------------------------------------------------------*/
+
+static void sw_say( const char *fmt, ... )
+{
+	va_list ap;
+	va_start( ap, fmt );
+	vprintf( fmt, ap );
+	va_end( ap );
+	fflush( stdout );		/* nxlink socket output is fully buffered */
+}
+
+static void sw_identity( GLfloat *m )
+{
+	memset( m, 0, sizeof( GLfloat ) * 16 );
+	m[0] = m[5] = m[10] = m[15] = 1.0f;
+}
+
+static void sw_matmul( const GLfloat *a, const GLfloat *b, GLfloat *out )
+{
+	int c, r, k;
+	for ( c = 0; c < 4; c++ ) {
+		for ( r = 0; r < 4; r++ ) {
+			GLfloat s = 0.0f;
+			for ( k = 0; k < 4; k++ ) {
+				s += a[k * 4 + r] * b[c * 4 + k];
+			}
+			out[c * 4 + r] = s;
+		}
+	}
+}
+
+static void sw_ortho( GLfloat l, GLfloat r, GLfloat b, GLfloat t, GLfloat n, GLfloat f, GLfloat *m )
+{
+	GLfloat rl = r - l;
+	GLfloat tb = t - b;
+	GLfloat fn = f - n;
+
+	sw_identity( m );
+	m[0] = 2.0f / rl;
+	m[5] = 2.0f / tb;
+	m[10] = -2.0f / fn;
+	m[12] = -( r + l ) / rl;
+	m[13] = -( t + b ) / tb;
+	m[14] = -( f + n ) / fn;
+}
+
+static void sw_frustum( GLfloat l, GLfloat r, GLfloat b, GLfloat t, GLfloat n, GLfloat f, GLfloat *m )
+{
+	GLfloat rl = r - l;
+	GLfloat tb = t - b;
+	GLfloat fn = f - n;
+
+	memset( m, 0, sizeof( GLfloat ) * 16 );
+	m[0] = 2.0f * n / rl;
+	m[5] = 2.0f * n / tb;
+	m[8] = ( r + l ) / rl;
+	m[9] = ( t + b ) / tb;
+	m[10] = -( f + n ) / fn;
+	m[11] = -1.0f;
+	m[14] = -2.0f * f * n / fn;
+}
+
+static GLfloat *sw_current_matrix( void )
+{
+	return ( sw_matrix_mode == GL_PROJECTION ) ? sw_mat_proj : sw_mat_model;
+}
+
+static int sw_is_pot( GLsizei v )
+{
+	return v > 0 && ( v & ( v - 1 ) ) == 0;
+}
+
+/*----------------------------------------------------------------*/
+/*	Shader program												  */
+/*----------------------------------------------------------------*/
+
+static const char *SW_VS =
+	"uniform mat4 u_mvp;\n"
+	"attribute vec2 a_pos;\n"
+	"attribute vec2 a_tex;\n"
+	"attribute vec4 a_col;\n"
+	"uniform float u_pointsize;\n"
+	"varying vec2 v_tex;\n"
+	"varying vec4 v_col;\n"
+	"void main() {\n"
+	"    v_tex = a_tex;\n"
+	"    v_col = a_col;\n"
+	"    gl_Position = u_mvp * vec4( a_pos, 0.0, 1.0 );\n"
+	"    gl_PointSize = u_pointsize;\n"
+	"}\n";
+
+static const char *SW_FS =
+	"precision mediump float;\n"
+	"uniform sampler2D u_tex;\n"
+	"uniform int u_usetex;\n"
+	"uniform int u_usecol;\n"
+	"uniform vec4 u_color;\n"
+	"varying vec2 v_tex;\n"
+	"varying vec4 v_col;\n"
+	"void main() {\n"
+	"    vec4 c = ( u_usecol == 1 ) ? v_col : u_color;\n"
+	"    if ( u_usetex == 1 ) {\n"
+	"        c *= texture2D( u_tex, v_tex );\n"
+	"    }\n"
+	"    gl_FragColor = c;\n"
+	"}\n";
+
+static GLuint sw_compile( GLenum type, const char *src, const char *tag )
+{
+	GLuint sh;
+	GLint ok = 0;
+	char log[1024];
+
+	sh = gl_createshader( type );
+	if ( !sh ) {
+		sw_say( "gles1shim: glCreateShader(%s) failed\n", tag );
+		return 0;
+	}
+	gl_shadersource( sh, 1, &src, NULL );
+	gl_compileshader( sh );
+	gl_getshaderiv( sh, GL_COMPILE_STATUS, &ok );
+	if ( !ok ) {
+		log[0] = 0;
+		gl_getshaderinfolog( sh, sizeof( log ) - 1, NULL, log );
+		sw_say( "gles1shim: %s shader compile FAILED: %s\n", tag, log );
+		gl_deleteshader( sh );
+		return 0;
+	}
+	return sh;
+}
+
+static int sw_build_program( void )
+{
+	GLuint vs, fs;
+	GLint ok = 0;
+	char log[1024];
+
+	vs = sw_compile( GL_VERTEX_SHADER, SW_VS, "vertex" );
+	if ( !vs ) return -1;
+	fs = sw_compile( GL_FRAGMENT_SHADER, SW_FS, "fragment" );
+	if ( !fs ) {
+		gl_deleteshader( vs );
+		return -1;
+	}
+
+	sw_prog = gl_createprogram();
+	if ( !sw_prog ) {
+		sw_say( "gles1shim: glCreateProgram failed\n" );
+		return -1;
+	}
+	gl_attacheshader( sw_prog, vs );
+	gl_attacheshader( sw_prog, fs );
+
+	/*	Fix the attribute slots so the shim never has to query them.	*/
+	gl_bindattriblocation( sw_prog, SW_ATTR_POS, "a_pos" );
+	gl_bindattriblocation( sw_prog, SW_ATTR_TEX, "a_tex" );
+	gl_bindattriblocation( sw_prog, SW_ATTR_COL, "a_col" );
+
+	gl_linkprogram( sw_prog );
+	gl_getprogramiv( sw_prog, GL_LINK_STATUS, &ok );
+	if ( !ok ) {
+		log[0] = 0;
+		gl_getprograminfolog( sw_prog, sizeof( log ) - 1, NULL, log );
+		sw_say( "gles1shim: program link FAILED: %s\n", log );
+		return -1;
+	}
+	gl_deleteshader( vs );
+	gl_deleteshader( fs );
+
+	sw_u_mvp = gl_getuniformlocation( sw_prog, "u_mvp" );
+	sw_u_tex = gl_getuniformlocation( sw_prog, "u_tex" );
+	sw_u_usetex = gl_getuniformlocation( sw_prog, "u_usetex" );
+	sw_u_usecol = gl_getuniformlocation( sw_prog, "u_usecol" );
+	sw_u_color = gl_getuniformlocation( sw_prog, "u_color" );
+	sw_u_pointsize = gl_getuniformlocation( sw_prog, "u_pointsize" );
+
+	sw_say( "gles1shim: program ok (mjvp=%d usetex=%d usecol=%d)\n",
+		(int)sw_u_mvp, (int)sw_u_usetex, (int)sw_u_usecol );
+
+	gl_useprogram( sw_prog );
+	gl_uniform1i( sw_u_tex, 0 );				/* sampler -> texture unit 0	*/
+	gl_uniform4f( sw_u_color, 1.f, 1.f, 1.f, 1.f );
+	gl_uniform1f( sw_u_pointsize, 1.f );
+	return 0;
+}
+
+/*----------------------------------------------------------------*/
+/*	Lazy initialisation											  */
+/*----------------------------------------------------------------*/
+
+#define SW_LOAD( fn, name )	do { *(void **)( &fn ) = SDL_GL_GetProcAddress( name ); \
+		if ( !fn ) missing++; } while ( 0 )
+
+static void sw_init( void )
+{
+	int missing = 0;
+
+	if ( sw_ready || sw_init_failed ) return;
+
+	SW_LOAD( gl_clear, "glClear" );
+	SW_LOAD( gl_clearcolor, "glClearColor" );
+	SW_LOAD( gl_viewport, "glViewport" );
+	SW_LOAD( gl_enable, "glEnable" );
+	SW_LOAD( gl_disable, "glDisable" );
+	SW_LOAD( gl_blendfunc, "glBlendFunc" );
+	SW_LOAD( gl_gentextures, "glGenTextures" );
+	SW_LOAD( gl_deletetextures, "glDeleteTextures" );
+	SW_LOAD( gl_bindtexture, "glBindTexture" );
+	SW_LOAD( gl_teximage2d, "glTexImage2D" );
+	SW_LOAD( gl_texsubimage2d, "glTexSubImage2D" );
+	SW_LOAD( gl_texparameteri, "glTexParameteri" );
+	SW_LOAD( gl_drawarrays, "glDrawArrays" );
+	SW_LOAD( gl_readpixels, "glReadPixels" );
+	SW_LOAD( gl_linewidth, "glLineWidth" );
+	SW_LOAD( gl_geterror, "glGetError" );
+	SW_LOAD( gl_createshader, "glCreateShader" );
+	SW_LOAD( gl_shadersource, "glShaderSource" );
+	SW_LOAD( gl_compileshader, "glCompileShader" );
+	SW_LOAD( gl_getshaderiv, "glGetShaderiv" );
+	SW_LOAD( gl_getshaderinfolog, "glGetShaderInfoLog" );
+	SW_LOAD( gl_createprogram, "glCreateProgram" );
+	SW_LOAD( gl_attacheshader, "glAttachShader" );
+	SW_LOAD( gl_bindattriblocation, "glBindAttribLocation" );
+	SW_LOAD( gl_linkprogram, "glLinkProgram" );
+	SW_LOAD( gl_getprogramiv, "glGetProgramiv" );
+	SW_LOAD( gl_getprograminfolog, "glGetProgramInfoLog" );
+	SW_LOAD( gl_deleteshader, "glDeleteShader" );
+	SW_LOAD( gl_useprogram, "glUseProgram" );
+	SW_LOAD( gl_getuniformlocation, "glGetUniformLocation" );
+	SW_LOAD( gl_uniform1i, "glUniform1i" );
+	SW_LOAD( gl_uniform1f, "glUniform1f" );
+	SW_LOAD( gl_uniform4f, "glUniform4f" );
+	SW_LOAD( gl_uniformmatrix4fv, "glUniformMatrix4fv" );
+	SW_LOAD( gl_enablevertexattribarray, "glEnableVertexAttribArray" );
+	SW_LOAD( gl_disablevertexattribarray, "glDisableVertexAttribArray" );
+	SW_LOAD( gl_vertexattribpointer, "glVertexAttribPointer" );
+
+	if ( missing != 0 ) {
+		/*	Almost always means "called before an SDL GL context existed" -
+			keep sw_init_failed clear so the next call retries.			*/
+		sw_say( "gles1shim: %d GL entry point(s) unavailable (no current context yet?)\n", missing );
+		return;
+	}
+
+	sw_identity( sw_mat_proj );
+	sw_identity( sw_mat_model );
+	sw_texture2d = GL_FALSE;
+	sw_bound_tex = 0;
+	sw_point_size = 1.0f;
+	sw_vtx.enabled = GL_TRUE;			/* glVertexPointer is always live here	*/
+	sw_col.enabled = GL_FALSE;
+	sw_tex.enabled = GL_TRUE;
+	sw_col_client_enabled = GL_FALSE;
+	sw_tex_client_enabled = GL_FALSE;
+
+	if ( sw_build_program() != 0 ) {
+		sw_init_failed = 1;
+		sw_say( "gles1shim: *** shader setup failed - rendering disabled\n" );
+		return;
+	}
+
+	sw_ready = 1;
+	sw_say( "gles1shim: ready\n" );
+}
+
+void sw_glcompat_mark_context_ready( void )
+{
+	sw_init();
+}
+
+int sw_glcompat_is_ready( void )
+{
+	return sw_ready;
+}
+
+void sw_glcompat_report( const char *tag )
+{
+	sw_say( "gles1shim: [%s] ready=%d failed=%d prog=%u point=%.1f tex2d=%d bound=%u\n",
+		tag, sw_ready, sw_init_failed, (unsigned)sw_prog,
+		sw_point_size, (int)sw_texture2d, (unsigned)sw_bound_tex );
+}
+
+/*----------------------------------------------------------------*/
+/*	Capability classification									  */
+/*----------------------------------------------------------------*/
+
+static int sw_cap_is_es2_valid( GLenum cap )
+{
+	switch ( cap ) {
+	case GL_BLEND:
+	case GL_CULL_FACE:
+	case GL_DEPTH_TEST:
+	case GL_SCISSOR_TEST:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/*----------------------------------------------------------------*/
+/*	API: state													  */
+/*----------------------------------------------------------------*/
+
+void sw_glEnable( GLenum cap )
+{
+	sw_init();
+	switch ( cap ) {
+	case GL_TEXTURE_2D:
+		sw_texture2d = GL_TRUE;
+		return;
+	case GL_POINT_SMOOTH:
+	case GL_LIGHTING:
+	case GL_DEPTH_BUFFER_BIT:			/* hgiox.cpp disables this by mistake	*/
+		return;							/* accepted and ignored, like GLES1		*/
+	default:
+		break;
+	}
+	if ( sw_ready && sw_cap_is_es2_valid( cap ) ) gl_enable( cap );
+}
+
+void sw_glDisable( GLenum cap )
+{
+	sw_init();
+	switch ( cap ) {
+	case GL_TEXTURE_2D:
+		sw_texture2d = GL_FALSE;
+		return;
+	case GL_POINT_SMOOTH:
+	case GL_LIGHTING:
+	case GL_DEPTH_BUFFER_BIT:
+		return;
+	default:
+		break;
+	}
+	if ( sw_ready && sw_cap_is_es2_valid( cap ) ) gl_disable( cap );
+}
+
+void sw_glEnableClientState( GLenum array )
+{
+	sw_init();
+	switch ( array ) {
+	case GL_VERTEX_ARRAY:
+		sw_vtx.enabled = GL_TRUE;
+		break;
+	case GL_COLOR_ARRAY:
+		sw_col_client_enabled = GL_TRUE;
+		break;
+	case GL_TEXTURE_COORD_ARRAY:
+		sw_tex_client_enabled = GL_TRUE;
+		break;
+	default:
+		break;
+	}
+}
+
+void sw_glDisableClientState( GLenum array )
+{
+	sw_init();
+	switch ( array ) {
+	case GL_VERTEX_ARRAY:
+		sw_vtx.enabled = GL_FALSE;
+		break;
+	case GL_COLOR_ARRAY:
+		sw_col_client_enabled = GL_FALSE;
+		break;
+	case GL_TEXTURE_COORD_ARRAY:
+		sw_tex_client_enabled = GL_FALSE;
+		break;
+	default:
+		break;
+	}
+}
+
+/*----------------------------------------------------------------*/
+/*	API: matrices												  */
+/*----------------------------------------------------------------*/
+
+void sw_glMatrixMode( GLenum mode )
+{
+	sw_init();
+	if ( mode == GL_PROJECTION || mode == GL_MODELVIEW ) {
+		sw_matrix_mode = mode;
+	}
+}
+
+void sw_glLoadIdentity( void )
+{
+	sw_init();
+	sw_identity( sw_current_matrix() );
+}
+
+void sw_glLoadMatrixf( const GLfloat *m )
+{
+	sw_init();
+	if ( m == NULL ) return;
+	memcpy( sw_current_matrix(), m, sizeof( GLfloat ) * 16 );
+}
+
+void sw_glOrtho( GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar )
+{
+	sw_init();
+	sw_ortho( (GLfloat)left, (GLfloat)right, (GLfloat)bottom, (GLfloat)top, (GLfloat)zNear, (GLfloat)zFar,
+		sw_current_matrix() );
+}
+
+void sw_glOrthof( GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat zNear, GLfloat zFar )
+{
+	sw_init();
+	sw_ortho( left, right, bottom, top, zNear, zFar, sw_current_matrix() );
+}
+
+void sw_glFrustum( GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar )
+{
+	sw_init();
+	sw_frustum( (GLfloat)left, (GLfloat)right, (GLfloat)bottom, (GLfloat)top, (GLfloat)zNear, (GLfloat)zFar,
+		sw_current_matrix() );
+}
+
+/*----------------------------------------------------------------*/
+/*	API: client arrays + draw									  */
+/*----------------------------------------------------------------*/
+
+static void sw_set_pointer( sw_array *dst, GLint size, GLenum type, GLsizei stride, const GLvoid *pointer )
+{
+	dst->size = size;
+	dst->type = type;
+	dst->stride = stride;
+	dst->ptr = pointer;
+}
+
+void sw_glVertexPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *pointer )
+{
+	sw_init();
+	sw_set_pointer( &sw_vtx, size, type, stride, pointer );
+}
+
+void sw_glColorPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *pointer )
+{
+	sw_init();
+	sw_set_pointer( &sw_col, size, type, stride, pointer );
+}
+
+void sw_glTexCoordPointer( GLint size, GLenum type, GLsizei stride, const GLvoid *pointer )
+{
+	sw_init();
+	sw_set_pointer( &sw_tex, size, type, stride, pointer );
+}
+
+void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
+{
+	GLfloat mvp[16];
+
+	sw_init();
+	if ( !sw_ready ) return;
+	if ( sw_vtx.ptr == NULL || sw_vtx.type != GL_FLOAT || count <= 0 ) return;
+
+	gl_useprogram( sw_prog );
+
+	sw_matmul( sw_mat_proj, sw_mat_model, mvp );
+	gl_uniformmatrix4fv( sw_u_mvp, 1, GL_FALSE, mvp );
+
+	gl_uniform1i( sw_u_usetex,
+		( sw_texture2d && sw_bound_tex != 0 && sw_tex_client_enabled && sw_tex.ptr != NULL ) ? 1 : 0 );
+	gl_uniform1i( sw_u_usecol, sw_col_client_enabled ? 1 : 0 );
+	gl_uniform4f( sw_u_color, 1.f, 1.f, 1.f, 1.f );		/* fixed-function current colour */
+	gl_uniform1f( sw_u_pointsize, sw_point_size > 0.f ? sw_point_size : 1.f );
+
+	gl_enablevertexattribarray( SW_ATTR_POS );
+	gl_vertexattribpointer( SW_ATTR_POS, sw_vtx.size, GL_FLOAT, GL_FALSE, sw_vtx.stride, sw_vtx.ptr );
+
+	if ( sw_tex_client_enabled && sw_tex.ptr != NULL && sw_tex.type == GL_FLOAT ) {
+		gl_enablevertexattribarray( SW_ATTR_TEX );
+		gl_vertexattribpointer( SW_ATTR_TEX, sw_tex.size, GL_FLOAT, GL_FALSE, sw_tex.stride, sw_tex.ptr );
+	} else {
+		gl_disablevertexattribarray( SW_ATTR_TEX );
+	}
+
+	if ( sw_col_client_enabled && sw_col.ptr != NULL && sw_col.type == GL_FLOAT ) {
+		gl_enablevertexattribarray( SW_ATTR_COL );
+		gl_vertexattribpointer( SW_ATTR_COL, sw_col.size, GL_FLOAT, GL_FALSE, sw_col.stride, sw_col.ptr );
+	} else {
+		gl_disablevertexattribarray( SW_ATTR_COL );
+	}
+
+	gl_drawarrays( mode, first, count );
+}
+
+/*----------------------------------------------------------------*/
+/*	API: framebuffer											  */
+/*----------------------------------------------------------------*/
+
+void sw_glViewport( GLint x, GLint y, GLsizei width, GLsizei height )
+{
+	sw_init();
+	if ( sw_ready ) gl_viewport( x, y, width, height );
+}
+
+void sw_glClear( GLbitfield mask )
+{
+	sw_init();
+	if ( sw_ready ) {
+		gl_clear( mask );
+		/*	Report a GL error once per run so a silently broken frame is at
+			least visible over nxlink.										*/
+		if ( gl_geterror != NULL && sw_frames_reported < 3 ) {
+			GLenum e = gl_geterror();
+			if ( e != GL_NO_ERROR ) {
+				sw_say( "gles1shim: glClear left glGetError 0x%x\n", (unsigned)e );
+				sw_frames_reported++;
+			}
+		}
+	}
+}
+
+void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha )
+{
+	sw_init();
+	if ( sw_ready ) gl_clearcolor( red, green, blue, alpha );
+}
+
+void sw_glBlendFunc( GLenum sfactor, GLenum dfactor )
+{
+	sw_init();
+	if ( sw_ready ) gl_blendfunc( sfactor, dfactor );
+}
+
+void sw_glPointSize( GLfloat size )
+{
+	sw_init();
+	sw_point_size = size;
+}
+
+void sw_glLineWidth( GLfloat width )
+{
+	sw_init();
+	/*	GLES2 clamps line width to 1.0; the call is kept for parity.	*/
+	if ( sw_ready ) gl_linewidth( width );
+}
+
+void sw_glShadeModel( GLenum mode )
+{
+	(void)mode;		/* legacy, no ES2 equivalent - accepted and ignored	*/
+}
+
+void sw_glReadBuffer( GLenum mode )
+{
+	(void)mode;		/* ES2 has no glReadBuffer - accepted and ignored	*/
+}
+
+void sw_glReadPixels( GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels )
+{
+	sw_init();
+	if ( sw_ready ) gl_readpixels( x, y, width, height, format, type, pixels );
+}
+
+/*----------------------------------------------------------------*/
+/*	API: textures												  */
+/*----------------------------------------------------------------*/
+
+void sw_glGenTextures( GLsizei n, GLuint *textures )
+{
+	sw_init();
+	if ( sw_ready ) gl_gentextures( n, textures );
+}
+
+void sw_glDeleteTextures( GLsizei n, const GLuint *textures )
+{
+	sw_init();
+	if ( sw_ready ) gl_deletetextures( n, textures );
+}
+
+void sw_glBindTexture( GLenum target, GLuint texture )
+{
+	sw_init();
+	if ( target == GL_TEXTURE_2D ) sw_bound_tex = texture;
+	if ( sw_ready ) gl_bindtexture( target, texture );
+}
+
+void sw_glTexParameteri( GLenum target, GLenum pname, GLint param )
+{
+	sw_init();
+	if ( sw_ready ) gl_texparameteri( target, pname, param );
+}
+
+/*	ES2 requires CLAMP_TO_EDGE for non-power-of-two textures: with the default
+	GL_REPEAT wrap such a texture is "incomplete" and samples as black, while
+	desktop GL (and GLES1) happily allows it.  Elona/HSP 2D assets are NPOT, so
+	this is not a corner case.											*/
+static void sw_fix_npot_wrap( GLsizei width, GLsizei height )
+{
+	if ( sw_is_pot( width ) && sw_is_pot( height ) ) return;
+	gl_texparameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	gl_texparameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+}
+
+void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
+					  GLint border, GLenum format, GLenum type, const GLvoid *pixels )
+{
+	sw_init();
+	if ( !sw_ready ) return;
+	gl_teximage2d( target, level, internalformat, width, height, border, format, type, pixels );
+	if ( target == GL_TEXTURE_2D && level == 0 ) {
+		sw_fix_npot_wrap( width, height );
+	}
+}
+
+void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
+						 GLenum format, GLenum type, const GLvoid *pixels )
+{
+	sw_init();
+	if ( sw_ready ) gl_texsubimage2d( target, level, xoffset, yoffset, width, height, format, type, pixels );
+}

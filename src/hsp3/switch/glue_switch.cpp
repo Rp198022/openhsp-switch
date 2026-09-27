@@ -32,6 +32,11 @@
 #include "../linux/hsp3ext_sock.h"
 #include "../linux/devctrl_io.h"
 
+#ifdef HSPDISH
+//	T2.3 - graphical build only: gamepad -> keyboard bridge (see below).
+#include "../../hsp3dish/switch/switch_input.h"
+#endif
+
 /*----------------------------------------------------------------*/
 /*	DEVINFO - replaces devctrl_io.cpp							  */
 /*----------------------------------------------------------------*/
@@ -187,4 +192,14 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 	fflush( stdout );
 
 	info[-1].termfunc = NULL;
+
+#ifdef HSPDISH
+	//	T2.3: this is the one point where the reused Linux platform glue
+	//	(src/hsp3dish/linux/hsp3dish.cpp:780-785) hands the interpreter context
+	//	back to us, and it happens *after* it installed its own event-loop hook
+	//	(ctx->msgfunc = hsp3dish_msgfunc).  The graphical backend uses that to
+	//	insert the gamepad -> keyboard bridge without touching the upstream file.
+	//
+	switch_input_install( info->hspctx );
+#endif
 }
