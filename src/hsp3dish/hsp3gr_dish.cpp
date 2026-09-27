@@ -4123,6 +4123,14 @@ static int cmdfunc_extcmd( int cmd )
 #endif
 
 	default:
+		//	TEMPORARY P3 DIAGNOSTIC - remove once the start-up command set is
+		//	complete.  The out-of-range cases (0x51-0x1ff, the GamePlay3D half of
+		//	the switch) are compiled out without HSPDISHGP, so a script that uses
+		//	one lands here and the only way to name it is to print it here.
+		//
+		printf( "hsp3gr: unhandled extcmd id=%#x pc=%#lx\n",
+			cmd, (unsigned long)( ctx->mcs - ctx->mem_mcs ) );
+		fflush( stdout );
 		throw HSPERR_UNSUPPORTED_FUNCTION;
 	}
 	return RUNMODE_RUN;

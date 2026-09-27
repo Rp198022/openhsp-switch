@@ -85,7 +85,15 @@ INCLUDE_DISH := -Isrc/hsp3dish/switch/glcompat \
 
 CFLAGS_DISH   := $(ARCH) $(DEFINES_DISH) $(INCLUDE_DISH) -O2 -Wno-write-strings \
                  -ffunction-sections -fdata-sections
-CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8
+#	-DIAGNOSTIC (temporary): cmdfunc_extcmd() holds 53 identical
+#	`throw HSPERR_UNSUPPORTED_FUNCTION` blocks.  At -O2 GCC merges every one of
+#	them into a single block, so __wrap___cxa_throw reports the same address no
+#	matter which command failed and the map lookup cannot name the offender.
+#	Switching both merging passes off keeps one block per site so the reported
+#	address resolves to the exact source line.  Remove once P3 start-up is
+#	clean - this only exists to make the trace readable.
+CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8 \
+                 -fno-tree-tail-merge -fno-crossjumping
 
 LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
                  -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections \
