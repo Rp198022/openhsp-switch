@@ -237,6 +237,50 @@ static int impl_win_zero( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	The rest of kernel32.dll.  CloseHandle was the third failure-in-a-loop the
+//	device runs found (about 2.8 million calls in 75 seconds, right after the
+//	game opened its own 800x600 screen), so it has to succeed like the others.
+//
+static int impl_GetUserDefaultLCID( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0x0409;		//	en-US, matching the language chosen on the title screen
+}
+
+//	LCMapStringA( LCID, flags, src, cchSrc, dest, cchDest ) - only the two case
+//	mapping modes are approximated (by copying, optionally case-folded); a real
+//	sort-key request would need a locale table and is not attempted.  Elona uses
+//	this for case-insensitive name handling, where copying is right and the
+//	ordering is its own.
+//
+static int impl_LCMapStringA( const DllArgValue *args, int argc )
+{
+	const char *src;
+	char *dest;
+	int room, i;
+
+	if ( argc < 6 ) return 0;
+	if ( args[2].ptr == NULL || args[4].ptr == NULL ) return 0;
+	src = (const char *)args[2].ptr;
+	dest = (char *)args[4].ptr;
+	room = args[5].ival;
+	if ( room <= 1 ) return 0;
+	if ( (size_t)room > strlen( src ) + 1 ) room = (int)strlen( src ) + 1;
+
+	for ( i = 0; i < room - 1 && src[i] != 0; i++ ) {
+		char c = src[i];
+		if ( args[1].ival & 0x00000100 ) {			//	LCMAP_LOWERCASE
+			if ( c >= 'A' && c <= 'Z' ) c = (char)( c + 32 );
+		} else if ( args[1].ival & 0x00000200 ) {	//	LCMAP_UPPERCASE
+			if ( c >= 'a' && c <= 'z' ) c = (char)( c - 32 );
+		}
+		dest[i] = c;
+	}
+	dest[i] = 0;
+	return i;
+}
+
 /*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
@@ -254,6 +298,10 @@ static const DllImplEntry impl_table[] = {
 	{ "exrand.dll",		"_exrand_randomize@16",	impl_exrand_randomize },
 	{ "kernel32.dll",	"GetLastError",			impl_GetLastError },
 	{ "kernel32.dll",	"CreateMutexA",			impl_CreateMutexA },
+	{ "kernel32.dll",	"CloseHandle",			impl_win_true },
+	{ "kernel32.dll",	"RemoveDirectoryA",		impl_win_true },
+	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
+	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
 	{ "winmm.dll",		"timeEndPeriod",		impl_timeEndPeriod },
 	{ "winmm.dll",		"timeGetTime",			impl_timeGetTime },
