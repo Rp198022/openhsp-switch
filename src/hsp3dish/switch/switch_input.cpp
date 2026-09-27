@@ -74,16 +74,27 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 	{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT,		SW_NO_AXIS,		SDL_SCANCODE_RIGHT },
 	{ SDL_CONTROLLER_BUTTON_DPAD_DOWN,		SW_NO_AXIS,		SDL_SCANCODE_DOWN },
 
-	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm	*/
-	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel	*/
-	/*	X/Y follow position, not spelling.  SDL's Switch mapping is
-		a:b1,b:b0,x:b3,y:b2, so its logical X is the pad's right-hand button
-		and its logical Y the left-hand one - confirmed on hardware, where
-		the first cut sent the pad's X to HSP's Z and its Y to HSP's X.
-		On a keyboard Z sits left of X, so the pad's left button (Y) is the
-		one that has to become Z.											*/
-	{ SDL_CONTROLLER_BUTTON_Y,				SW_NO_AXIS,		SDL_SCANCODE_Z },		/* left of pair	*/
-	{ SDL_CONTROLLER_BUTTON_X,				SW_NO_AXIS,		SDL_SCANCODE_X },		/* right of pair */
+	/*	The face buttons are paired with scancodes by PHYSICAL POSITION, not by
+		name.  SDL names them the Xbox way - its logical A is the bottom
+		button and its logical B the right-hand one - while Nintendo labels
+		the Switch the other way round (A right, B bottom).  The mapping
+		string from this port's own startup line says which is which:
+		a:b1,b:b0,x:b3,y:b2.
+
+		Hardware confirmed both consequences of that:
+		  * the pad's B reported as SDL A (RETURN) and the pad's A as SDL B
+		    (ESCAPE), i.e. the confirm/cancel pair was crossed;
+		  * the pad's X reported as SDL X but sits right, its Y as SDL Y but
+		    sits left, crossing the Z/X pair on a keyboard where Z is the
+		    left-hand key.
+
+		So each entry below is the SDL name for the button in that *position*:
+		SDL B is the top-right button (Nintendo's A), SDL A the bottom one
+		(Nintendo's B), SDL X the top one, SDL Y the left one.				*/
+	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm: pad A, right	*/
+	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
+	{ SDL_CONTROLLER_BUTTON_Y,				SW_NO_AXIS,		SDL_SCANCODE_Z },		/* left of pair:  pad Y	*/
+	{ SDL_CONTROLLER_BUTTON_X,				SW_NO_AXIS,		SDL_SCANCODE_X },		/* right of pair: pad X	*/
 
 	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_SPACE },
 	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },
