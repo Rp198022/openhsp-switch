@@ -270,8 +270,8 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 				code, hspd_geterror( (HSPERROR)code ),
 				code_getdebug_line(), code_getdebug_name(),
 				__builtin_return_address( 0 ),
-				(unsigned long)( (char *)__builtin_return_address( 0 ) - (char *)&anchor ),
-				(void *)&anchor );
+				(unsigned long)( (char *)__builtin_return_address( 0 ) - (char *)anchor ),
+				anchor );
 			fflush( stdout );
 		}
 	}
