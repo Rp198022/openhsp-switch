@@ -89,10 +89,21 @@ LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
 #	line - same ordering the verified R11 probe uses.  The shim resolves its own
 #	GL entry points through SDL_GL_GetProcAddress, so no GLES library needs to
 #	be named for it.
-SDL_CFLAGS := $(shell $(PREFIX)pkg-config --cflags sdl2 SDL2_image SDL2_mixer SDL2_ttf 2>/dev/null)
-SDL_LIBS   := $(shell $(PREFIX)pkg-config --libs sdl2 SDL2_image SDL2_mixer SDL2_ttf 2>/dev/null)
-
-LIBS_DISH := $(SDL_LIBS) -lEGL -lglapi -ldrm_nouveau -lnx -lm
+#
+#	The dependency list below is spelled out rather than taken from
+#	aarch64-none-elf-pkg-config, matching how the rest of this file avoids
+#	pkg-config (see the P2 notes).  Order still matters for static archives,
+#	hence the --start-group/--end-group wrapper: the satellites come first, then
+#	SDL2, then their third-party dependencies (freetype/harfbuzz for ttf,
+#	png/jpeg/webp/z for image, vorbis/opus/modplug/mpg123 for mixer).
+#
+LIBS_DISH := -Wl,--start-group \
+	-lSDL2_image -lSDL2_mixer -lSDL2_ttf -lSDL2 \
+	-lEGL -lglapi -ldrm_nouveau \
+	-lfreetype -lharfbuzz -lpng16 -ljpeg -lwebp -lbz2 \
+	-lvorbisidec -lopus -lopusfile -logg -lmodplug -lmpg123 \
+	-lz -lpthread -lstdc++ -lnx -lm \
+	-Wl,--end-group
 
 #---------------------------------------------------------------------------------
 # object lists
