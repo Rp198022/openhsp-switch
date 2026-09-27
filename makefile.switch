@@ -56,10 +56,14 @@ CXXFLAGS    := $(CFLAGS) --exec-charset=UTF-8
 
 LIBDIRS     := -L$(PORTLIBS)/lib -L$(LIBNX)/lib
 
-#	--wrap=fopen routes every fopen through glue_switch.cpp's __wrap_fopen, the
-#	P3 file-access trace (see the P3 diagnostics section there).
+#	The P3 diagnostics in glue_switch.cpp hook two upstream entry points:
+#	  --wrap=fopen      file-access trace (every open in the image)
+#	  code_catcherror   prints the script line of an error before the script's
+#	                    ONERROR handler can swallow it; wrapped by its mangled
+#	                    name because --wrap matches the object-file symbol.
 LDFLAGS     := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
-               -Wl,-Map,$(TARGET).map -Wl,--gc-sections -Wl,--wrap=fopen
+               -Wl,-Map,$(TARGET).map -Wl,--gc-sections \
+               -Wl,--wrap=fopen -Wl,--wrap=_Z15code_catcherror8HSPERROR
 LIBS        := -lnx -lm
 
 #---------------------------------------------------------------------------------
@@ -84,7 +88,8 @@ CFLAGS_DISH   := $(ARCH) $(DEFINES_DISH) $(INCLUDE_DISH) -O2 -Wno-write-strings 
 CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8
 
 LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
-                 -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections -Wl,--wrap=fopen
+                 -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections \
+                 -Wl,--wrap=fopen -Wl,--wrap=_Z15code_catcherror8HSPERROR
 
 #	SDL2's static Switch build binds EGL/GLES through libglapi
 #	(SDL_VIDEO_STATIC_ANGLE), so those libraries must follow it on the link

@@ -223,6 +223,28 @@ static int glue_exit_report( int option )
 //	upstream file.  Failures are always reported; successes are capped so a
 //	long run cannot flood nxlink.
 //
+//	Error trace.  Elona installs an ONERROR handler, so every error it hits is
+//	recorded (hspctx->err), handed to the handler, and then invisible: the script
+//	either carries on or ends "normally" with exit code 0.  Its startup now ends
+//	with err=7 (Array overflow) and nothing else to go on, while no DLL call and
+//	no file open fails, so the only useful next fact is *where* in the script it
+//	happened.  Wrapping code_catcherror() prints that at the moment it is raised,
+//	while the saved PC still points at the failing command.
+//
+//	--wrap takes the symbol as it appears in the object file, so a C++ function
+//	needs its mangled name (nm on _scratch/p3_mangling.cpp); see makefile.switch.
+//
+extern "C" int __real__Z15code_catcherror8HSPERROR( HSPERROR code );
+
+extern "C" int __wrap__Z15code_catcherror8HSPERROR( HSPERROR code )
+{
+	printf( "hsp3switch: HSP error %d (%s) at line %d of %s\n",
+		(int)code, hspd_geterror( code ), code_getdebug_line(),
+		code_getdebug_name() );
+	fflush( stdout );
+	return __real__Z15code_catcherror8HSPERROR( code );
+}
+
 extern "C" FILE *__real_fopen( const char *path, const char *mode );
 
 extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
