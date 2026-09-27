@@ -27,16 +27,7 @@
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
-
 #include "../linux/hsp3dish.h"
-
-/*	Declared here rather than by including hsp3ext_linux.h: the signature is the
-	one that header publishes, and this keeps hsp3code.h out of this file.
-	Used to show what dirinfo(1) actually yields at the moment hgio_init()
-	builds the font path from it.											*/
-extern char *hsp3ext_getdir( int id );
 
 /*	The .ax to execute and any data files are resolved relative to this
 	directory, the same way the PC build resolves them relative to the cwd.	*/
@@ -47,6 +38,11 @@ extern char *hsp3ext_getdir( int id );
 	instead of overwriting it.  Falls back to the conventional name.		*/
 #define HSP3SWITCH_DISHAX	"hsp3dish.ax"
 #define HSP3SWITCH_LOG		"hsp3dish_boot.log"
+/*	What hsp3dish_modname() must be given: the module FILE, not its directory.
+	hsp3ext_linux.cpp's InitSystemInformation() derives the directory by cutting
+	the last path component off it, and hgio_init() then reads that back through
+	hsp3ext_getdir(1) to build the TTF font path as <dir> + "/ipaexg.ttf".	*/
+#define HSP3SWITCH_NROPATH	HSP3SWITCH_APPDIR "/hsp3dish.nro"
 
 static FILE *sw_log = NULL;
 
@@ -90,41 +86,13 @@ static const char *sw_pick_startfile( void )
 	return HSP3SWITCH_STARTAX;
 }
 
-/*	A path being readable is not the same as its bytes being a font that
-	freetype will accept, and "Init:TTF_OpenFont error" on its own says neither
-	which one failed nor why.  So the size and the sfnt signature are reported
-	first, then the exact call fontsystem.cpp makes is reproduced here and its
-	TTF_GetError() printed - the log then carries the library's own reason.
-	Both are done before hsp3dish_init(), so they cannot disturb the run.	*/
-static void sw_probe_font( const char *path )
+static void sw_probe_open( const char *path )
 {
-	unsigned char hdr[4];
-	FILE *fp;
-	long sz;
+	FILE *fp = fopen( path, "rb" );
 
-	fp = fopen( path, "rb" );
-	if ( fp == NULL ) {
-		sw_say( "hsp3dish: file %-38s -> open FAILED\n", path );
-		return;
-	}
-	memset( hdr, 0, sizeof( hdr ) );
-	(void)fread( hdr, 1, 4, fp );
-	fseek( fp, 0, SEEK_END );
-	sz = ftell( fp );
-	fclose( fp );
-	sw_say( "hsp3dish: file %-38s -> %ld bytes, magic %02X%02X%02X%02X\n",
-		path, sz, hdr[0], hdr[1], hdr[2], hdr[3] );
-}
-
-static void sw_probe_ttf( const char *path )
-{
-	TTF_Font *f;
-
-	f = TTF_OpenFont( path, 18 );
-	sw_say( "hsp3dish: TTF_OpenFont(\"%s\",18) -> %p : %s\n",
-		path, (void *)f, TTF_GetError() );
-	if ( f != NULL ) {
-		TTF_CloseFont( f );
+	sw_say( "hsp3dish: probe %-40s -> %s\n", path, ( fp != NULL ) ? "ok" : "FAILED" );
+	if ( fp != NULL ) {
+		fclose( fp );
 	}
 }
 
@@ -166,36 +134,27 @@ int main( int argc, char *argv[] )
 	sw_say( "hsp3dish: start file = %s\n", startfile );
 
 	hsp3dish_cmdline( "" );
-	/*	dirinfo(1) means "the directory the executable lives in", and hgio_init()
-		feeds it straight into the TTF font path by appending "/ipaexg.ttf".  It
-		is kept relative (".") so it resolves through the process cwd - which the
-		chdir above already set to the app directory, i.e. the very same form the
-		.ax lookup uses.												*/
-	hsp3dish_modname( (char *)"." );
+	/*	This is the module file path, and it must look like one.  dirinfo(1)
+		("the directory the executable lives in") is what hgio_init() appends
+		"/ipaexg.ttf" to, but hsp3ext_linux.cpp derives it from this value by
+		cutting the last path component off - so a bare directory does not
+		survive it.  Both earlier attempts failed that way on hardware:
 
-	sw_probe_font( HSP3SWITCH_DISHAX );
-	sw_probe_font( "./ipaexg.ttf" );
-	sw_probe_font( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
+			"sdmc:/switch/openhsp"  ->  "sdmc:/switch"        (wrong dir)
+			"."                     ->  ""                    (no separator)
 
-	sw_say( "hsp3dish: TTF_Init() -> %d\n", TTF_Init() );
-	sw_probe_ttf( "./ipaexg.ttf" );
-	sw_probe_ttf( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
+		and the font path became sdmc:/switch/ipaexg.ttf and /ipaexg.ttf, which
+		do not exist - TTF_OpenFont failed with "Couldn't open".  The .nro name
+		makes the cut yield exactly the app directory.						*/
+	hsp3dish_modname( (char *)HSP3SWITCH_NROPATH );
+
+	sw_probe_open( HSP3SWITCH_DISHAX );
+	sw_probe_open( "./ipaexg.ttf" );
+	sw_probe_open( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
-	sw_say( "hsp3dish: before init, getdir(1) = \"%s\"\n", hsp3ext_getdir( 1 ) );
 	res = hsp3dish_init( startfile );
 	sw_say( "hsp3dish: hsp3dish_init -> %d\n", res );
-
-	/*	The two probes above open the font fine, while the call hgio_init() makes
-		on the very same path fails - and the only thing that happens in between
-		is SDL_Init(SDL_INIT_VIDEO).  These three lines tie the failure down: the
-		string dirinfo(1) really handed to hgio_init(), SDL_ttf's own reason for
-		the last failure (the error text survives until the next failing call),
-		and the identical probe re-run now that the video subsystem is up.	*/
-	sw_say( "hsp3dish: after init, getdir(1) = \"%s\"\n", hsp3ext_getdir( 1 ) );
-	sw_say( "hsp3dish: after init, TTF_GetError() = \"%s\"\n", TTF_GetError() );
-	sw_probe_ttf( "./ipaexg.ttf" );
-	sw_probe_ttf( "/ipaexg.ttf" );
 
 	if ( res == 0 ) {
 		hsp3dish_option( 0 );
