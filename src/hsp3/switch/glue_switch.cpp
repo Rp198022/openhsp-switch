@@ -84,14 +84,35 @@ int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 	return 0;
 }
 
-int cmdfunc_dllcmd( int cmd )
-{
-	return -1;
-}
-
 int exec_dllcmd( int cmd, int mask )
 {
-	return -1;
+	//	Mirror the reference failure path, linux/hsp3extlib_ffi.cpp:711-727: a DLL
+	//	command handler first advances past the parameter tokens with code_next(),
+	//	and when the function cannot be bound it raises error 38 ("DLL call
+	//	failed").  Nothing can be bound on the Switch, so this stub must take that
+	//	same path.
+	//
+	//	Returning -1 instead - which this stub used to do - is not a loud failure.
+	//	Both callers drop the return value: linux/hsp3ext_linux.cpp:100 for the
+	//	function form, and cmdfunc_dllcmd() below for the statement form.  HSP
+	//	therefore recorded a *successful* call and carried on, which is how Elona
+	//	1.90's start.ax reached its main loop and sat there on a black screen
+	//	instead of stopping at its first missing call.  It also skipped
+	//	code_next(), which the reference calls unconditionally before it throws.
+	//
+	code_next();
+
+	printf( "hsp3switch: ### Unsupported exec_dllcmd %d\n", cmd );
+	fflush( stdout );
+
+	throw ( HSPERR_DLL_ERROR );
+}
+
+int cmdfunc_dllcmd( int cmd )
+{
+	//	cmdfunc : TYPE_DLLCMD (statement form) - the reference simply forwards.
+	//
+	return exec_dllcmd( cmd, STRUCTDAT_OT_STATEMENT );
 }
 
 namespace hsp3 {
