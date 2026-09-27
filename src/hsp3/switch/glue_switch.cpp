@@ -353,6 +353,53 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	return fp;
 }
 
+#ifdef HSPDISH
+/*----------------------------------------------------------------*/
+/*	T3  diagnostics: which screen the GLES backend refuses		  */
+/*----------------------------------------------------------------*/
+
+//	hgio_copy() is where Elona's startup now ends, with HSPERR_UNSUPPORTED_FUNCTION.
+//	Every hgio_* entry point in the backend T2.3 brings up (emscripten/hgiox.cpp)
+//	opens with `if (bm->type != HSPWND_TYPE_MAIN) throw HSPERR_UNSUPPORTED_FUNCTION`,
+//	and its hgio_buffer() is still marked 未実装: a `buffer` screen is handed no
+//	render target at all (MakeBmscr leaves texid = -1), so nothing may be drawn
+//	into it.  Elona composites through buffer screens, which makes this the next
+//	wall rather than a missing library.
+//
+//	The throw cannot say which screen type it refused, and the image runs at a
+//	randomised base, so this wrapper answers the question directly instead: it
+//	reports the destination and source of every copy the backend will refuse.
+//	Only callers in other translation units can be wrapped, which is exactly
+//	where the one caller lives (hspwnd_dish.cpp's Bmscr::Copy/Zoom), so the
+//	upstream definition keeps its own behaviour.
+//
+extern "C" void __real__Z9hgio_copyP5BMSCRssssS0_ff( BMSCR *bm, short xx, short yy,
+	short srcsx, short srcsy, BMSCR *bmsrc, float psx, float psy );
+
+extern "C" void __wrap__Z9hgio_copyP5BMSCRssssS0_ff( BMSCR *bm, short xx, short yy,
+	short srcsx, short srcsy, BMSCR *bmsrc, float psx, float psy )
+{
+	static int shown = 0;
+	static int refused = 0;
+
+	if ( bm != NULL && bm->type != HSPWND_TYPE_MAIN ) {
+		refused++;
+		if ( shown < 10 ) {
+			shown++;
+			printf( "hgiocopy: REFUSED #%d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d) at %d,%d\n",
+				refused, bm->type, bm->sx, bm->sy, bm->texid,
+				( bmsrc != NULL ) ? bmsrc->type : -1,
+				( bmsrc != NULL ) ? bmsrc->sx : -1, ( bmsrc != NULL ) ? bmsrc->sy : -1,
+				(int)xx, (int)yy );
+			fflush( stdout );
+		}
+	}
+
+	__real__Z9hgio_copyP5BMSCRssssS0_ff( bm, xx, yy, srcsx, srcsy, bmsrc, psx, psy );
+}
+#endif
+
+
 void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 {
 	//	Network commands are not part of the T2.2 empty backend: registering
