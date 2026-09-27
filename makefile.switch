@@ -185,7 +185,7 @@ OBJS_DISH := \
 	src/hsp3/linux/supio_linux.swd \
 	src/hsp3/linux/hsp3ext_linux.swd \
 	src/hsp3dish/geometry.swd \
-	src/hsp3dish/hsp3gr_dish.swd \
+	src/hsp3dish/switch/hsp3gr_dish_switch.swd \
 	src/hsp3dish/hspwnd_dish.swd \
 	src/hsp3dish/hspwnd_obj.swd \
 	src/hsp3dish/hspwnd_edit.swd \

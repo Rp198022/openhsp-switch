@@ -1,11 +1,20 @@
 
 //
-//	HSP3 dish graphics command
+//	HSP3 dish graphics command  -  Nintendo Switch fork
 //	(GUI関連コマンド・関数処理)
 //	onion software/onitama 2011/3
 //
+//	Byte-for-byte copy of the upstream src/hsp3dish/hsp3gr_dish.cpp, kept here
+//	so the upstream file stays unmodified.  Only difference: this fork adds
+//	`case 0x28` (mesbox) to cmdfunc_extcmd().  The upstream dish command table
+//	jumps straight from 0x27 (input) to 0x29 (buffer), yet mesbox is a core
+//	command (hspcmd.cpp: "$028 9 mesbox") that the win32gui backend does
+//	implement - hsp3gr_wingui.cpp:830.  Elona+ executes it during start-up, so
+//	without this case the interpreter stops on HSPERR_UNSUPPORTED_FUNCTION.
+//	Keep this file in sync with upstream when the upstream file changes.
+//
 #ifdef HSPDISHGP
-#include "win32gp/gamehsp.h"
+#include "../win32gp/gamehsp.h"
 char *hsp3dish_getlog(void);		// for gameplay3d log
 #endif
 
@@ -13,7 +22,7 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 #include <stdlib.h>
 #include <string.h>
 
-#include "../hsp3/hsp3config.h"
+#include "../../hsp3/hsp3config.h"
 
 #ifdef HSPWIN
 #include <windows.h>
@@ -21,20 +30,20 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 #include <shlobj.h>
 #endif
 
-#include "../hsp3/hsp3code.h"
-#include "../hsp3/hsp3debug.h"
-#include "../hsp3/strbuf.h"
+#include "../../hsp3/hsp3code.h"
+#include "../../hsp3/hsp3debug.h"
+#include "../../hsp3/strbuf.h"
 
-#include "hsp3gr.h"
-#include "hspwnd.h"
-#include "hgio.h"
-#include "supio.h"
-#include "sysreq.h"
-#include "webtask.h"
-#include "hsp3ext.h"
+#include "../hsp3gr.h"
+#include "../hspwnd.h"
+#include "../hgio.h"
+#include "../supio.h"
+#include "../sysreq.h"
+#include "../webtask.h"
+#include "../hsp3ext.h"
 
 #ifdef HSPWIN
-#include "win32/bmscr_exc.h"
+#include "../win32/bmscr_exc.h"
 #endif
 
 #define USE_WEBTASK
@@ -899,6 +908,34 @@ static int cmdfunc_extcmd( int cmd )
 		break;
 	}
 #endif
+
+	case 0x28:								// mesbox
+	{
+		//	Fork-only addition: upstream's dish command table goes from 0x27
+		//	straight to 0x29, so mesbox lands in the switch's default.  Mirrors
+		//	hsp3gr_wingui.cpp (its case 0x28), except that the NOWRAP flag is
+		//	dropped: hspwnd_dish.h has no such constant and
+		//	Bmscr::AddHSPObjectInput() does not consume it.
+		//
+		PVal *pval;
+		APTR aptr;
+		char *ptr;
+		int mode, size;
+
+		aptr = code_getva( &pval );
+		if ( pval->flag != HSPVAR_FLAG_STR ) throw HSPERR_TYPE_MISMATCH;
+		ptr = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
+		p1 = code_getdi( bmscr->ox );
+		p2 = code_getdi( bmscr->oy );
+		p3 = code_getdi( 1 );
+		p4 = code_getdi( -1 );
+		mode = HSPOBJ_INPUT_MULTILINE;
+		if (( p3 & 1 ) == 0) mode |= HSPOBJ_INPUT_READONLY;
+		if ( p3 & 4 ) mode |= HSPOBJ_INPUT_HSCROLL;
+		if ( p4 < 0 ) p4 = size - 1;
+		ctx->stat = bmscr->AddHSPObjectInput( pval, aptr, p1, p2, ptr, p4, (pval->flag)|mode );
+		break;
+	}
 
 	case 0x29:								// buffer
 	case 0x2a:								// screen
@@ -4123,6 +4160,14 @@ static int cmdfunc_extcmd( int cmd )
 #endif
 
 	default:
+		//	TEMPORARY P3 DIAGNOSTIC - remove once the start-up command set is
+		//	complete.  The out-of-range cases (0x51-0x1ff, the GamePlay3D half of
+		//	the switch) are compiled out without HSPDISHGP, so a script that uses
+		//	one lands here and the only way to name it is to print it here.
+		//
+		printf( "hsp3gr: unhandled extcmd id=%#x pc=%#lx\n",
+			cmd, (unsigned long)( ctx->mcs - ctx->mem_mcs ) );
+		fflush( stdout );
 		throw HSPERR_UNSUPPORTED_FUNCTION;
 	}
 	return RUNMODE_RUN;
