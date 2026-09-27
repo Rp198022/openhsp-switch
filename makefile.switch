@@ -135,6 +135,7 @@ OBJS := \
 	src/hsp3/linux/hsp3gr_linux.swo \
 	src/hsp3/linux/hsp3ext_linux.swo \
 	src/hsp3/switch/glue_switch.swo \
+	src/hsp3/switch/dllshim_switch.swo \
 	src/hsp3/switch/main_switch.swo
 
 #---------------------------------------------------------------------------------
@@ -182,6 +183,7 @@ OBJS_DISH := \
 	src/hsp3dish/emscripten/fontsystem.swd \
 	src/hsp3dish/linux/hsp3dish.swd \
 	src/hsp3/switch/glue_switch.swd \
+	src/hsp3/switch/dllshim_switch.swd \
 	src/hsp3dish/switch/gles1_shim.swd \
 	src/hsp3dish/switch/switch_input.swd \
 	src/hsp3dish/switch/webtask_switch.swd \

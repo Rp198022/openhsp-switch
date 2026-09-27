@@ -32,6 +32,10 @@
 #include "../linux/hsp3ext_sock.h"
 #include "../linux/devctrl_io.h"
 
+//	P3: the (library, function) -> implementation table plus the parameter
+//	marshaller that the missing FFI would have provided.  See the header.
+#include "dllshim_switch.h"
+
 #ifdef HSPDISH
 //	T2.3 - graphical build only: gamepad -> keyboard bridge (see below).
 #include "../../hsp3dish/switch/switch_input.h"
@@ -84,18 +88,19 @@ void hsp3dish_termdevinfo_io( void )
 
 int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 {
-	//	External DLL / plugin loading is not supported on the Switch (T2.2).
+	//	There is no dlopen on the Switch, so instead of the upstream FFI this is
+	//	where the shim is handed the interpreter context.  HSP offers the context
+	//	here and nowhere else (linux/hsp3ext_linux.cpp:136).
 	//
+	dllshim_install( info );
 	return 0;
 }
 
 int exec_dllcmd( int cmd, int mask )
 {
-	//	Mirror the reference failure path, linux/hsp3extlib_ffi.cpp:711-727: a DLL
-	//	command handler first advances past the parameter tokens with code_next(),
-	//	and when the function cannot be bound it raises error 38 ("DLL call
-	//	failed").  Nothing can be bound on the Switch, so this stub must take that
-	//	same path.
+	//	Reference failure path, linux/hsp3extlib_ffi.cpp:711-727: a DLL command
+	//	handler first advances past the parameter tokens with code_next(), and
+	//	when the function cannot be bound it raises error 38 ("DLL call failed").
 	//
 	//	Returning -1 instead - which this stub used to do - is not a loud failure.
 	//	Both callers drop the return value: linux/hsp3ext_linux.cpp:100 for the
@@ -105,9 +110,20 @@ int exec_dllcmd( int cmd, int mask )
 	//	instead of stopping at its first missing call.  It also skipped
 	//	code_next(), which the reference calls unconditionally before it throws.
 	//
+	char desc[256];
+	int runmode;
+
 	code_next();
 
-	printf( "hsp3switch: ### Unsupported exec_dllcmd %d\n", cmd );
+	runmode = dllshim_exec( cmd, mask, desc, (int)sizeof( desc ) );
+	if ( runmode >= 0 ) return runmode;
+
+	//	Still a loud failure, but now it names the exact library and function
+	//	instead of only the PRM index - that is what makes the "run, read the
+	//	missing call, add the next stub" loop cheap (no lookup against
+	//	_scratch/inv232.txt each round).
+	//
+	printf( "hsp3switch: ### Unsupported DLL call %s (cmd %d)\n", desc, cmd );
 	fflush( stdout );
 
 	throw ( HSPERR_DLL_ERROR );
