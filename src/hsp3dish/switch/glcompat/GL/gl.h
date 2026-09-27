@@ -157,6 +157,17 @@ typedef ptrdiff_t		GLsizeiptr;
 #define GL_REPEAT						0x2901
 #define GL_CLAMP_TO_EDGE				0x812F
 
+/*	framebuffer objects (GLES2 core; used by hgiox_switch.cpp to make a	*/
+/*	`buffer` screen a real render target)								*/
+#define GL_NONE							0
+#define GL_FRAMEBUFFER					0x8D40
+#define GL_RENDERBUFFER					0x8D41
+#define GL_COLOR_ATTACHMENT0			0x8CE0
+#define GL_DEPTH_ATTACHMENT				0x8D00
+#define GL_FRAMEBUFFER_COMPLETE			0x8CD5
+#define GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT			0x8CD6
+#define GL_FRAMEBUFFER_UNSUPPORTED						0x8CDD
+
 /*	shader plumbing	*/
 #define GL_FRAGMENT_SHADER				0x8B30
 #define GL_VERTEX_SHADER				0x8B31
@@ -195,6 +206,12 @@ typedef ptrdiff_t		GLsizeiptr;
 #define glShadeModel				sw_glShadeModel
 #define glReadBuffer				sw_glReadBuffer
 #define glReadPixels				sw_glReadPixels
+
+#define glGenFramebuffers			sw_glGenFramebuffers
+#define glDeleteFramebuffers		sw_glDeleteFramebuffers
+#define glBindFramebuffer			sw_glBindFramebuffer
+#define glFramebufferTexture2D		sw_glFramebufferTexture2D
+#define glCheckFramebufferStatus	sw_glCheckFramebufferStatus
 
 #define glGenTextures				sw_glGenTextures
 #define glDeleteTextures			sw_glDeleteTextures
@@ -238,6 +255,12 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
 						 GLenum format, GLenum type, const GLvoid *pixels );
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param );
+
+void sw_glGenFramebuffers( GLsizei n, GLuint *framebuffers );
+void sw_glDeleteFramebuffers( GLsizei n, const GLuint *framebuffers );
+void sw_glBindFramebuffer( GLenum target, GLuint framebuffer );
+void sw_glFramebufferTexture2D( GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level );
+GLenum sw_glCheckFramebufferStatus( GLenum target );
 
 #ifdef __cplusplus
 }

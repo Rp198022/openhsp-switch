@@ -89,8 +89,7 @@ CXXFLAGS_DISH := $(CFLAGS_DISH) --exec-charset=UTF-8
 
 LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
                  -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections \
-                 -Wl,--wrap=fopen -Wl,--wrap=__cxa_throw \
-                 -Wl,--wrap=_Z9hgio_copyP5BMSCRssssS0_ff
+                 -Wl,--wrap=fopen -Wl,--wrap=__cxa_throw
 
 #	SDL2's static Switch build binds EGL/GLES through libglapi
 #	(SDL_VIDEO_STATIC_ANGLE), so those libraries must follow it on the link
@@ -185,7 +184,7 @@ OBJS_DISH := \
 	src/hsp3dish/texmes.swd \
 	src/hsp3dish/sysreq.swd \
 	src/hsp3dish/emscripten/hgtex.swd \
-	src/hsp3dish/emscripten/hgiox.swd \
+	src/hsp3dish/switch/hgiox_switch.swd \
 	src/hsp3dish/emscripten/mmman.swd \
 	src/hsp3dish/emscripten/stb_image.swd \
 	src/hsp3dish/emscripten/fontsystem.swd \

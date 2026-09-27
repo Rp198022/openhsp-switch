@@ -59,6 +59,11 @@ typedef void (*PFN_glDrawArrays)( GLenum, GLint, GLsizei );
 typedef void (*PFN_glReadPixels)( GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void * );
 typedef void (*PFN_glLineWidth)( GLfloat );
 typedef GLenum (*PFN_glGetError)( void );
+typedef void (*PFN_glGenFramebuffers)( GLsizei, GLuint * );
+typedef void (*PFN_glDeleteFramebuffers)( GLsizei, const GLuint * );
+typedef void (*PFN_glBindFramebuffer)( GLenum, GLuint );
+typedef void (*PFN_glFramebufferTexture2D)( GLenum, GLenum, GLenum, GLuint, GLint );
+typedef GLenum (*PFN_glCheckFramebufferStatus)( GLenum );
 
 typedef GLuint (*PFN_glCreateShader)( GLenum );
 typedef void (*PFN_glShaderSource)( GLuint, GLsizei, const char *const *, const GLint * );
@@ -99,6 +104,12 @@ static PFN_glDrawArrays					gl_drawarrays;
 static PFN_glReadPixels					gl_readpixels;
 static PFN_glLineWidth					gl_linewidth;
 static PFN_glGetError					gl_geterror;
+
+static PFN_glGenFramebuffers			gl_genframebuffers;
+static PFN_glDeleteFramebuffers			gl_deleteframebuffers;
+static PFN_glBindFramebuffer			gl_bindframebuffer;
+static PFN_glFramebufferTexture2D		gl_framebuffertexture2d;
+static PFN_glCheckFramebufferStatus		gl_checkframebufferstatus;
 
 static PFN_glCreateShader				gl_createshader;
 static PFN_glShaderSource				gl_shadersource;
@@ -380,6 +391,16 @@ static void sw_init( void )
 	SW_LOAD( gl_readpixels, "glReadPixels" );
 	SW_LOAD( gl_linewidth, "glLineWidth" );
 	SW_LOAD( gl_geterror, "glGetError" );
+
+	/*	Framebuffer objects are GLES2 core, but the single-screen backend never
+		used them; they are only needed by the offscreen-target fork
+		(hgiox_switch.cpp).  Loaded outside SW_LOAD's missing counter so that a
+		driver without them cannot disable *all* rendering.					*/
+	*(void **)( &gl_genframebuffers ) = SDL_GL_GetProcAddress( "glGenFramebuffers" );
+	*(void **)( &gl_deleteframebuffers ) = SDL_GL_GetProcAddress( "glDeleteFramebuffers" );
+	*(void **)( &gl_bindframebuffer ) = SDL_GL_GetProcAddress( "glBindFramebuffer" );
+	*(void **)( &gl_framebuffertexture2d ) = SDL_GL_GetProcAddress( "glFramebufferTexture2D" );
+	*(void **)( &gl_checkframebufferstatus ) = SDL_GL_GetProcAddress( "glCheckFramebufferStatus" );
 	SW_LOAD( gl_createshader, "glCreateShader" );
 	SW_LOAD( gl_shadersource, "glShaderSource" );
 	SW_LOAD( gl_compileshader, "glCompileShader" );
@@ -776,6 +797,46 @@ void sw_glTexParameteri( GLenum target, GLenum pname, GLint param )
 {
 	sw_init();
 	if ( sw_ready ) gl_texparameteri( target, pname, param );
+}
+
+/*----------------------------------------------------------------*/
+/*	Framebuffer objects											  */
+/*	Only used by hgiox_switch.cpp, which turns a screen that owns a	  */
+/*	texture into an offscreen render target (upstream's hgio_buffer	  */
+/*	is 未実装 and every drawing entry point refused anything but the	  */
+/*	main screen, so Elona's `buffer` canvases could not be drawn).	  */
+/*----------------------------------------------------------------*/
+
+void sw_glGenFramebuffers( GLsizei n, GLuint *framebuffers )
+{
+	sw_init();
+	if ( sw_ready && gl_genframebuffers ) gl_genframebuffers( n, framebuffers );
+}
+
+void sw_glDeleteFramebuffers( GLsizei n, const GLuint *framebuffers )
+{
+	sw_init();
+	if ( sw_ready && gl_deleteframebuffers ) gl_deleteframebuffers( n, framebuffers );
+}
+
+void sw_glBindFramebuffer( GLenum target, GLuint framebuffer )
+{
+	sw_init();
+	if ( sw_ready && gl_bindframebuffer ) gl_bindframebuffer( target, framebuffer );
+}
+
+void sw_glFramebufferTexture2D( GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level )
+{
+	sw_init();
+	if ( sw_ready && gl_framebuffertexture2d )
+		gl_framebuffertexture2d( target, attachment, textarget, texture, level );
+}
+
+GLenum sw_glCheckFramebufferStatus( GLenum target )
+{
+	sw_init();
+	if ( sw_ready && gl_checkframebufferstatus ) return gl_checkframebufferstatus( target );
+	return GL_FRAMEBUFFER_UNSUPPORTED;
 }
 
 /*	ES2 requires CLAMP_TO_EDGE for non-power-of-two textures: with the default

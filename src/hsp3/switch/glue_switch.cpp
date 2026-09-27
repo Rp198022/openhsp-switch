@@ -87,17 +87,12 @@ void hsp3dish_termdevinfo_io( void )
 /*	Plugin / DLL subsystem - replaces hsp3extlib_ffi.cpp		  */
 /*----------------------------------------------------------------*/
 
-//	Kept for the error trace below, which needs the code segment's lower bound
-//	to know how far back from the saved PC it may read.
-static HSPCTX *glue_ctx = NULL;
-
 int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 {
 	//	There is no dlopen on the Switch, so instead of the upstream FFI this is
 	//	where the shim is handed the interpreter context.  HSP offers the context
 	//	here and nowhere else (linux/hsp3ext_linux.cpp:136).
 	//
-	glue_ctx = info->hspctx;
 	dllshim_install( info );
 	return 0;
 }
@@ -266,10 +261,10 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 		if ( shown < GLUE_MAX_ERRORS ) {
 			shown++;
 			//	The thrower's own address is what identifies the site: the
-			//	interpreter raises this error from several places (cmdfunc_mref,
-			//	the var-type fallbacks, ...) and the script line is not always
-			//	available.  Resolve it against hsp3dish.map, which is built with
-			//	-Map and shipped inside the artifact.
+			//	interpreter raises a given error from several places and the
+			//	script line is not always available.  Resolve it against
+			//	hsp3dish.map, which is built with -Map and shipped inside the
+			//	artifact.
 			//
 			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p off=%#lx anchor=%p\n",
 				code, hspd_geterror( (HSPERROR)code ),
@@ -277,37 +272,6 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 				__builtin_return_address( 0 ),
 				(unsigned long)( (char *)__builtin_return_address( 0 ) - (char *)anchor ),
 				anchor );
-
-			//	HSPERR_UNSUPPORTED_FUNCTION is Elona's actual wall right now:
-			//	it comes from cmdfunc_mref(), which rejects every id its 3.7
-			//	mapping does not cover (hsp3code.cpp:2010-2030).  To fix that we
-			//	need the id the script asked for, and the interpreter has already
-			//	consumed it by the time it throws - so read it back out of the
-			//	code segment instead.
-			//
-			//	saved PC -> the value block holding the id (code_getdi() ran
-			//	last).  A block is [header][value] for 16-bit and
-			//	[header][lo][hi] for 32-bit (hsp3code.cpp:263-285).
-			//
-			if ( code == HSPERR_UNSUPPORTED_FUNCTION ) {
-				unsigned short *pc = code_getpcbak();
-				unsigned short *lo = pc;
-				int i, wide = 0;
-				int id;
-				if ( pc != NULL ) {
-					if ( glue_ctx != NULL && glue_ctx->mem_mcs != NULL &&
-						pc > glue_ctx->mem_mcs + 8 ) lo = pc - 8;
-					wide = ( pc[0] & EXFLG_3 ) ? 1 : 0;
-					id = wide ? ( ( pc[2] << 16 ) | pc[1] ) : pc[1];
-					printf( "hsp3code: id=%d (0x%x) block=%04x %04x %04x\n",
-						id, id, pc[0], pc[1], pc[2] );
-					printf( "hsp3code: window" );
-					for ( i = 0; i < 24; i++ ) printf( " %04x", (unsigned)lo[i] );
-					printf( "  (mcsbak at index %d)\n", (int)( pc - lo ) );
-				} else {
-					printf( "hsp3code: pcbak is NULL\n" );
-				}
-			}
 			fflush( stdout );
 		}
 	}
@@ -352,52 +316,6 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	}
 	return fp;
 }
-
-#ifdef HSPDISH
-/*----------------------------------------------------------------*/
-/*	T3  diagnostics: which screen the GLES backend refuses		  */
-/*----------------------------------------------------------------*/
-
-//	hgio_copy() is where Elona's startup now ends, with HSPERR_UNSUPPORTED_FUNCTION.
-//	Every hgio_* entry point in the backend T2.3 brings up (emscripten/hgiox.cpp)
-//	opens with `if (bm->type != HSPWND_TYPE_MAIN) throw HSPERR_UNSUPPORTED_FUNCTION`,
-//	and its hgio_buffer() is still marked 未実装: a `buffer` screen is handed no
-//	render target at all (MakeBmscr leaves texid = -1), so nothing may be drawn
-//	into it.  Elona composites through buffer screens, which makes this the next
-//	wall rather than a missing library.
-//
-//	The throw cannot say which screen type it refused, and the image runs at a
-//	randomised base, so this wrapper answers the question directly instead: it
-//	reports the destination and source of every copy the backend will refuse.
-//	Only callers in other translation units can be wrapped, which is exactly
-//	where the one caller lives (hspwnd_dish.cpp's Bmscr::Copy/Zoom), so the
-//	upstream definition keeps its own behaviour.
-//
-extern "C" void __real__Z9hgio_copyP5BMSCRssssS0_ff( BMSCR *bm, short xx, short yy,
-	short srcsx, short srcsy, BMSCR *bmsrc, float psx, float psy );
-
-extern "C" void __wrap__Z9hgio_copyP5BMSCRssssS0_ff( BMSCR *bm, short xx, short yy,
-	short srcsx, short srcsy, BMSCR *bmsrc, float psx, float psy )
-{
-	static int shown = 0;
-	static int refused = 0;
-
-	if ( bm != NULL && bm->type != HSPWND_TYPE_MAIN ) {
-		refused++;
-		if ( shown < 10 ) {
-			shown++;
-			printf( "hgiocopy: REFUSED #%d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d) at %d,%d\n",
-				refused, bm->type, bm->sx, bm->sy, bm->texid,
-				( bmsrc != NULL ) ? bmsrc->type : -1,
-				( bmsrc != NULL ) ? bmsrc->sx : -1, ( bmsrc != NULL ) ? bmsrc->sy : -1,
-				(int)xx, (int)yy );
-			fflush( stdout );
-		}
-	}
-
-	__real__Z9hgio_copyP5BMSCRssssS0_ff( bm, xx, yy, srcsx, srcsy, bmsrc, psx, psy );
-}
-#endif
 
 
 void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
