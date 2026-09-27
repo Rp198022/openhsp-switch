@@ -400,7 +400,7 @@ static int sw_ensure( BMSCR *bm )
 	t->texid = bm->texid;
 	t->fbo = fbo;
 
-	if ( sw_fbo_report < 8 ) {
+	if ( sw_fbo_report < 48 ) {
 		sw_fbo_report++;
 		sw_fbo_log( "hgio: offscreen target texid=%d (%dx%d) -> fbo %u (tex %dx%d)\n",
 			bm->texid, bm->sx, bm->sy, (unsigned)fbo, (int)tex->width, (int)tex->height );

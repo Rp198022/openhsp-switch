@@ -318,6 +318,62 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 }
 
 
+#ifdef HSPDISH
+/*----------------------------------------------------------------*/
+/*	P3 diagnostics: which screen operation the backend refuses	  */
+/*----------------------------------------------------------------*/
+
+//	cmdfunc_extcmd() throws HSPERR_UNSUPPORTED_FUNCTION when Bmscr::Copy or
+//	Bmscr::Zoom reports a failure, and the compiler merges every identical
+//	throw block in that function into one landing pad - so the reported throw
+//	address no longer says which command failed.  These two are the only
+//	screen operations that can fail that way, they live in hspwnd_dish.swd
+//	and are referenced from hsp3gr_dish.swd, so --wrap reaches them without
+//	touching upstream.
+//
+static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src, int r )
+{
+	static int calls = 0;
+	static int fails = 0;
+
+	calls++;
+	if ( r != 0 ) fails++;
+	if ( ( r != 0 ) || ( calls <= 8 ) ) {
+		printf( "hsp3screen: %s -> %d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
+			op, r,
+			(int)self->type, (int)self->sx, (int)self->sy, self->texid,
+			( src != NULL ) ? (int)src->type : -1,
+			( src != NULL ) ? (int)src->sx : -1, ( src != NULL ) ? (int)src->sy : -1,
+			( src != NULL ) ? src->texid : -1,
+			calls, fails );
+		fflush( stdout );
+	}
+}
+
+extern "C" int __real__ZN5Bmscr4CopyEPS_iiii( BMSCR *self, BMSCR *src,
+	int xx, int yy, int psx, int psy );
+
+extern "C" int __wrap__ZN5Bmscr4CopyEPS_iiii( BMSCR *self, BMSCR *src,
+	int xx, int yy, int psx, int psy )
+{
+	int r = __real__ZN5Bmscr4CopyEPS_iiii( self, src, xx, yy, psx, psy );
+	glue_screen_op( "gcopy", self, src, r );
+	return r;
+}
+
+extern "C" int __real__ZN5Bmscr4ZoomEiiPS_iiiii( BMSCR *self, int dx, int dy,
+	BMSCR *src, int xx, int yy, int psx, int psy, int mode );
+
+extern "C" int __wrap__ZN5Bmscr4ZoomEiiPS_iiiii( BMSCR *self, int dx, int dy,
+	BMSCR *src, int xx, int yy, int psx, int psy, int mode )
+{
+	int r = __real__ZN5Bmscr4ZoomEiiPS_iiiii( self, dx, dy, src, xx, yy, psx, psy, mode );
+	glue_screen_op( "gzoom", self, src, r );
+	return r;
+}
+#endif
+
+
 void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 {
 	//	Network commands are not part of the T2.2 empty backend: registering
