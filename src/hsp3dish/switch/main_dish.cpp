@@ -81,6 +81,16 @@ static const char *sw_pick_startfile( void )
 	return HSP3SWITCH_STARTAX;
 }
 
+static void sw_probe_open( const char *path )
+{
+	FILE *fp = fopen( path, "rb" );
+
+	sw_say( "hsp3dish: probe %-40s -> %s\n", path, ( fp != NULL ) ? "ok" : "FAILED" );
+	if ( fp != NULL ) {
+		fclose( fp );
+	}
+}
+
 int main( int argc, char *argv[] )
 {
 	int res;
@@ -119,10 +129,16 @@ int main( int argc, char *argv[] )
 	sw_say( "hsp3dish: start file = %s\n", startfile );
 
 	hsp3dish_cmdline( "" );
-	/*	dirinfo(1) ("the directory the executable lives in") is fed straight
-		into the TTF font path by hgio_init() - it concatenates "/ipaexg.ttf" -
-		so this must be the directory, not the .nro path.				*/
-	hsp3dish_modname( (char *)HSP3SWITCH_APPDIR );
+	/*	dirinfo(1) means "the directory the executable lives in", and hgio_init()
+		feeds it straight into the TTF font path by appending "/ipaexg.ttf".  It
+		is kept relative (".") so it resolves through the process cwd - which the
+		chdir above already set to the app directory, i.e. the very same form the
+		.ax lookup uses.												*/
+	hsp3dish_modname( (char *)"." );
+
+	sw_probe_open( HSP3SWITCH_DISHAX );
+	sw_probe_open( "./ipaexg.ttf" );
+	sw_probe_open( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
 	res = hsp3dish_init( startfile );

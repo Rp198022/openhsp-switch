@@ -158,6 +158,8 @@ static GLint		sw_u_mvp, sw_u_tex, sw_u_usetex, sw_u_usecol, sw_u_color, sw_u_poi
 static int			sw_ready;				/* entry points resolved			*/
 static int			sw_init_failed;
 static int			sw_frames_reported;
+static int			sw_frame_no;			/* glClear calls = frames begun		*/
+static int			sw_draw_no;				/* glDrawArrays calls				*/
 
 /*----------------------------------------------------------------*/
 /*	Helpers														  */
@@ -626,6 +628,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	if ( !sw_ensure_gl() ) return;
 	if ( sw_vtx.ptr == NULL || sw_vtx.type != GL_FLOAT || count <= 0 ) return;
 
+	sw_draw_no++;
 	gl_useprogram( sw_prog );
 
 	sw_matmul( sw_mat_proj, sw_mat_model, mvp );
@@ -680,6 +683,13 @@ void sw_glClear( GLbitfield mask )
 				sw_say( "gles1shim: glClear left glGetError 0x%x\n", (unsigned)e );
 				sw_frames_reported++;
 			}
+		}
+		/*	The backend begins every frame with hgio_reset() -> glClear(), so this
+			is the frame tick.  A periodic line is the only way to prove from the
+			nxlink log that frames are really being produced.					*/
+		sw_frame_no++;
+		if ( ( sw_frame_no % 60 ) == 0 ) {
+			sw_say( "gles1shim: frame %d, %d draws\n", sw_frame_no, sw_draw_no );
 		}
 	}
 }
