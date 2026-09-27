@@ -246,9 +246,15 @@ static int glue_exit_report( int option )
 
 extern "C" void __real___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) );
 
+//	The image runs at a randomised base, so a raw address cannot be looked up in
+//	the linker map.  `anchor` is a symbol in this same file: printing the distance
+//	from it, plus its own address, makes the map lookup exact.
+static int anchor_dummy = 0;
+
 extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) )
 {
 	static int shown = 0;
+	void * const anchor = (void *)&anchor_dummy;
 	int code = ( thrown != NULL ) ? *(int *)thrown : -1;
 
 	if ( code != HSPERR_NONE && code != HSPERR_INTJUMP && code != HSPERR_EXITRUN ) {
@@ -260,10 +266,12 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 			//	available.  Resolve it against hsp3dish.map, which is built with
 			//	-Map and shipped inside the artifact.
 			//
-			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p\n",
+			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p off=%#lx anchor=%p\n",
 				code, hspd_geterror( (HSPERROR)code ),
 				code_getdebug_line(), code_getdebug_name(),
-				__builtin_return_address( 0 ) );
+				__builtin_return_address( 0 ),
+				(unsigned long)( (char *)__builtin_return_address( 0 ) - (char *)&anchor ),
+				(void *)&anchor );
 			fflush( stdout );
 		}
 	}
