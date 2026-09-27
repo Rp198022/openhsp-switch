@@ -124,8 +124,30 @@ int exec_dllcmd( int cmd, int mask )
 	//	missing call, add the next stub" loop cheap (no lookup against
 	//	_scratch/inv232.txt each round).
 	//
-	printf( "hsp3switch: ### Unsupported DLL call %s (cmd %d)\n", desc, cmd );
-	fflush( stdout );
+	//	A script spinning on a missing call issues it hundreds of thousands of
+	//	times (the language-screen run logged 1,419,940 of them in 60 seconds).
+	//	Printing and flushing every one floods nxlink and slows the run down, so
+	//	identical consecutive misses are counted and reported once per 1000.
+	//
+	{
+		static char last[256] = "";
+		static unsigned long repeats = 0;
+
+		if ( strcmp( desc, last ) == 0 ) {
+			repeats++;
+			if ( repeats % 1000 == 0 ) {
+				printf( "hsp3switch: ### Unsupported DLL call %s (cmd %d) x%lu\n",
+					desc, cmd, repeats );
+				fflush( stdout );
+			}
+		} else {
+			strncpy( last, desc, sizeof( last ) - 1 );
+			last[sizeof( last ) - 1] = 0;
+			repeats = 1;
+			printf( "hsp3switch: ### Unsupported DLL call %s (cmd %d)\n", desc, cmd );
+			fflush( stdout );
+		}
+	}
 
 	throw ( HSPERR_DLL_ERROR );
 }

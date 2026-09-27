@@ -213,6 +213,30 @@ static int impl_hmm_joystate( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	user32.dll / COMDLG32.DLL / imm32 - the Windows UI layer Elona links against
+//	(window menus, the open/save dialogs, IME).  None of it exists on the Switch
+//	and the game does not need it to run, but it must not fail either: a failed
+//	call becomes HSP error 38, Elona's ONERROR handler swallows it, and the loop
+//	it sits in then spins.  The run that first got past the language screen
+//	logged 1,419,940 "user32.dll!keybd_event" failures in 60 seconds.
+//
+//	1 doubles as Win32's TRUE for the BOOL-returning calls and as a plausible
+//	fake handle for the ones that hand one back (CreateMenu, ImmGetContext).
+//
+static int impl_win_true( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 1;
+}
+
+static int impl_win_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
 /*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
@@ -255,6 +279,24 @@ static const DllImplEntry impl_table[] = {
 	{ "hmm.dll",		"_HMMBITON@16",			impl_hmm_biton },
 	{ "hmm.dll",		"_HMMBITOFF@16",		impl_hmm_bitoff },
 	{ "hmm.dll",		"_HMMBITCHECK@16",		impl_hmm_bitcheck },
+
+	//	Windows UI layer - present but inert (see impl_win_true above).  The
+	//	library names are spelled exactly as the .ax declares them, including
+	//	"COMDLG32.DLL" in upper case.
+	{ "user32.dll",		"AppendMenuA",			impl_win_true },
+	{ "user32.dll",		"CheckMenuRadioItem",	impl_win_true },
+	{ "user32.dll",		"CreateMenu",			impl_win_true },
+	{ "user32.dll",		"CreatePopupMenu",		impl_win_true },
+	{ "user32.dll",		"DrawMenuBar",			impl_win_true },
+	{ "user32.dll",		"SetMenu",				impl_win_true },
+	{ "user32.dll",		"keybd_event",			impl_win_zero },
+	{ "user32.dll",		"GetKeyboardState",		impl_win_true },
+	{ "COMDLG32.DLL",	"GetOpenFileNameA",		impl_win_zero },	// 0 = cancelled
+	{ "COMDLG32.DLL",	"GetSaveFileNameA",		impl_win_zero },
+	{ "imm32",			"ImmGetContext",		impl_win_true },
+	{ "imm32",			"ImmReleaseContext",	impl_win_true },
+	{ "imm32",			"ImmSetOpenStatus",		impl_win_true },
+	{ "imm32",			"ImmGetOpenStatus",		impl_win_zero },	// IME closed
 };
 
 static const DllImplEntry *find_entry( const STRUCTDAT *st )
