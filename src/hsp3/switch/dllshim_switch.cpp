@@ -13,8 +13,10 @@
 //	See dllshim_switch.h for the design rationale.
 //
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <algorithm>
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -282,6 +284,309 @@ static int impl_LCMapStringA( const DllArgValue *args, int argc )
 }
 
 /*----------------------------------------------------------------*/
+/*	hspda.dll - the legacy "Easy Data Access" plugin				*/
+/*----------------------------------------------------------------*/
+
+//	Reference: src/plugins/win32/hspda/Hspda.cpp.
+//
+//	All four functions the .ax declares are STRUCTPRM_SUBID_OLDDLLINIT entries
+//	whose minfo slots are the ABI alone - (pexinfo, nullptr, nullptr, nullptr).
+//	The real arguments are not marshalled from those types: they stay on the
+//	bytecode stream and the function reads them itself through exinfo, which is
+//	what hei->HspFunc_prm_getva() / _getdi() / _gets() do in Hspda.cpp.  Nothing
+//	is consumed by the marshaller for such a declaration, so when an
+//	implementation below runs, the stream is sitting on the first real argument.
+//
+//	sortval/sortstr/sortnote/sortget became standard commands in HSP 3.5
+//	(doclib/history.txt), but the names stay declared against hspda.dll for
+//	backward compatibility - and that is the form Elona's start.ax calls, which
+//	is why start-up stopped on `Unsupported DLL call hspda.dll!_sortnote@16`.
+//	The implementations below follow the built-in equivalents in hsp3int.cpp
+//	(case 0x02d sortval / 0x02f sortnote) so the result is the same either way.
+//
+//	A non-zero order sorts descending (same convention as the built-ins), and
+//	ties keep their original relative position via the recorded index.
+//
+struct HspdaItem {
+	union {
+		int ikey;
+		double dkey;
+		char *skey;
+	} as;
+	int info;
+};
+
+static HspdaItem *hspda_dtmp = NULL;
+
+static PVal *hspda_note_pval = NULL;	//	xnotesel's target variable
+static APTR hspda_note_aptr = 0;
+
+static void hspda_data_bye( void )
+{
+	if ( hspda_dtmp != NULL ) {
+		free( hspda_dtmp );
+		hspda_dtmp = NULL;
+	}
+}
+
+static void hspda_data_ini( int size )
+{
+	hspda_data_bye();
+	if ( size < 1 ) size = 1;
+	hspda_dtmp = (HspdaItem *)calloc( (size_t)size, sizeof( HspdaItem ) );
+}
+
+struct HspdaLessStr {
+	int order;
+	explicit HspdaLessStr( int o ) : order( o ) {}
+	bool operator()( const HspdaItem &a, const HspdaItem &b ) const {
+		int cmp = strcmp( a.as.skey, b.as.skey );
+		if ( cmp == 0 ) return a.info < b.info;
+		return ( order == 0 ) ? ( cmp < 0 ) : ( cmp > 0 );
+	}
+};
+
+struct HspdaLessInt {
+	int order;
+	explicit HspdaLessInt( int o ) : order( o ) {}
+	bool operator()( const HspdaItem &a, const HspdaItem &b ) const {
+		if ( a.as.ikey == b.as.ikey ) return a.info < b.info;
+		return ( order == 0 ) ? ( a.as.ikey < b.as.ikey ) : ( a.as.ikey > b.as.ikey );
+	}
+};
+
+struct HspdaLessDouble {
+	int order;
+	explicit HspdaLessDouble( int o ) : order( o ) {}
+	bool operator()( const HspdaItem &a, const HspdaItem &b ) const {
+		if ( a.as.dkey == b.as.dkey ) return a.info < b.info;
+		return ( order == 0 ) ? ( a.as.dkey < b.as.dkey ) : ( a.as.dkey > b.as.dkey );
+	}
+};
+
+//	Hspda.cpp's skipline / lineeq, verbatim.
+//
+static char *hspda_skipline( char *s )
+{
+	while ( *s != 0 ) {
+		char c = *s++;
+		if ( c == '\n' ) break;
+		if ( c == '\r' ) {
+			if ( *s == '\n' ) s++;
+			break;
+		}
+	}
+	return s;
+}
+
+static bool hspda_lineeq( char *a, char *b )
+{
+	while ( 1 ) {
+		char ca = *a++;
+		char cb = *b++;
+		if ( ca == '\n' || ca == '\r' ) ca = 0;
+		if ( ca != cb ) return false;
+		if ( ca == 0 ) return true;
+	}
+}
+
+//	Hspda.cpp's addline(): grow the note variable and append the new line with
+//	a CRLF terminator.
+//
+static void hspda_addline( PVal *pval, APTR aptr, int len, char *add )
+{
+	int size;
+	int addlen = (int)strlen( add );
+	char *buf, *p;
+
+	HspVarCoreAllocBlock( pval, HspVarCorePtrAPTR( pval, aptr ), len + addlen + 8 );
+	buf = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
+	p = buf + len;
+	if ( len > 0 && buf[len-1] != '\r' && buf[len-1] != '\n' ) {
+		strcpy( p, "\r\n" );
+		p += 2;
+	}
+	strcpy( p, add );
+	p += addlen;
+	strcpy( p, "\r\n" );
+}
+
+//	xnotesel notedat, maxnum
+//
+static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
+{
+	PVal *pval;
+	int maxnum;
+
+	(void)args;
+	(void)argc;
+
+	hspda_note_aptr = code_getva( &pval );
+	maxnum = code_getdi( 0 );
+	if ( maxnum == 0 ) maxnum = 256;			// the plugin's default
+	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
+
+	hspda_note_pval = pval;
+	hspda_data_ini( maxnum );
+	return 0;
+}
+
+//	xnoteadd "strings"  ->  stat = index of the line that now holds it
+//
+static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
+{
+	char *add, *buf, *p;
+	int size, line;
+
+	(void)args;
+	(void)argc;
+
+	add = code_gets();
+	if ( hspda_note_pval == NULL ) return -1;
+	if ( hspda_note_pval->flag != HSPVAR_FLAG_STR ) return -1;
+
+	buf = (char *)HspVarCoreGetBlockSize( hspda_note_pval,
+		HspVarCorePtrAPTR( hspda_note_pval, hspda_note_aptr ), &size );
+
+	//	An already-present line is reported, not duplicated; a new one is
+	//	appended at the first free index.  Negative result because the caller
+	//	negates it into stat.
+	//
+	line = 0;
+	for ( p = buf; *p != 0; line++ ) {
+		if ( hspda_lineeq( p, add ) ) return -line;
+		p = hspda_skipline( p );
+	}
+	hspda_addline( hspda_note_pval, hspda_note_aptr, (int)( p - buf ), add );
+	return -line;
+}
+
+//	sortval var, order  -  numeric sort of an int/double array
+//
+static int impl_hspda_sortval( const DllArgValue *args, int argc )
+{
+	PVal *pval;
+	APTR aptr;
+	int order, i, count;
+
+	(void)args;
+	(void)argc;
+
+	aptr = code_getva( &pval );
+	order = code_getdi( 0 );
+	count = pval->len[1];
+	if ( count <= 0 ) return -1;
+
+	if ( pval->flag == HSPVAR_FLAG_INT ) {
+		int *p = (int *)HspVarCorePtrAPTR( pval, aptr );
+		hspda_data_ini( count );
+		if ( hspda_dtmp == NULL ) return -1;
+		for ( i = 0; i < count; i++ ) {
+			hspda_dtmp[i].as.ikey = p[i];
+			hspda_dtmp[i].info = i;
+		}
+		std::sort( hspda_dtmp, hspda_dtmp + count, HspdaLessInt( order ) );
+		for ( i = 0; i < count; i++ ) p[i] = hspda_dtmp[i].as.ikey;
+		return 0;
+	}
+
+	if ( pval->flag == HSPVAR_FLAG_DOUBLE ) {
+		double *p = (double *)HspVarCorePtrAPTR( pval, aptr );
+		hspda_data_ini( count );
+		if ( hspda_dtmp == NULL ) return -1;
+		for ( i = 0; i < count; i++ ) {
+			hspda_dtmp[i].as.dkey = p[i];
+			hspda_dtmp[i].info = i;
+		}
+		std::sort( hspda_dtmp, hspda_dtmp + count, HspdaLessDouble( order ) );
+		for ( i = 0; i < count; i++ ) p[i] = hspda_dtmp[i].as.dkey;
+		return 0;
+	}
+
+	return -1;
+}
+
+//	sortnote var, order  -  line sort of a note (string) variable
+//
+static int impl_hspda_sortnote( const DllArgValue *args, int argc )
+{
+	PVal *pval;
+	APTR aptr;
+	char *buf, *p, *dst;
+	int order, i, count, size, len;
+
+	(void)args;
+	(void)argc;
+
+	aptr = code_getva( &pval );
+	order = code_getdi( 0 );
+	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
+
+	buf = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
+
+	//	Line count first (the built-ins' GetNoteLines), then split in place
+	//	(their NoteToData) - a line is terminated by LF, CR or CRLF and the
+	//	terminator is overwritten with NUL.
+	//
+	count = 0;
+	for ( p = buf; *p != 0; count++ ) {
+		while ( *p != 0 ) {
+			char c = *p++;
+			if ( c == '\n' ) break;
+			if ( c == '\r' ) {
+				if ( *p == '\n' ) p++;
+				break;
+			}
+		}
+	}
+	if ( count <= 0 ) return -1;
+
+	hspda_data_ini( count );
+	if ( hspda_dtmp == NULL ) return -1;
+
+	i = 0;
+	p = buf;
+	while ( *p != 0 && i < count ) {
+		hspda_dtmp[i].as.skey = p;
+		hspda_dtmp[i].info = i;
+		while ( *p != 0 ) {
+			char c = *p;
+			if ( c == '\n' || c == '\r' ) *p = 0;
+			p++;
+			if ( c == '\n' ) break;
+			if ( c == '\r' ) {
+				if ( *p == '\n' ) p++;
+				break;
+			}
+		}
+		i++;
+	}
+
+	std::sort( hspda_dtmp, hspda_dtmp + count, HspdaLessStr( order ) );
+
+	//	Rejoin with CRLF into the runtime's temp string (DataToNoteLen /
+	//	DataToNote) and store it back into the variable.
+	//
+	len = 0;
+	for ( i = 0; i < count; i++ ) {
+		len += (int)strlen( hspda_dtmp[i].as.skey ) + 2;
+	}
+	dst = code_stmp( len + 1 );
+	p = dst;
+	for ( i = 0; i < count; i++ ) {
+		int slen = (int)strlen( hspda_dtmp[i].as.skey );
+		memcpy( p, hspda_dtmp[i].as.skey, slen );
+		p += slen;
+		*p++ = 13;
+		*p++ = 10;
+	}
+	*p = 0;
+	code_setva( pval, aptr, HSPVAR_FLAG_STR, dst );
+
+	return 0;
+}
+
+/*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
 
@@ -305,6 +610,13 @@ static const DllImplEntry impl_table[] = {
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
 	{ "winmm.dll",		"timeEndPeriod",		impl_timeEndPeriod },
 	{ "winmm.dll",		"timeGetTime",			impl_timeGetTime },
+
+	//	hspda.dll - the legacy note/sort family (see the section above).  These
+	//	consume their own arguments off the bytecode stream.
+	{ "hspda.dll",		"_sortval@16",			impl_hspda_sortval },
+	{ "hspda.dll",		"_sortnote@16",			impl_hspda_sortnote },
+	{ "hspda.dll",		"_xnotesel@16",			impl_hspda_xnotesel },
+	{ "hspda.dll",		"_xnoteadd@16",			impl_hspda_xnoteadd },
 
 	//	hmm.dll - silent-but-successful audio/input (see impl_hmm_ok above).
 	{ "hmm.dll",		"_DSINIT@16",			impl_hmm_ok },
