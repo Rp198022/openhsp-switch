@@ -27,6 +27,9 @@
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
 
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
+
 #include "../linux/hsp3dish.h"
 
 /*	The .ax to execute and any data files are resolved relative to this
@@ -81,13 +84,41 @@ static const char *sw_pick_startfile( void )
 	return HSP3SWITCH_STARTAX;
 }
 
-static void sw_probe_open( const char *path )
+/*	A path being readable is not the same as its bytes being a font that
+	freetype will accept, and "Init:TTF_OpenFont error" on its own says neither
+	which one failed nor why.  So the size and the sfnt signature are reported
+	first, then the exact call fontsystem.cpp makes is reproduced here and its
+	TTF_GetError() printed - the log then carries the library's own reason.
+	Both are done before hsp3dish_init(), so they cannot disturb the run.	*/
+static void sw_probe_font( const char *path )
 {
-	FILE *fp = fopen( path, "rb" );
+	unsigned char hdr[4];
+	FILE *fp;
+	long sz;
 
-	sw_say( "hsp3dish: probe %-40s -> %s\n", path, ( fp != NULL ) ? "ok" : "FAILED" );
-	if ( fp != NULL ) {
-		fclose( fp );
+	fp = fopen( path, "rb" );
+	if ( fp == NULL ) {
+		sw_say( "hsp3dish: file %-38s -> open FAILED\n", path );
+		return;
+	}
+	memset( hdr, 0, sizeof( hdr ) );
+	(void)fread( hdr, 1, 4, fp );
+	fseek( fp, 0, SEEK_END );
+	sz = ftell( fp );
+	fclose( fp );
+	sw_say( "hsp3dish: file %-38s -> %ld bytes, magic %02X%02X%02X%02X\n",
+		path, sz, hdr[0], hdr[1], hdr[2], hdr[3] );
+}
+
+static void sw_probe_ttf( const char *path )
+{
+	TTF_Font *f;
+
+	f = TTF_OpenFont( path, 18 );
+	sw_say( "hsp3dish: TTF_OpenFont(\"%s\",18) -> %p : %s\n",
+		path, (void *)f, TTF_GetError() );
+	if ( f != NULL ) {
+		TTF_CloseFont( f );
 	}
 }
 
@@ -136,9 +167,13 @@ int main( int argc, char *argv[] )
 		.ax lookup uses.												*/
 	hsp3dish_modname( (char *)"." );
 
-	sw_probe_open( HSP3SWITCH_DISHAX );
-	sw_probe_open( "./ipaexg.ttf" );
-	sw_probe_open( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
+	sw_probe_font( HSP3SWITCH_DISHAX );
+	sw_probe_font( "./ipaexg.ttf" );
+	sw_probe_font( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
+
+	sw_say( "hsp3dish: TTF_Init() -> %d\n", TTF_Init() );
+	sw_probe_ttf( "./ipaexg.ttf" );
+	sw_probe_ttf( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
 	res = hsp3dish_init( startfile );

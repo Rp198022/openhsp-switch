@@ -174,6 +174,26 @@ static void sw_say( const char *fmt, ... )
 	fflush( stdout );		/* nxlink socket output is fully buffered */
 }
 
+/*	A GL error latched by any call is returned by whatever glGetError() runs
+	next - the frame tick - so the call it gets attributed to is not necessarily
+	the guilty one.  Poll right after the calls that can legitimately raise an
+	INVALID_VALUE/ENUM, so the log names the real culprit instead.  Bounded,
+	because several of them run every frame.								*/
+#define SW_ERR_REPORT_MAX 12
+static int sw_err_reported;
+
+static void sw_check( const char *what )
+{
+	GLenum e;
+
+	if ( ( gl_geterror == NULL ) || ( sw_err_reported >= SW_ERR_REPORT_MAX ) ) return;
+	e = gl_geterror();
+	if ( e != GL_NO_ERROR ) {
+		sw_say( "gles1shim: %s left glGetError 0x%x\n", what, (unsigned)e );
+		sw_err_reported++;
+	}
+}
+
 static void sw_identity( GLfloat *m )
 {
 	memset( m, 0, sizeof( GLfloat ) * 16 );
@@ -658,6 +678,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	}
 
 	gl_drawarrays( mode, first, count );
+	sw_check( "glDrawArrays" );
 }
 
 /*----------------------------------------------------------------*/
@@ -667,7 +688,17 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 void sw_glViewport( GLint x, GLint y, GLsizei width, GLsizei height )
 {
 	sw_init();
-	if ( sw_ready ) gl_viewport( x, y, width, height );
+	if ( sw_ready ) {
+		gl_viewport( x, y, width, height );
+		/*	A negative width/height is the classic INVALID_VALUE here, and
+			hgio_reset() derives them from the drawable size - which is still
+			the pre-restart one during the frame that `screen` rebuilds.	*/
+		if ( ( width < 0 ) || ( height < 0 ) ) {
+			sw_say( "gles1shim: glViewport(%d,%d,%d,%d) - negative size\n",
+				(int)x, (int)y, (int)width, (int)height );
+		}
+		sw_check( "glViewport" );
+	}
 }
 
 void sw_glClear( GLbitfield mask )
@@ -675,12 +706,13 @@ void sw_glClear( GLbitfield mask )
 	sw_init();
 	if ( sw_ready ) {
 		gl_clear( mask );
-		/*	Report a GL error once per run so a silently broken frame is at
-			least visible over nxlink.										*/
+		/*	Catch-all for the call sites not instrumented with sw_check(): an
+			error still pending here came from one of those, since every
+			instrumented site drains what it latched.						*/
 		if ( gl_geterror != NULL && sw_frames_reported < 3 ) {
 			GLenum e = gl_geterror();
 			if ( e != GL_NO_ERROR ) {
-				sw_say( "gles1shim: glClear left glGetError 0x%x\n", (unsigned)e );
+				sw_say( "gles1shim: unclaimed glGetError 0x%x at frame tick\n", (unsigned)e );
 				sw_frames_reported++;
 			}
 		}
@@ -784,11 +816,30 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 	if ( target == GL_TEXTURE_2D && level == 0 ) {
 		sw_fix_npot_wrap( width, height );
 	}
+	/*	The texture paths report their own dimensions on failure: a zero-sized
+		upload is what the font path produces when TTF_Render has returned NULL.	*/
+	if ( sw_err_reported < SW_ERR_REPORT_MAX && gl_geterror != NULL ) {
+		GLenum e = gl_geterror();
+		if ( e != GL_NO_ERROR ) {
+			sw_say( "gles1shim: glTexImage2D(%d,%d,0x%x,0x%x) left glGetError 0x%x\n",
+				(int)width, (int)height, (unsigned)internalformat, (unsigned)format, (unsigned)e );
+			sw_err_reported++;
+		}
+	}
 }
 
 void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
 						 GLenum format, GLenum type, const GLvoid *pixels )
 {
 	sw_init();
-	if ( sw_ready ) gl_texsubimage2d( target, level, xoffset, yoffset, width, height, format, type, pixels );
+	if ( !sw_ready ) return;
+	gl_texsubimage2d( target, level, xoffset, yoffset, width, height, format, type, pixels );
+	if ( sw_err_reported < SW_ERR_REPORT_MAX && gl_geterror != NULL ) {
+		GLenum e = gl_geterror();
+		if ( e != GL_NO_ERROR ) {
+			sw_say( "gles1shim: glTexSubImage2D(%d,%d %dx%d) left glGetError 0x%x\n",
+				(int)xoffset, (int)yoffset, (int)width, (int)height, (unsigned)e );
+			sw_err_reported++;
+		}
+	}
 }
