@@ -321,6 +321,8 @@ static HspdaItem *hspda_dtmp = NULL;
 static PVal *hspda_note_pval = NULL;	//	xnotesel's target variable
 static APTR hspda_note_aptr = 0;
 
+static void hspda_dump_stream( const char *who );	// TEMPORARY P3 DIAGNOSTIC
+
 static void hspda_data_bye( void )
 {
 	if ( hspda_dtmp != NULL ) {
@@ -421,6 +423,9 @@ static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 	(void)args;
 	(void)argc;
 
+	hspda_dump_stream( "hspda _xnotesel@16" );		// TEMPORARY P3 DIAGNOSTIC
+	throw HSPERR_UNSUPPORTED_FUNCTION;
+
 	hspda_note_aptr = code_getva( &pval );
 	maxnum = code_getdi( 0 );
 	if ( maxnum == 0 ) maxnum = 256;			// the plugin's default
@@ -440,6 +445,9 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 
 	(void)args;
 	(void)argc;
+
+	hspda_dump_stream( "hspda _xnoteadd@16" );		// TEMPORARY P3 DIAGNOSTIC
+	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	add = code_gets();
 	if ( hspda_note_pval == NULL ) return -1;
@@ -471,6 +479,9 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 
 	(void)args;
 	(void)argc;
+
+	hspda_dump_stream( "hspda _sortval@16" );		// TEMPORARY P3 DIAGNOSTIC
+	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
@@ -517,6 +528,9 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 
 	(void)args;
 	(void)argc;
+
+	hspda_dump_stream( "hspda _sortnote@16" );		// TEMPORARY P3 DIAGNOSTIC
+	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
@@ -584,6 +598,41 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	code_setva( pval, aptr, HSPVAR_FLAG_STR, dst );
 
 	return 0;
+}
+
+//	TEMPORARY P3 DIAGNOSTIC - remove once the hspda argument shapes are known.
+//
+//	Reading the arguments off the bytecode stream by hand only works if the
+//	entry really is the OLDDLL form assumed in the section above; if it is not,
+//	the reads desynchronise the stream and the next fetched word is executed as
+//	an instruction, which is a hard fault rather than an HSP error (the p3s19
+//	run died exactly that way, without even reaching the teardown).  So print
+//	the words that follow the call verbatim - type/flags/value, decoded the same
+//	way __code_next() does - and then stop with a normal HSP error, so the log
+//	always names the shape of the argument list instead of crashing on it.
+//
+static void hspda_dump_stream( const char *who )
+{
+	unsigned short *p = hspctx->mcs;
+	int i = 0;
+
+	printf( "hsp3switch: ### %s: arglist at code offset %ld\n", who,
+		(long)( hspctx->mcs - hspctx->mem_mcs ) );
+	while ( i < 16 ) {
+		unsigned short w = p[i];
+		int val, step;
+		if ( w & 0x8000 ) {
+			val = (int)( (unsigned int)p[i+1] | ( (unsigned int)p[i+2] << 16 ) );
+			step = 3;
+		} else {
+			val = (int)p[i+1];
+			step = 2;
+		}
+		printf( "   [+%2d] type=%2d flags=%x val=%d\n",
+			i, w & 0x0fff, ( w >> 12 ) & 0xf, val );
+		i += step;
+	}
+	fflush( stdout );
 }
 
 /*----------------------------------------------------------------*/
