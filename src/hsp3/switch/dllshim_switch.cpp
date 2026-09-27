@@ -26,6 +26,7 @@
 #include "dllshim_switch.h"
 
 static HSPCTX *hspctx = NULL;		// Current Context
+static HSPEXINFO *exinfo = NULL;	// Info for Plugins
 static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
 
 //	The reference caps parameter lists at 16 as well (ExitFunc(),
@@ -145,6 +146,73 @@ static int impl_timeGetTime( const DllArgValue *args, int argc )
 	return (int)( now - base );
 }
 
+//	hmm.dll - the Windows audio/input library Elona links against (DirectSound,
+//	DirectMusic, DirectInput).  The Switch has none of those, and this port has
+//	no audio yet, so the whole family is a no-op that reports success.
+//
+//	Reporting failure is NOT an option here.  HSP turns a failed DLL call into
+//	error 38, Elona's ONERROR handler swallows it, and its startup then loops on
+//	_DMEND@16 forever: the device run that first reached the game produced
+//	thousands of "Unsupported DLL call hmm.dll!_DMEND@16" lines in 40 seconds,
+//	which is also how this family was identified as the current blocker.
+//
+static int impl_hmm_ok( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	The two loaders hand back a handle that the script passes to play/stop
+//	later.  0 would mean "nothing loaded", so give them a plausible one.
+//
+static int impl_hmm_load( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 1;
+}
+
+//	_HMMBITON@16 / _HMMBITOFF@16 / _HMMBITCHECK@16 are real bit twiddling on the
+//	variable the script passes in - worth doing exactly, because Elona keeps
+//	capability/state flags in it.
+//
+static int impl_hmm_biton( const DllArgValue *args, int argc )
+{
+	if ( argc < 2 || args[0].ptr == NULL ) return 0;
+	*(int *)args[0].ptr |= args[1].ival;
+	return 0;
+}
+
+static int impl_hmm_bitoff( const DllArgValue *args, int argc )
+{
+	if ( argc < 2 || args[0].ptr == NULL ) return 0;
+	*(int *)args[0].ptr &= ~args[1].ival;
+	return 0;
+}
+
+static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
+{
+	if ( argc < 2 || args[0].ptr == NULL ) return 0;
+	return ( *(int *)args[0].ptr & args[1].ival ) ? 1 : 0;
+}
+
+//	_DIGETJOYNUM@16 / _DIGETJOYSTATE@16 - DirectInput enumeration.  The pad is
+//	read through the Switch bridge instead (switch_input.cpp), so report none.
+//
+static int impl_hmm_joynum( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+static int impl_hmm_joystate( const DllArgValue *args, int argc )
+{
+	if ( argc >= 1 && args[0].ptr != NULL ) *(int *)args[0].ptr = 0;
+	return 0;
+}
+
 /*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
@@ -165,6 +233,28 @@ static const DllImplEntry impl_table[] = {
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
 	{ "winmm.dll",		"timeEndPeriod",		impl_timeEndPeriod },
 	{ "winmm.dll",		"timeGetTime",			impl_timeGetTime },
+
+	//	hmm.dll - silent-but-successful audio/input (see impl_hmm_ok above).
+	{ "hmm.dll",		"_DSINIT@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DSEND@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DSRELEASE@16",		impl_hmm_ok },
+	{ "hmm.dll",		"_DSLOADFNAME@16",		impl_hmm_load },
+	{ "hmm.dll",		"_DSPLAY@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DSSTOP@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DSSETVOLUME@16",		impl_hmm_ok },
+	{ "hmm.dll",		"_DSGETMASTERVOLUME@16",impl_hmm_ok },
+	{ "hmm.dll",		"_CHECKPLAY@16",		impl_hmm_ok },
+	{ "hmm.dll",		"_DMINIT@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DMEND@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DMLOADFNAME@16",		impl_hmm_load },
+	{ "hmm.dll",		"_DMPLAY@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DMSTOP@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DIINIT@16",			impl_hmm_ok },
+	{ "hmm.dll",		"_DIGETJOYNUM@16",		impl_hmm_joynum },
+	{ "hmm.dll",		"_DIGETJOYSTATE@16",	impl_hmm_joystate },
+	{ "hmm.dll",		"_HMMBITON@16",			impl_hmm_biton },
+	{ "hmm.dll",		"_HMMBITOFF@16",		impl_hmm_bitoff },
+	{ "hmm.dll",		"_HMMBITCHECK@16",		impl_hmm_bitcheck },
 };
 
 static const DllImplEntry *find_entry( const STRUCTDAT *st )
@@ -207,6 +297,8 @@ static bool mptype_supported( int mptype )
 	case MPTYPE_PVARPTR:	// pointer to a variable's storage
 	case MPTYPE_FLEXSPTR:	// 0/NULL or string, decided per call
 	case MPTYPE_NULLPTR:	// NULL
+	case MPTYPE_PBMSCR:		// screen buffer, supplied by the runtime
+	case MPTYPE_PTR_EXINFO:	// pointer to the plugin info block
 		return true;
 	default:
 		return false;
@@ -256,6 +348,17 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 	case MPTYPE_NULLPTR:
 		v->ptr = NULL;
 		break;
+	case MPTYPE_PBMSCR:
+		//	The screen buffer is handed in by the runtime, not read from the
+		//	bytecode: the reference calls GetBMSCR() and consumes no operand.  The
+		//	calls that declare it here are the audio stubs, which ignore it, so
+		//	NULL keeps the operand stream correct without pulling hgio in.
+		//
+		v->ptr = NULL;
+		break;
+	case MPTYPE_PTR_EXINFO:
+		v->ptr = exinfo;
+		break;
 	case MPTYPE_FLEXSPTR: {
 		//	Either a literal 0 / NULL or a string, decided at run time.  The
 		//	reference reads code_get() and inspects *mpval to tell them apart.
@@ -285,7 +388,8 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 void dllshim_install( HSP3TYPEINFO *info )
 {
 	hspctx = info->hspctx;
-	pmpval = info->hspexinfo->mpval;
+	exinfo = info->hspexinfo;
+	pmpval = exinfo->mpval;
 }
 
 void dllshim_report_exit( void )
