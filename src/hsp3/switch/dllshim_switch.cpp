@@ -14,6 +14,7 @@
 //
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -96,6 +97,54 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 	return 1;		//	non-NULL handle
 }
 
+//	winmm.dll - the multimedia timer trio.  This was the third dependency the
+//	device reported (`winmm.dll!timeBeginPeriod`, see the P3 report): Elona opens
+//	the high-resolution timer before it starts measuring frame times.
+//
+//	timeBeginPeriod/timeEndPeriod only ask Windows for a finer scheduler tick;
+//	the Switch's resolution is fixed by the kernel/vsync, so there is nothing to
+//	do but report success (0 == TIMERR_NOERROR).  Their argument is the period in
+//	milliseconds and is of no use here.
+//
+static int impl_timeBeginPeriod( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+static int impl_timeEndPeriod( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	timeGetTime() -> DWORD, milliseconds since it was first called (Windows
+//	counts from system start; the origin does not matter, only differences do).
+//
+//	The clock source is the same one the runtime's own tick already uses on this
+//	device - clock_gettime( CLOCK_REALTIME ) truncated to milliseconds, exactly
+//	as hgio_gettick() does in src/hsp3dish/emscripten/hgiox.cpp:1808, which the
+//	T2.3 frame-rate measurements exercised.  A baseline is subtracted so the
+//	result starts near zero and climbs, instead of wrapping the epoch's ~1.7e12
+//	ms through a 32-bit int.
+//
+static int impl_timeGetTime( const DllArgValue *args, int argc )
+{
+	static long long base = -1;
+	timespec ts;
+	long long now;
+
+	(void)args;
+	(void)argc;
+
+	clock_gettime( CLOCK_REALTIME, &ts );
+	now = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+	if ( base < 0 ) base = now;
+	return (int)( now - base );
+}
+
 /*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
@@ -113,6 +162,9 @@ static const DllImplEntry impl_table[] = {
 	{ "exrand.dll",		"_exrand_randomize@16",	impl_exrand_randomize },
 	{ "kernel32.dll",	"GetLastError",			impl_GetLastError },
 	{ "kernel32.dll",	"CreateMutexA",			impl_CreateMutexA },
+	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
+	{ "winmm.dll",		"timeEndPeriod",		impl_timeEndPeriod },
+	{ "winmm.dll",		"timeGetTime",			impl_timeGetTime },
 };
 
 static const DllImplEntry *find_entry( const STRUCTDAT *st )
