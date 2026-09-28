@@ -321,7 +321,8 @@ static HspdaItem *hspda_dtmp = NULL;
 static PVal *hspda_note_pval = NULL;	//	xnotesel's target variable
 static APTR hspda_note_aptr = 0;
 
-static void hspda_dump_stream( const char *who );	// TEMPORARY P3 DIAGNOSTIC
+static void hspda_probe( const char *who, const char *what );		// TEMPORARY P3 DIAGNOSTIC
+static void hspda_probe_args( const char *who, const DllArgValue *args, int argc );
 
 static void hspda_data_bye( void )
 {
@@ -420,11 +421,11 @@ static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 	PVal *pval;
 	int maxnum;
 
+	hspda_probe_args( "xnotesel", args, argc );		// TEMPORARY P3 DIAGNOSTIC
+	return -1;
+
 	(void)args;
 	(void)argc;
-
-	hspda_dump_stream( "hspda _xnotesel@16" );		// TEMPORARY P3 DIAGNOSTIC
-	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	hspda_note_aptr = code_getva( &pval );
 	maxnum = code_getdi( 0 );
@@ -443,11 +444,11 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 	char *add, *buf, *p;
 	int size, line;
 
+	hspda_probe_args( "xnoteadd", args, argc );		// TEMPORARY P3 DIAGNOSTIC
+	return -1;
+
 	(void)args;
 	(void)argc;
-
-	hspda_dump_stream( "hspda _xnoteadd@16" );		// TEMPORARY P3 DIAGNOSTIC
-	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	add = code_gets();
 	if ( hspda_note_pval == NULL ) return -1;
@@ -473,15 +474,26 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 //
 static int impl_hspda_sortval( const DllArgValue *args, int argc )
 {
-	PVal *pval;
+	PVal *pval = NULL;
 	APTR aptr;
 	int order, i, count;
 
+	hspda_probe_args( "sortval", args, argc );		// TEMPORARY P3 DIAGNOSTIC
+	hspda_probe( "sortval", "entry" );
+	aptr = code_getva( &pval );
+	hspda_probe( "sortval", "arg0" );
+	printf( "hsp3switch: ### sortval arg0: flag=%d aptr=%d len1=%d\n",
+		( pval == NULL ) ? -1 : (int)pval->flag, aptr,
+		( pval == NULL ) ? -1 : (int)pval->len[1] );
+	order = code_getdi( -123456 );
+	hspda_probe( "sortval", "arg1" );
+	printf( "hsp3switch: ### sortval arg1: order=%d\n", order );
+	fflush( stdout );
+
+	return 0;		// TEMPORARY: the real sort returns once the shape is known
+
 	(void)args;
 	(void)argc;
-
-	hspda_dump_stream( "hspda _sortval@16" );		// TEMPORARY P3 DIAGNOSTIC
-	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
@@ -521,16 +533,32 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 //
 static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 {
-	PVal *pval;
+	PVal *pval = NULL;
 	APTR aptr;
 	char *buf, *p, *dst;
 	int order, i, count, size, len;
 
+	hspda_probe_args( "sortnote", args, argc );		// TEMPORARY P3 DIAGNOSTIC
+	hspda_probe( "sortnote", "entry" );
+	aptr = code_getva( &pval );
+	hspda_probe( "sortnote", "arg0" );
+	if ( pval != NULL && pval->flag == HSPVAR_FLAG_STR ) {
+		char *s = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
+		printf( "hsp3switch: ### sortnote arg0: STR aptr=%d size=%d head='%.60s'\n",
+			aptr, size, ( s == NULL ) ? "" : s );
+	} else {
+		printf( "hsp3switch: ### sortnote arg0: flag=%d aptr=%d\n",
+			( pval == NULL ) ? -1 : (int)pval->flag, aptr );
+	}
+	order = code_getdi( -123456 );
+	hspda_probe( "sortnote", "arg1" );
+	printf( "hsp3switch: ### sortnote arg1: order=%d\n", order );
+	fflush( stdout );
+
+	return 0;		// TEMPORARY: the real sort returns once the shape is known
+
 	(void)args;
 	(void)argc;
-
-	hspda_dump_stream( "hspda _sortnote@16" );		// TEMPORARY P3 DIAGNOSTIC
-	throw HSPERR_UNSUPPORTED_FUNCTION;
 
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
@@ -605,32 +633,40 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 //	Reading the arguments off the bytecode stream by hand only works if the
 //	entry really is the OLDDLL form assumed in the section above; if it is not,
 //	the reads desynchronise the stream and the next fetched word is executed as
-//	an instruction, which is a hard fault rather than an HSP error (the p3s19
-//	run died exactly that way, without even reaching the teardown).  So print
-//	the words that follow the call verbatim - type/flags/value, decoded the same
-//	way __code_next() does - and then stop with a normal HSP error, so the log
-//	always names the shape of the argument list instead of crashing on it.
+//	an instruction, which is a hard fault rather than an HSP error (p3s19 died
+//	exactly that way, without even reaching the teardown).
 //
-static void hspda_dump_stream( const char *who )
+//	p3s20 tried to print the stream instead and added a worse fault: hspctx->mcs
+//	is NOT the interpreter's live code pointer - that is a file-static inside
+//	hsp3code.cpp, and the struct field is only ever maintained by hsp3cnv's
+//	converter (chsp3.cpp:162) - so the dump dereferenced stale memory and the
+//	run died before it named anything.
+//
+//	code_getpcbak() is the supported view: it returns the token the interpreter
+//	has just consumed, which is exactly the operand being reported.  Every read
+//	is therefore logged twice - the raw token words, decoded the way __code_next
+//	() does, and the value the runtime API returned for that same operand.
+//
+static void hspda_probe( const char *who, const char *what )
 {
-	unsigned short *p = hspctx->mcs;
-	int i = 0;
+	unsigned short *pc = code_getpcbak();
 
-	printf( "hsp3switch: ### %s: arglist at code offset %ld\n", who,
-		(long)( hspctx->mcs - hspctx->mem_mcs ) );
-	while ( i < 16 ) {
-		unsigned short w = p[i];
-		int val, step;
-		if ( w & 0x8000 ) {
-			val = (int)( (unsigned int)p[i+1] | ( (unsigned int)p[i+2] << 16 ) );
-			step = 3;
-		} else {
-			val = (int)p[i+1];
-			step = 2;
-		}
-		printf( "   [+%2d] type=%2d flags=%x val=%d\n",
-			i, w & 0x0fff, ( w >> 12 ) & 0xf, val );
-		i += step;
+	printf( "hsp3switch: ### %s %s: token@%ld = %#06x %#06x %#06x [type=%d exflg=%x]\n",
+		who, what, (long)( pc - hspctx->mem_mcs ),
+		(unsigned)pc[0], (unsigned)pc[1], (unsigned)pc[2],
+		(int)( pc[0] & 0x0fff ), (int)( pc[0] & 0x6000 ) );
+	fflush( stdout );
+}
+
+static void hspda_probe_args( const char *who, const DllArgValue *args, int argc )
+{
+	int i;
+
+	printf( "hsp3switch: ### %s: argc=%d\n", who, argc );
+	for ( i = 0; i < argc; i++ ) {
+		printf( "   arg%d mptype=%d ival=%d dval=%g ptr=%p str='%.32s'\n",
+			i, args[i].type, args[i].ival, args[i].dval, args[i].ptr,
+			( args[i].ptr == NULL ) ? "" : (const char *)args[i].ptr );
 	}
 	fflush( stdout );
 }
