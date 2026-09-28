@@ -2628,14 +2628,7 @@ static void sw_win_restore( void )
 	/*	What the restore actually put on the screen, measured rather than
 		assumed: summed over the whole frame it should match the sum the probe
 		reported at the end of the frame this content was captured from.		*/
-	sw_restore_no++;
-	if ( ( sw_restore_no % 30 ) == 1 ) {
-		unsigned long rsum = 0;
-		int k;
-		glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-		for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
-		sw_fbo_log( "hgio: after restore sum=%u\n", (unsigned)rsum );
-	}
+	sw_measure( "after restore" );
 }
 int hgio_render_start( void )
 {
@@ -2697,6 +2690,19 @@ static void sw_probe_frame( void )
 	free( buf );
 	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d sum=%lu\n", w, h, nonwhite, n, sum );
 }
+static void sw_measure( const char *tag )
+{
+	static unsigned measure_no = 0;
+	unsigned long rsum = 0;
+	int k;
+
+	if ( sw_win_ok != 1 || sw_win_pixels == NULL ) return;
+	measure_no++;
+	if ( ( measure_no % 30 ) != 1 ) return;
+	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
+	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
+	sw_fbo_log( "hgio: %s sum=%u\n", tag, (unsigned)rsum );
+}
 int hgio_render_end( void )
 {
 	int res;
@@ -2707,6 +2713,8 @@ int hgio_render_end( void )
 #ifdef HSPIOS
     gb_render_end();
 #endif
+
+	sw_measure( "before mesh flush" );
 
 	tmes.texmesProc();
 
