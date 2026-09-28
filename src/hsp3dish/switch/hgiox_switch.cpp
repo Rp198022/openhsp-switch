@@ -749,6 +749,13 @@ void hgio_reset( void )
 		int ccol = GetSysReq( SYSREQ_CLSCOLOR );
 		hgio_setClear( (ccol>>16)&0xff, (ccol>>8)&0xff, (ccol)&0xff );
 		hgio_clear();
+		/*	One shot.  HSP's cls clears the screen when the script asks for it;
+			the mode is not meant to stay set.  Leaving it set made every
+			redraw wipe the window, which breaks the idiom Elona's title menu
+			is built on - draw the background once, then repaint only the
+			cursor region each frame.  With it left set the background survived
+			three frames and the menu sat on bare white after that.			*/
+		SetSysReq( SYSREQ_CLSMODE, CLSMODE_NONE );
 	}
 #endif
 
@@ -2566,7 +2573,7 @@ static void sw_probe_frame( void )
 	int i, n, nonwhite = 0;
 
 	probe_no++;
-	if ( probe_no > 400 ) return;
+	if ( ( probe_no % 30 ) != 0 ) return;
 	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
 
 	n = w * h;
