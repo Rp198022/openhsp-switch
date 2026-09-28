@@ -220,6 +220,8 @@ typedef ptrdiff_t		GLsizeiptr;
 #define glBindTexture				sw_glBindTexture
 #define glTexImage2D				sw_glTexImage2D
 #define glTexSubImage2D				sw_glTexSubImage2D
+
+#define glCopyTexImage2D				sw_glCopyTexImage2D
 #define glTexParameteri				sw_glTexParameteri
 
 void sw_glEnable( GLenum cap );
@@ -256,6 +258,7 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 					  GLint border, GLenum format, GLenum type, const GLvoid *pixels );
 void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
 						 GLenum format, GLenum type, const GLvoid *pixels );
+void sw_glCopyTexImage2D( GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border );
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param );
 
 void sw_glGenFramebuffers( GLsizei n, GLuint *framebuffers );
