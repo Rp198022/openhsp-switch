@@ -2571,7 +2571,7 @@ static void sw_win_capture( void )
 
 	if ( sw_win_path == 0 ) {
 		glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0 );
-		if ( glGetError() != GL_NO_ERROR ) {
+		if ( sw_glGetError() != GL_NO_ERROR ) {
 			sw_win_path = 1;
 			sw_fbo_log( "hgio: window carry fell back to a readback\n" );
 		}
