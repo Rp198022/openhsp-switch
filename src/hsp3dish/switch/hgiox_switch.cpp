@@ -255,6 +255,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 #define SWTARGET_MAX 64
 
 typedef struct {
+	BMSCR	*bm;			// owning screen: texid alone is recycled by GetNextTex()
 	int		texid;
 	GLuint	fbo;
 } SWTARGET;
@@ -264,6 +265,9 @@ static int		sw_target_used = 0;
 static BMSCR	*sw_cur = NULL;		// screen currently serving as render target
 static int		sw_fbo_report = 0;
 static int		sw_fbo_fail = 0;
+static int		sw_attach_report = 0;	// P3 diagnostic
+static int		sw_buffer_report = 0;	// P3 diagnostic
+static int		sw_del_report = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
 {
@@ -274,12 +278,13 @@ static void sw_fbo_log( const char *fmt, ... )
 	fflush( stdout );			// nxlink socket output is fully buffered
 }
 
-static SWTARGET *sw_find( int texid )
+static SWTARGET *sw_find( BMSCR *bm )
 {
 	int i;
-	if ( texid < 0 ) return NULL;
+	if ( bm == NULL ) return NULL;
 	for ( i = 0; i < sw_target_used; i++ ) {
-		if ( sw_targets[i].texid == texid ) return &sw_targets[i];
+		if ( ( sw_targets[i].bm == bm ) && ( sw_targets[i].texid == bm->texid ) )
+			return &sw_targets[i];
 	}
 	return NULL;
 }
@@ -290,7 +295,7 @@ static void sw_forget( BMSCR *bm )
 	GLuint fbo;
 
 	if ( bm == NULL ) return;
-	t = sw_find( bm->texid );
+	t = sw_find( bm );
 	if ( t == NULL ) return;
 
 	fbo = t->fbo;
@@ -304,6 +309,7 @@ static void sw_forget( BMSCR *bm )
 	if ( t != &sw_targets[sw_target_used] ) {
 		*t = sw_targets[sw_target_used];
 	}
+	sw_targets[sw_target_used].bm = NULL;
 	sw_targets[sw_target_used].texid = -1;
 	sw_targets[sw_target_used].fbo = 0;
 }
@@ -364,9 +370,10 @@ static int sw_ensure( BMSCR *bm )
 	TEXINF *tex;
 	GLuint fbo;
 	GLenum st;
+	GLboolean live;
 
 	if ( bm == NULL ) return -1;
-	t = sw_find( bm->texid );
+	t = sw_find( bm );
 	if ( t != NULL ) return 0;
 
 	if ( bm->texid < 0 ) {
@@ -377,6 +384,32 @@ static int sw_ensure( BMSCR *bm )
 	tex = GetTex( bm->texid );
 	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return -1;
 	if ( sw_target_used >= SWTARGET_MAX ) return -1;
+
+	/*	P3 diagnostic.  The Atmosphere crash report for this build points at a
+		NULL dereference inside Mesa's st_update_renderbuffer_surface() while
+		glFramebufferTexture2D runs - and this is its only caller.  The last
+		line printed below therefore names the screen/texture that Mesa chokes
+		on.  glIsTexture() separates "dangling name" (TEXINF survives a
+		glDeleteTextures) from "live texture, unsupported as a colour buffer"
+		(MakeEmptyTex() hands out GL_ALPHA/TEXMODE_MES8 textures).			*/
+	live = glIsTexture( (GLuint)tex->texid );
+	if ( sw_attach_report < 96 ) {
+		sw_attach_report++;
+		sw_fbo_log( "hgio: attach bm=%p type=%d texid=%d mode=%d opt=%d sx=%d sy=%d w=%d h=%d glid=%u live=%d err=0x%x used=%d\n",
+			(void *)bm, bm->type, bm->texid, (int)tex->mode, (int)tex->opt,
+			(int)tex->sx, (int)tex->sy, (int)tex->width, (int)tex->height,
+			(unsigned)tex->texid, (int)live, (unsigned)sw_glGetError(), sw_target_used );
+	}
+	if ( !live ) {
+		sw_fbo_log( "hgio: attach SKIP dead texture texid=%d glid=%u\n",
+			bm->texid, (unsigned)tex->texid );
+		return -1;
+	}
+	if ( ( tex->mode != TEXMODE_BUFFER ) && ( tex->mode != TEXMODE_NORMAL ) ) {
+		sw_fbo_log( "hgio: attach SKIP mode=%d texid=%d glid=%u\n",
+			(int)tex->mode, bm->texid, (unsigned)tex->texid );
+		return -1;
+	}
 
 	fbo = 0;
 	glGenFramebuffers( 1, &fbo );
@@ -397,6 +430,7 @@ static int sw_ensure( BMSCR *bm )
 	}
 
 	t = &sw_targets[sw_target_used++];
+	t->bm = bm;
 	t->texid = bm->texid;
 	t->fbo = fbo;
 
@@ -413,7 +447,7 @@ static int sw_drawable( BMSCR *bm )
 	if ( bm == NULL ) return 0;
 	if ( bm->type == HSPWND_TYPE_MAIN ) return 1;
 	if ( bm->type == HSPWND_TYPE_NONE ) return 0;
-	if ( sw_find( bm->texid ) != NULL ) return 1;
+	if ( sw_find( bm ) != NULL ) return 1;
 	return ( sw_ensure( bm ) == 0 );
 }
 
@@ -438,7 +472,7 @@ static int sw_bind_target( BMSCR *bm )
 		return -1;
 	}
 
-	t = sw_find( bm->texid );
+	t = sw_find( bm );
 	if ( t == NULL ) return -1;
 	glBindFramebuffer( GL_FRAMEBUFFER, t->fbo );
 	sw_cur = bm;
@@ -762,6 +796,13 @@ int hgio_buffer(BMSCR *bm)
 	int texid = MakeEmptyTexBuffer( bm->sx, bm->sy );
 	if (texid >= 0) {
 		bm->texid = texid;
+	}
+	if ( sw_buffer_report < 48 ) {
+		sw_buffer_report++;
+		TEXINF *t = ( texid >= 0 ) ? GetTex( texid ) : NULL;
+		sw_fbo_log( "hgio: buffer bm=%p %dx%d -> texid=%d glid=%u potsx=%d potsy=%d\n",
+			(void *)bm, bm->sx, bm->sy, texid,
+			t ? (unsigned)t->texid : 0u, t ? (int)t->sx : 0, t ? (int)t->sy : 0 );
 	}
 	return 0;
 }
@@ -2523,6 +2564,11 @@ void hgio_screen( BMSCR *bm )
 void hgio_delscreen( BMSCR *bm )
 {
 	if ( bm->flag == BMSCR_FLAG_NOUSE ) return;
+	if ( sw_del_report < 48 ) {
+		sw_del_report++;
+		sw_fbo_log( "hgio: delscreen bm=%p texid=%d hasTarget=%d\n",
+			(void *)bm, bm->texid, ( sw_find( bm ) != NULL ) ? 1 : 0 );
+	}
 	sw_forget( bm );			// FBOはbm->texidをキーにしているので先に破棄する
 	if ( bm->texid != -1 ) {
 		DeleteTex( bm->texid );

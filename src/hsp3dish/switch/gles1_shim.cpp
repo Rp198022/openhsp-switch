@@ -64,6 +64,7 @@ typedef void (*PFN_glDeleteFramebuffers)( GLsizei, const GLuint * );
 typedef void (*PFN_glBindFramebuffer)( GLenum, GLuint );
 typedef void (*PFN_glFramebufferTexture2D)( GLenum, GLenum, GLenum, GLuint, GLint );
 typedef GLenum (*PFN_glCheckFramebufferStatus)( GLenum );
+typedef GLboolean (*PFN_glIsTexture)( GLuint );
 
 typedef GLuint (*PFN_glCreateShader)( GLenum );
 typedef void (*PFN_glShaderSource)( GLuint, GLsizei, const char *const *, const GLint * );
@@ -110,6 +111,7 @@ static PFN_glDeleteFramebuffers			gl_deleteframebuffers;
 static PFN_glBindFramebuffer			gl_bindframebuffer;
 static PFN_glFramebufferTexture2D		gl_framebuffertexture2d;
 static PFN_glCheckFramebufferStatus		gl_checkframebufferstatus;
+static PFN_glIsTexture					gl_istexture;
 
 static PFN_glCreateShader				gl_createshader;
 static PFN_glShaderSource				gl_shadersource;
@@ -401,6 +403,7 @@ static void sw_init( void )
 	*(void **)( &gl_bindframebuffer ) = SDL_GL_GetProcAddress( "glBindFramebuffer" );
 	*(void **)( &gl_framebuffertexture2d ) = SDL_GL_GetProcAddress( "glFramebufferTexture2D" );
 	*(void **)( &gl_checkframebufferstatus ) = SDL_GL_GetProcAddress( "glCheckFramebufferStatus" );
+	*(void **)( &gl_istexture ) = SDL_GL_GetProcAddress( "glIsTexture" );
 	SW_LOAD( gl_createshader, "glCreateShader" );
 	SW_LOAD( gl_shadersource, "glShaderSource" );
 	SW_LOAD( gl_compileshader, "glCompileShader" );
@@ -841,6 +844,27 @@ GLenum sw_glCheckFramebufferStatus( GLenum target )
 	sw_init();
 	if ( sw_ready && gl_checkframebufferstatus ) return gl_checkframebufferstatus( target );
 	return GL_FRAMEBUFFER_UNSUPPORTED;
+}
+
+/*	Used by hgiox_switch.cpp to tell a live texture name from one whose TEXINF
+	is still around after glDeleteTextures (TEXINF slots are recycled, so a
+	stale name can otherwise reach glFramebufferTexture2D).
+	Fails *open* - if glIsTexture could not be resolved the attach proceeds as
+	before, so a driver without it cannot disable all offscreen drawing.	*/
+GLboolean sw_glIsTexture( GLuint texture )
+{
+	sw_init();
+	if ( sw_ready && gl_istexture ) return gl_istexture( texture );
+	return GL_TRUE;
+}
+
+/*	Exposed for hgiox_switch.cpp's attach probe.  Drains the error queue, so it
+	is only called from that diagnostic, never from a per-frame path.		*/
+GLenum sw_glGetError( void )
+{
+	sw_init();
+	if ( sw_ready && gl_geterror ) return gl_geterror();
+	return GL_NO_ERROR;
 }
 
 /*	ES2 requires CLAMP_TO_EDGE for non-power-of-two textures: with the default

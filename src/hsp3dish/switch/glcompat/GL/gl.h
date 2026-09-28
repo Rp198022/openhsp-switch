@@ -212,6 +212,7 @@ typedef ptrdiff_t		GLsizeiptr;
 #define glBindFramebuffer			sw_glBindFramebuffer
 #define glFramebufferTexture2D		sw_glFramebufferTexture2D
 #define glCheckFramebufferStatus	sw_glCheckFramebufferStatus
+#define glIsTexture					sw_glIsTexture
 
 #define glGenTextures				sw_glGenTextures
 #define glDeleteTextures			sw_glDeleteTextures
@@ -261,6 +262,8 @@ void sw_glDeleteFramebuffers( GLsizei n, const GLuint *framebuffers );
 void sw_glBindFramebuffer( GLenum target, GLuint framebuffer );
 void sw_glFramebufferTexture2D( GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level );
 GLenum sw_glCheckFramebufferStatus( GLenum target );
+GLboolean sw_glIsTexture( GLuint texture );
+GLenum sw_glGetError( void );
 
 #ifdef __cplusplus
 }
