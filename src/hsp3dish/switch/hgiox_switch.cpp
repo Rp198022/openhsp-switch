@@ -373,8 +373,7 @@ static int sw_ensure( BMSCR *bm )
 	GLboolean live;
 
 	if ( bm == NULL ) return -1;
-	t = sw_find( bm );
-	if ( t != NULL ) return 0;
+	if ( sw_glOutOfMemory() ) return -1;
 
 	if ( bm->texid < 0 ) {
 		hgio_buffer( bm );			// 通常のテクスチャ確保パスを使う
@@ -383,7 +382,14 @@ static int sw_ensure( BMSCR *bm )
 
 	tex = GetTex( bm->texid );
 	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return -1;
-	if ( sw_target_used >= SWTARGET_MAX ) return -1;
+	if ( !sw_glTextureReady( (GLuint)tex->texid, tex->sx, tex->sy ) ) {
+		sw_fbo_log( "hgio: attach SKIP storage texid=%d glid=%u size=%dx%d oom=%d\n",
+			bm->texid, (unsigned)tex->texid, (int)tex->sx, (int)tex->sy,
+			(int)sw_glOutOfMemory() );
+		return -1;
+	}
+	sw_glDrainErrors( "attach-before", (GLuint)tex->texid );
+	if ( sw_glOutOfMemory() ) return -1;
 
 	/*	P3 diagnostic.  The Atmosphere crash report for this build points at a
 		NULL dereference inside Mesa's st_update_renderbuffer_surface() while
@@ -393,14 +399,15 @@ static int sw_ensure( BMSCR *bm )
 		glDeleteTextures) from "live texture, unsupported as a colour buffer"
 		(MakeEmptyTex() hands out GL_ALPHA/TEXMODE_MES8 textures).			*/
 	live = glIsTexture( (GLuint)tex->texid );
+	GLenum live_error = sw_glDrainErrors( "attach-live", (GLuint)tex->texid );
 	if ( sw_attach_report < 96 ) {
 		sw_attach_report++;
 		sw_fbo_log( "hgio: attach bm=%p type=%d texid=%d mode=%d opt=%d sx=%d sy=%d w=%d h=%d glid=%u live=%d err=0x%x used=%d\n",
 			(void *)bm, bm->type, bm->texid, (int)tex->mode, (int)tex->opt,
 			(int)tex->sx, (int)tex->sy, (int)tex->width, (int)tex->height,
-			(unsigned)tex->texid, (int)live, (unsigned)sw_glGetError(), sw_target_used );
+			(unsigned)tex->texid, (int)live, (unsigned)live_error, sw_target_used );
 	}
-	if ( !live ) {
+	if ( !live || live_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
 		sw_fbo_log( "hgio: attach SKIP dead texture texid=%d glid=%u\n",
 			bm->texid, (unsigned)tex->texid );
 		return -1;
@@ -411,15 +418,34 @@ static int sw_ensure( BMSCR *bm )
 		return -1;
 	}
 
+	t = sw_find( bm );
+	if ( t != NULL ) return 0;
+	if ( sw_target_used >= SWTARGET_MAX ) return -1;
 	fbo = 0;
 	glGenFramebuffers( 1, &fbo );
-	if ( fbo == 0 ) return -1;
+	GLenum gen_error = sw_glDrainErrors( "attach-gen", (GLuint)tex->texid );
+	if ( fbo == 0 || gen_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
+		if ( fbo != 0 ) glDeleteFramebuffers( 1, &fbo );
+		return -1;
+	}
 	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+	if ( sw_glDrainErrors( "attach-setup", (GLuint)tex->texid ) != GL_NO_ERROR || sw_glOutOfMemory() ) {
+		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		glDeleteFramebuffers( 1, &fbo );
+		return -1;
+	}
 	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)tex->texid, 0 );
-	st = glCheckFramebufferStatus( GL_FRAMEBUFFER );
+	GLenum attach_error = sw_glDrainErrors( "attach-after", (GLuint)tex->texid );
+	st = attach_error == GL_NO_ERROR && !sw_glOutOfMemory()
+		? glCheckFramebufferStatus( GL_FRAMEBUFFER ) : GL_FRAMEBUFFER_UNSUPPORTED;
+	GLenum status_error = sw_glDrainErrors( "attach-status", (GLuint)tex->texid );
+	sw_fbo_log( "hgio: attach result glid=%u fbo=%u err=0x%x status=0x%x status_err=0x%x oom=%d\n",
+		(unsigned)tex->texid, (unsigned)fbo, (unsigned)attach_error,
+		(unsigned)st, (unsigned)status_error, (int)sw_glOutOfMemory() );
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 
-	if ( st != GL_FRAMEBUFFER_COMPLETE ) {
+	if ( st != GL_FRAMEBUFFER_COMPLETE || attach_error != GL_NO_ERROR ||
+		status_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
 		glDeleteFramebuffers( 1, &fbo );
 		if ( sw_fbo_fail < 8 ) {
 			sw_fbo_fail++;
@@ -447,7 +473,6 @@ static int sw_drawable( BMSCR *bm )
 	if ( bm == NULL ) return 0;
 	if ( bm->type == HSPWND_TYPE_MAIN ) return 1;
 	if ( bm->type == HSPWND_TYPE_NONE ) return 0;
-	if ( sw_find( bm ) != NULL ) return 1;
 	return ( sw_ensure( bm ) == 0 );
 }
 

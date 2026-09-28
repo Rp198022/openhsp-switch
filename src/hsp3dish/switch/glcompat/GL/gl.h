@@ -159,6 +159,7 @@ typedef ptrdiff_t		GLsizeiptr;
 
 /*	framebuffer objects (GLES2 core; used by hgiox_switch.cpp to make a	*/
 /*	`buffer` screen a real render target)								*/
+#define GL_OUT_OF_MEMORY 0x0505
 #define GL_NONE							0
 #define GL_FRAMEBUFFER					0x8D40
 #define GL_RENDERBUFFER					0x8D41
@@ -264,6 +265,9 @@ void sw_glFramebufferTexture2D( GLenum target, GLenum attachment, GLenum textarg
 GLenum sw_glCheckFramebufferStatus( GLenum target );
 GLboolean sw_glIsTexture( GLuint texture );
 GLenum sw_glGetError( void );
+GLenum sw_glDrainErrors( const char *stage, GLuint texture );
+GLboolean sw_glOutOfMemory( void );
+GLboolean sw_glTextureReady( GLuint texture, GLsizei width, GLsizei height );
 
 #ifdef __cplusplus
 }

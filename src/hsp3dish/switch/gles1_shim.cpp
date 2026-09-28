@@ -160,6 +160,37 @@ static GLboolean	sw_tex_client_enabled;	/* glEnableClientState(GL_TEXTURE_COORD_
 
 static GLboolean	sw_texture2d;			/* glEnable(GL_TEXTURE_2D)				*/
 static GLuint		sw_bound_tex;
+
+#define SW_TEXTURE_STORAGE_MAX 4096
+
+typedef struct {
+	GLuint texture;
+	GLsizei width, height;
+	GLint internalformat;
+	GLenum format, type;
+	GLboolean allocated;
+} sw_texture_storage;
+
+static sw_texture_storage sw_texture_storage_table[SW_TEXTURE_STORAGE_MAX];
+static GLboolean sw_oom;
+static unsigned sw_alloc_report;
+
+static sw_texture_storage *sw_find_texture_storage( GLuint texture, int create )
+{
+	sw_texture_storage *empty = NULL;
+	if ( texture == 0 ) return NULL;
+	for ( int i = 0; i < SW_TEXTURE_STORAGE_MAX; i++ ) {
+		sw_texture_storage *s = &sw_texture_storage_table[i];
+		if ( s->texture == texture ) return s;
+		if ( s->texture == 0 && empty == NULL ) empty = s;
+	}
+	if ( create && empty != NULL ) {
+		memset( empty, 0, sizeof( *empty ) );
+		empty->texture = texture;
+		return empty;
+	}
+	return NULL;
+}
 static GLfloat		sw_point_size;
 
 /*	Matrix state (column-major, same layout glLoadMatrixf expects)		*/
@@ -438,6 +469,7 @@ static void sw_init( void )
 	sw_identity( sw_mat_model );
 	sw_texture2d = GL_FALSE;
 	sw_bound_tex = 0;
+	memset( sw_texture_storage_table, 0, sizeof( sw_texture_storage_table ) );
 	sw_point_size = 1.0f;
 	sw_vtx.enabled = GL_TRUE;			/* glVertexPointer is always live here	*/
 	sw_col.enabled = GL_FALSE;
@@ -711,7 +743,7 @@ void sw_glClear( GLbitfield mask )
 		/*	Report a GL error once per run so a silently broken frame is at
 			least visible over nxlink.										*/
 		if ( gl_geterror != NULL && sw_frames_reported < 3 ) {
-			GLenum e = gl_geterror();
+			GLenum e = sw_glGetError();
 			if ( e != GL_NO_ERROR ) {
 				sw_say( "gles1shim: glClear left glGetError 0x%x\n", (unsigned)e );
 				sw_frames_reported++;
@@ -790,14 +822,24 @@ void sw_glGenTextures( GLsizei n, GLuint *textures )
 void sw_glDeleteTextures( GLsizei n, const GLuint *textures )
 {
 	sw_init();
-	if ( sw_ready ) gl_deletetextures( n, textures );
+	if ( sw_ready ) {
+		gl_deletetextures( n, textures );
+		for ( GLsizei i = 0; i < n; i++ ) {
+			sw_texture_storage *s = sw_find_texture_storage( textures[i], 0 );
+			if ( s != NULL ) memset( s, 0, sizeof( *s ) );
+			if ( sw_bound_tex == textures[i] ) sw_bound_tex = 0;
+		}
+	}
 }
 
 void sw_glBindTexture( GLenum target, GLuint texture )
 {
 	sw_init();
-	if ( target == GL_TEXTURE_2D ) sw_bound_tex = texture;
-	if ( sw_ready ) gl_bindtexture( target, texture );
+	if ( !sw_ready ) return;
+	sw_glDrainErrors( "bind-before", texture );
+	gl_bindtexture( target, texture );
+	GLenum error = sw_glDrainErrors( "bind-after", texture );
+	if ( target == GL_TEXTURE_2D ) sw_bound_tex = error == GL_NO_ERROR ? texture : 0;
 }
 
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param )
@@ -846,25 +888,47 @@ GLenum sw_glCheckFramebufferStatus( GLenum target )
 	return GL_FRAMEBUFFER_UNSUPPORTED;
 }
 
-/*	Used by hgiox_switch.cpp to tell a live texture name from one whose TEXINF
-	is still around after glDeleteTextures (TEXINF slots are recycled, so a
-	stale name can otherwise reach glFramebufferTexture2D).
-	Fails *open* - if glIsTexture could not be resolved the attach proceeds as
-	before, so a driver without it cannot disable all offscreen drawing.	*/
 GLboolean sw_glIsTexture( GLuint texture )
 {
 	sw_init();
 	if ( sw_ready && gl_istexture ) return gl_istexture( texture );
-	return GL_TRUE;
+	return GL_FALSE;
 }
 
-/*	Exposed for hgiox_switch.cpp's attach probe.  Drains the error queue, so it
-	is only called from that diagnostic, never from a per-frame path.		*/
 GLenum sw_glGetError( void )
 {
 	sw_init();
-	if ( sw_ready && gl_geterror ) return gl_geterror();
+	if ( sw_ready && gl_geterror ) {
+		GLenum error = gl_geterror();
+		if ( error == GL_OUT_OF_MEMORY ) sw_oom = GL_TRUE;
+		return error;
+	}
 	return GL_NO_ERROR;
+}
+
+GLenum sw_glDrainErrors( const char *stage, GLuint texture )
+{
+	GLenum first = GL_NO_ERROR;
+	GLenum error;
+	while ( ( error = sw_glGetError() ) != GL_NO_ERROR ) {
+		if ( first == GL_NO_ERROR ) first = error;
+		sw_say( "gles1shim: %s glid=%u err=0x%x oom=%d\n",
+			stage, (unsigned)texture, (unsigned)error, (int)sw_oom );
+	}
+	return first;
+}
+
+GLboolean sw_glOutOfMemory( void )
+{
+	return sw_oom;
+}
+
+GLboolean sw_glTextureReady( GLuint texture, GLsizei width, GLsizei height )
+{
+	sw_texture_storage *s = sw_find_texture_storage( texture, 0 );
+	return !sw_oom && s != NULL && s->allocated && width > 0 && height > 0 &&
+		s->width == width && s->height == height && s->internalformat == GL_RGBA &&
+		s->format == GL_RGBA && s->type == GL_UNSIGNED_BYTE;
 }
 
 /*	ES2 requires CLAMP_TO_EDGE for non-power-of-two textures: with the default
@@ -883,9 +947,37 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 {
 	sw_init();
 	if ( !sw_ready ) return;
-	gl_teximage2d( target, level, internalformat, width, height, border, format, type, pixels );
+	sw_texture_storage *s = NULL;
 	if ( target == GL_TEXTURE_2D && level == 0 ) {
+		s = sw_find_texture_storage( sw_bound_tex, 1 );
+		if ( s != NULL ) {
+			s->allocated = GL_FALSE;
+			s->width = width;
+			s->height = height;
+			s->internalformat = internalformat;
+			s->format = format;
+			s->type = type;
+		}
+	}
+	sw_glDrainErrors( "teximage-before", sw_bound_tex );
+	if ( sw_oom ) {
+		sw_say( "gles1shim: teximage SKIP oom glid=%u level=%d size=%dx%d\n",
+			(unsigned)sw_bound_tex, (int)level, (int)width, (int)height );
+		return;
+	}
+	gl_teximage2d( target, level, internalformat, width, height, border, format, type, pixels );
+	GLenum error = sw_glDrainErrors( "teximage-after", sw_bound_tex );
+	if ( s != NULL ) s->allocated = error == GL_NO_ERROR && width > 0 && height > 0;
+	if ( sw_alloc_report < 96 || error != GL_NO_ERROR || s == NULL ) {
+		if ( sw_alloc_report < 96 ) sw_alloc_report++;
+		sw_say( "gles1shim: teximage glid=%u target=0x%x level=%d size=%dx%d internal=0x%x format=0x%x type=0x%x tracked=%d allocated=%d err=0x%x oom=%d\n",
+			(unsigned)sw_bound_tex, (unsigned)target, (int)level, (int)width, (int)height,
+			(unsigned)internalformat, (unsigned)format, (unsigned)type, s != NULL,
+			s != NULL && s->allocated, (unsigned)error, (int)sw_oom );
+	}
+	if ( target == GL_TEXTURE_2D && level == 0 && error == GL_NO_ERROR && !sw_oom ) {
 		sw_fix_npot_wrap( width, height );
+		sw_glDrainErrors( "teximage-wrap", sw_bound_tex );
 	}
 }
 
