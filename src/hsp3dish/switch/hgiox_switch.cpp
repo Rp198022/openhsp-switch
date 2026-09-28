@@ -2552,6 +2552,33 @@ int hgio_render_start( void )
 }
 
 
+/*	P3 DIAGNOSTIC - what the frame we are about to present actually holds.
+	The title menu flickers between the drawn text and a bare white clear even
+	though every frame reports the same number of draws, so read the buffer back
+	just before the swap: a steady count means the content is there and the
+	alternation happens after us, an alternating count means it does not.	*/
+static void sw_probe_frame( void )
+{
+	static unsigned probe_no = 0;
+	int w = (int)_sizex;
+	int h = (int)_sizey;
+	unsigned char *buf;
+	int i, n, nonwhite = 0;
+
+	probe_no++;
+	if ( ( probe_no % 30 ) != 0 ) return;
+	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
+
+	n = w * h;
+	buf = (unsigned char *)malloc( (size_t)n * 4 );
+	if ( buf == NULL ) return;
+	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
+	for ( i = 0; i < n; i++ ) {
+		if ( ( buf[i*4] < 200 ) || ( buf[i*4+1] < 200 ) || ( buf[i*4+2] < 200 ) ) nonwhite++;
+	}
+	free( buf );
+	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d\n", w, h, nonwhite, n );
+}
 int hgio_render_end( void )
 {
 	int res;
@@ -2564,6 +2591,8 @@ int hgio_render_end( void )
 #endif
 
 	tmes.texmesProc();
+
+	sw_probe_frame();
 
 	//	ウインドウ(FBO 0)に戻してからスワップする
 	sw_unbind_window();
