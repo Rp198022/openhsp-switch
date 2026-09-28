@@ -2556,7 +2556,7 @@ static void sw_win_capture( void )
 	if ( sw_win_tex == 0 ) return;
 
 	if ( sw_win_path < 0 ) {
-		sw_win_path = sw_glCopyTexImage2DAvailable() ? 0 : 1;
+		sw_win_path = 1;		/* P3: the copy reports success, then samples black */
 		sw_fbo_log( "hgio: window carry %dx%d tex=%u screen=%dx%d via %s\n",
 			w, h, (unsigned)sw_win_tex, (int)_sizex, (int)_sizey,
 			sw_win_path == 0 ? "glCopyTexImage2D" : "readback" );
