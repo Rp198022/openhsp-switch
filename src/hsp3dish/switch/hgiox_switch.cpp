@@ -385,7 +385,8 @@ static int sw_ensure( BMSCR *bm )
 	GLboolean live;
 
 	if ( bm == NULL ) return -1;
-	if ( sw_glOutOfMemory() ) return -1;
+	t = sw_find( bm );
+	if ( t != NULL ) return 0;
 
 	if ( bm->texid < 0 ) {
 		hgio_buffer( bm );			// 通常のテクスチャ確保パスを使う
@@ -401,7 +402,6 @@ static int sw_ensure( BMSCR *bm )
 		return -1;
 	}
 	sw_glDrainErrors( "attach-before", (GLuint)tex->texid );
-	if ( sw_glOutOfMemory() ) return -1;
 
 	/*	P3 diagnostic.  The Atmosphere crash report for this build points at a
 		NULL dereference inside Mesa's st_update_renderbuffer_surface() while
@@ -419,7 +419,7 @@ static int sw_ensure( BMSCR *bm )
 			(int)tex->sx, (int)tex->sy, (int)tex->width, (int)tex->height,
 			(unsigned)tex->texid, (int)live, (unsigned)live_error, sw_target_used );
 	}
-	if ( !live || live_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
+	if ( !live || live_error != GL_NO_ERROR ) {
 		sw_fbo_log( "hgio: attach SKIP dead texture texid=%d glid=%u\n",
 			bm->texid, (unsigned)tex->texid );
 		return -1;
@@ -436,19 +436,19 @@ static int sw_ensure( BMSCR *bm )
 	fbo = 0;
 	glGenFramebuffers( 1, &fbo );
 	GLenum gen_error = sw_glDrainErrors( "attach-gen", (GLuint)tex->texid );
-	if ( fbo == 0 || gen_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
+	if ( fbo == 0 || gen_error != GL_NO_ERROR ) {
 		if ( fbo != 0 ) glDeleteFramebuffers( 1, &fbo );
 		return -1;
 	}
 	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
-	if ( sw_glDrainErrors( "attach-setup", (GLuint)tex->texid ) != GL_NO_ERROR || sw_glOutOfMemory() ) {
+	if ( sw_glDrainErrors( "attach-setup", (GLuint)tex->texid ) != GL_NO_ERROR ) {
 		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 		glDeleteFramebuffers( 1, &fbo );
 		return -1;
 	}
 	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)tex->texid, 0 );
 	GLenum attach_error = sw_glDrainErrors( "attach-after", (GLuint)tex->texid );
-	st = attach_error == GL_NO_ERROR && !sw_glOutOfMemory()
+	st = attach_error == GL_NO_ERROR
 		? glCheckFramebufferStatus( GL_FRAMEBUFFER ) : GL_FRAMEBUFFER_UNSUPPORTED;
 	GLenum status_error = sw_glDrainErrors( "attach-status", (GLuint)tex->texid );
 	sw_fbo_log( "hgio: attach result glid=%u fbo=%u err=0x%x status=0x%x status_err=0x%x oom=%d\n",
@@ -457,7 +457,7 @@ static int sw_ensure( BMSCR *bm )
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 
 	if ( st != GL_FRAMEBUFFER_COMPLETE || attach_error != GL_NO_ERROR ||
-		status_error != GL_NO_ERROR || sw_glOutOfMemory() ) {
+		status_error != GL_NO_ERROR ) {
 		glDeleteFramebuffers( 1, &fbo );
 		if ( sw_fbo_fail < 8 ) {
 			sw_fbo_fail++;

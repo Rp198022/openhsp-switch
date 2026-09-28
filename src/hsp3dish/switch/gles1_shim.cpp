@@ -926,7 +926,7 @@ GLboolean sw_glOutOfMemory( void )
 GLboolean sw_glTextureReady( GLuint texture, GLsizei width, GLsizei height )
 {
 	sw_texture_storage *s = sw_find_texture_storage( texture, 0 );
-	return !sw_oom && s != NULL && s->allocated && width > 0 && height > 0 &&
+	return s != NULL && s->allocated && width > 0 && height > 0 &&
 		s->width == width && s->height == height && s->internalformat == GL_RGBA &&
 		s->format == GL_RGBA && s->type == GL_UNSIGNED_BYTE;
 }
@@ -960,11 +960,6 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 		}
 	}
 	sw_glDrainErrors( "teximage-before", sw_bound_tex );
-	if ( sw_oom ) {
-		sw_say( "gles1shim: teximage SKIP oom glid=%u level=%d size=%dx%d\n",
-			(unsigned)sw_bound_tex, (int)level, (int)width, (int)height );
-		return;
-	}
 	gl_teximage2d( target, level, internalformat, width, height, border, format, type, pixels );
 	GLenum error = sw_glDrainErrors( "teximage-after", sw_bound_tex );
 	if ( s != NULL ) s->allocated = error == GL_NO_ERROR && width > 0 && height > 0;
@@ -975,7 +970,7 @@ void sw_glTexImage2D( GLenum target, GLint level, GLint internalformat, GLsizei 
 			(unsigned)internalformat, (unsigned)format, (unsigned)type, s != NULL,
 			s != NULL && s->allocated, (unsigned)error, (int)sw_oom );
 	}
-	if ( target == GL_TEXTURE_2D && level == 0 && error == GL_NO_ERROR && !sw_oom ) {
+	if ( target == GL_TEXTURE_2D && level == 0 && error == GL_NO_ERROR ) {
 		sw_fix_npot_wrap( width, height );
 		sw_glDrainErrors( "teximage-wrap", sw_bound_tex );
 	}
