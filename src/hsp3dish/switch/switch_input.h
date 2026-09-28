@@ -22,4 +22,9 @@ void switch_input_poll( void );
 	synthetic SDL events are not consumed by the event loop.				*/
 int switch_input_key_state( int scancode );
 
+/*	DirectInput-shaped pad state for Elona's own gamepad path: bits 0-3 are
+	the hat (up, down, left, right) and bits 4..15 the twelve buttons, which its
+	config maps to key_cancel / key_enter / ... by index.					*/
+unsigned int switch_input_pad_bits( void );
+
 #endif

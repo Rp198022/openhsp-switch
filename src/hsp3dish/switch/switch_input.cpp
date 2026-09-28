@@ -195,6 +195,58 @@ int switch_input_key_state( int scancode )
 	if ( scancode < 0 || scancode >= SW_KEY_STATE_MAX ) return 0;
 	return sw_keys[scancode] ? 1 : 0;
 }
+/*	The DirectInput-shaped joypad state Elona's own gamepad path wants.  Its
+	config maps buttons to keys by index - `key_enter. " " ,"2"` - and reads the
+	state with DIGETJOYSTATE, so the layout here decides which Switch button
+	becomes enter.  The face buttons are ordered the Nintendo way, which makes
+	stock Elona land on what a Switch player expects: index 0 (cancel) is the
+	right-hand button, index 2 (enter) the bottom one.						*/
+static const SDL_GameControllerButton sw_pad_button[] = {
+	SDL_CONTROLLER_BUTTON_B,			/* 0: cancel, right			*/
+	SDL_CONTROLLER_BUTTON_X,			/* 1: top					*/
+	SDL_CONTROLLER_BUTTON_A,			/* 2: enter, bottom			*/
+	SDL_CONTROLLER_BUTTON_Y,			/* 3: left					*/
+	SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+	SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+	SDL_CONTROLLER_BUTTON_BACK,
+	SDL_CONTROLLER_BUTTON_START,
+	SDL_CONTROLLER_BUTTON_LEFTSTICK,
+	SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+};
+
+#define SW_PAD_BUTTON_N	((int)( sizeof( sw_pad_button ) / sizeof( sw_pad_button[0] ) ))
+
+unsigned int switch_input_pad_bits( void )
+{
+	unsigned int bits = 0;
+	Sint16 lx, ly;
+	int j;
+
+	if ( sw_pad == NULL ) return 0;
+
+	SDL_PumpEvents();
+	SDL_JoystickUpdate();
+
+	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP ) )		bits |= 1u << 0;
+	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN ) )	bits |= 1u << 1;
+	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT ) )	bits |= 1u << 2;
+	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT ) )	bits |= 1u << 3;
+
+	lx = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX );
+	ly = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY );
+	if ( ly < -SW_STICK_DEADZONE ) bits |= 1u << 0;
+	if ( ly >  SW_STICK_DEADZONE ) bits |= 1u << 1;
+	if ( lx < -SW_STICK_DEADZONE ) bits |= 1u << 2;
+	if ( lx >  SW_STICK_DEADZONE ) bits |= 1u << 3;
+
+	for ( j = 0; j < SW_PAD_BUTTON_N; j++ ) {
+		if ( SDL_GameControllerGetButton( sw_pad, sw_pad_button[j] ) ) bits |= 1u << ( 4 + j );
+	}
+	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT ) > SW_TRIGGER_ON )		bits |= 1u << ( 4 + 10 );
+	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ) > SW_TRIGGER_ON )	bits |= 1u << ( 4 + 11 );
+
+	return bits;
+}
 /*----------------------------------------------------------------*/
 /*	Install														  */
 /*----------------------------------------------------------------*/

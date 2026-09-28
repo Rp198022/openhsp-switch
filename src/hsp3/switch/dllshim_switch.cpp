@@ -28,6 +28,10 @@
 
 #include "dllshim_switch.h"
 
+#ifdef HSPDISH
+#include "../../hsp3dish/switch/switch_input.h"
+#endif
+
 static HSPCTX *hspctx = NULL;		// Current Context
 static HSPEXINFO *exinfo = NULL;	// Info for Plugins
 static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
@@ -178,26 +182,28 @@ static int impl_hmm_load( const DllArgValue *args, int argc )
 
 //	_HMMBITON@16 / _HMMBITOFF@16 / _HMMBITCHECK@16 are real bit twiddling on the
 //	variable the script passes in - worth doing exactly, because Elona keeps
-//	capability/state flags in it.
+//	capability/state flags in it.  The second argument is a bit INDEX, not a
+//	mask: every call site is of the form "word(bit / 32), bit \ 32", i.e. the
+//	word is picked by the quotient and the bit by the remainder.
 //
 static int impl_hmm_biton( const DllArgValue *args, int argc )
 {
 	if ( argc < 2 || args[0].ptr == NULL ) return 0;
-	*(int *)args[0].ptr |= args[1].ival;
+	*(int *)args[0].ptr |= 1 << ( args[1].ival & 31 );
 	return 0;
 }
 
 static int impl_hmm_bitoff( const DllArgValue *args, int argc )
 {
 	if ( argc < 2 || args[0].ptr == NULL ) return 0;
-	*(int *)args[0].ptr &= ~args[1].ival;
+	*(int *)args[0].ptr &= ~( 1 << ( args[1].ival & 31 ) );
 	return 0;
 }
 
 static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 {
 	if ( argc < 2 || args[0].ptr == NULL ) return 0;
-	return ( *(int *)args[0].ptr & args[1].ival ) ? 1 : 0;
+	return ( *(int *)args[0].ptr >> ( args[1].ival & 31 ) ) & 1;
 }
 
 //	_DIGETJOYNUM@16 / _DIGETJOYSTATE@16 - DirectInput enumeration.  The pad is
@@ -207,12 +213,21 @@ static int impl_hmm_joynum( const DllArgValue *args, int argc )
 {
 	(void)args;
 	(void)argc;
+#ifdef HSPDISH
+	return 1;		/*	the Switch pad is the one control this port always has	*/
+#else
 	return 0;
+#endif
 }
 
 static int impl_hmm_joystate( const DllArgValue *args, int argc )
 {
-	if ( argc >= 1 && args[0].ptr != NULL ) *(int *)args[0].ptr = 0;
+	int state = 0;
+
+#ifdef HSPDISH
+	state = (int)switch_input_pad_bits();
+#endif
+	if ( argc >= 1 && args[0].ptr != NULL ) *(int *)args[0].ptr = state;
 	return 0;
 }
 
