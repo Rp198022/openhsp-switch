@@ -103,13 +103,17 @@ void hsp3dish_termdevinfo_io( void )
 //	when the 45 s window closed), i.e. a hard fault rather than a hang.  It also
 //	showed the run lasts only about two seconds and never begins a third frame.
 //
-//	250 ms is far too coarse to name a statement, though: statements take
-//	microseconds, so that sampler only ever reports whichever boundary the
-//	interpreter happened to be at.  This version samples every 20 ms and prints
-//	only when the value *changes*, which turns the thread into a breadcrumb
-//	trail over the statement boundaries actually visited - the last distinct
-//	offset is then an operand token inside (or immediately before) the dying
-//	statement, and that offset can be decoded offline against start.ax.
+//	p3s23 sampled every 20 ms and printed on change, which is already finer than
+//	the statements it is trying to report - it still stopped at the same offset,
+//	cs 2821848 (the `extcmd _DMLOADFNAME` command token), because the fault
+//	lands within one sampling period of the interpreter leaving it.
+//
+//	So this version samples every 1 ms and prints the raw words of the pending
+//	token as well as its offset, which makes each line self-describing instead of
+//	needing an offline decode.  Only one window of the code segment is reported
+//	(see GLUE_WATCH_LO): a plain line cap is worthless here - the loading phase
+//	and an _HMMBITON burst would consume it long before the interesting part is
+//	reached, and the last lines are the ones that matter.
 //
 //	code_getpcbak() is the supported view of the interpreter's position (see the
 //	probe comment in dllshim_switch.cpp: hspctx->mcs is NOT live).  Samples
@@ -120,6 +124,12 @@ void hsp3dish_termdevinfo_io( void )
 //
 #include <pthread.h>
 #include <time.h>
+
+//	The run reproducibly dies just after the hspda call at cs 2821894, so the
+//	neighbourhood of that statement is the only part worth reporting.
+//
+#define GLUE_WATCH_LO	2800000UL
+#define GLUE_WATCH_HI	2900000UL
 
 static HSPCTX *watch_ctx = NULL;
 static unsigned long watch_last = (unsigned long)-1;
@@ -132,23 +142,26 @@ static void *glue_watchdog( void *arg )
 
 	(void)arg;
 	ts.tv_sec = 0;
-	ts.tv_nsec = 20000000L;					// 20 ms
+	ts.tv_nsec = 1000000L;					// 1 ms
 	for (;;) {
+		unsigned short *pc;
 		unsigned long off;
 
 		nanosleep( &ts, NULL );
 		tick++;
 		if ( watch_ctx == NULL || watch_ctx->mem_mcs == NULL ) continue;
 
-		off = (unsigned long)( code_getpcbak() - watch_ctx->mem_mcs );
-		if ( off != watch_last ) {
-			if ( watch_beats < 400 ) {
-				printf( "hsp3switch: ### pc=%lu at %lu ms\n", off, tick * 20 );
-				fflush( stdout );
-				watch_beats++;
-			}
-			watch_last = off;
-		}
+		pc = code_getpcbak();
+		off = (unsigned long)( pc - watch_ctx->mem_mcs );
+		if ( off == watch_last ) continue;
+		watch_last = off;
+		if ( off < GLUE_WATCH_LO || off > GLUE_WATCH_HI ) continue;
+		if ( watch_beats >= 1500 ) continue;
+
+		printf( "hsp3switch: ### pc=%lu tok=%#06x/%#06x at %lu ms\n",
+			off, (unsigned)pc[0], (unsigned)pc[1], tick );
+		fflush( stdout );
+		watch_beats++;
 	}
 	return NULL;
 }

@@ -891,8 +891,13 @@ void dllshim_report_exit( void )
 	fflush( stdout );
 }
 
-//	P3 DIAGNOSTIC - bounds the pc trace printed at the end of dllshim_exec().
+//	P3 DIAGNOSTIC - bounds the pc trace printed at the end of dllshim_exec(),
+//	and keeps it to the window around the reproducible fault (see the comment
+//	there).  Same window as GLUE_WATCH_LO/HI in glue_switch.cpp.
 //
+#define DLLSHIM_TRACE_LO	2800000L
+#define DLLSHIM_TRACE_HI	2900000L
+
 static int dllshim_trace_count = 0;
 
 int dllshim_exec( int cmd, int mask, char *desc, int descsize )
@@ -993,9 +998,10 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 
 	//	P3 DIAGNOSTIC - how far the bytecode stream moved across this command.
 	//
-	//	pc_in is the command token itself (the caller dispatched on it without
-	//	advancing; exec_dllcmd's code_next() is what consumes it).  pc_out is the
-	//	token left pending, which must be the next statement's first token - so
+	//	pc_in is the token the caller dispatched on; exec_dllcmd's code_next() is
+	//	what consumes it, so for a command token pc_in is the command's own offset
+	//	(its first operand when the command takes one).  pc_out is the token left
+	//	pending, which must be the next statement's command token - so
 	//	(pc_out - pc_in) is exactly how many words the parameter reads consumed.
 	//
 	//	That makes over-consumption directly visible: a command whose declaration
@@ -1003,15 +1009,22 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	//	following statements and leaves the interpreter mid-stream, which faults
 	//	as a data abort rather than raising an HSP error.
 	//
-	if ( dllshim_trace_count < 400 ) {
+	//	Only the window around the reproducible fault is reported: an unconditional
+	//	trace is drowned by the _HMMBITON burst (hundreds of calls at cs ~5.7M)
+	//	long before the interesting part is reached, and the last lines are the
+	//	ones that matter.
+	//
+	if ( pc_in - hspctx->mem_mcs >= DLLSHIM_TRACE_LO &&
+		 pc_in - hspctx->mem_mcs <= DLLSHIM_TRACE_HI &&
+		 dllshim_trace_count < 400 ) {
 		printf( "hsp3switch: ### dll %s cmd=%d pc=%ld->%ld result=%d\n",
 			desc, cmd,
 			(long)( pc_in - hspctx->mem_mcs ),
 			(long)( code_getpcbak() - hspctx->mem_mcs ),
 			result );
 		fflush( stdout );
+		dllshim_trace_count++;
 	}
-	dllshim_trace_count++;
 
 	return RUNMODE_RUN;
 }
