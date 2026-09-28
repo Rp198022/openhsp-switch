@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include <algorithm>
 
 #include "../hsp3config.h"
@@ -672,6 +673,160 @@ static void hspda_probe_args( const char *who, const DllArgValue *args, int argc
 }
 
 /*----------------------------------------------------------------*/
+/*	Hspext / elona.dll / z.hpi / hspsock / hspinet / water.hpi		*/
+/*----------------------------------------------------------------*/
+
+//	hspext_ext.dll - the 24-bit full-colour direct-write family, gfini/gfdec/
+//	gfdec2/gfinc.  fcgraph.cpp writes straight into the software screen's pBit
+//	buffer, but hsp3dish's BMSCR has pBit commented out
+//	(src/hsp3dish/hspwnd_dish.h:633) and the Switch backend keeps no software
+//	framebuffer at all, so there is nothing to write and no pointer to touch -
+//	these can only report success.
+//
+static int impl_hspext_fcgraph_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	hspext_ext.dll - ematan( val, x, y ).  Copied from emath.cpp:110-119:
+//	a = atan2( -x, y ); a = ( a + pi ) * parg; *val = (int)a.  pi and parg are
+//	the module statics (3.1415926535 and emd_base/(pi*2)); the ez-math init that
+//	recomputes them is not among Elona's imports, so the defaults stand
+//	(em_base = 256 -> parg = 256/(pi*2)).
+//
+static int impl_hspext_ematan( const DllArgValue *args, int argc )
+{
+	const double pi = 3.1415926535;
+	const double parg = 256.0 / ( 3.1415926535 * 2.0 );
+	double a;
+
+	if ( argc < 3 || args[0].ptr == NULL ) return 0;
+	a = atan2( (double)-args[1].ival, (double)args[2].ival );
+	*(int *)args[0].ptr = (int)( ( a + pi ) * parg );
+	return 0;
+}
+
+//	hspext_ext.dll - aplsel/aplobj/apledit enumerate a foreign Win32 window and
+//	drive its "Edit" control (appcapt.cpp:77-165); they return -1 when no match
+//	is found and expose the title through the prefstr parameter.  The Switch has
+//	no such window surface, so "no selection / no editor state" - 0 - is served.
+//
+static int impl_hspext_apl_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	elona.dll - _grotate@16.  Declared (pexinfo, nullptr, nullptr, nullptr), so
+//	the marshaller consumes no operand at all; the script calls it with six
+//	words (`grotate buffer, x, y, angle, w, h`, e.g. blend.hsp:1295), and the
+//	implementation has to read them off the bytecode stream itself.  Reading the
+//	wrong number desynchronises the stream and faults (see the p3s19 note in the
+//	hspda section), so exactly six operands are consumed.  The rotation itself is
+//	not ported.
+//
+static int impl_elona_grotate( const DllArgValue *args, int argc )
+{
+	int i;
+
+	(void)args;
+	(void)argc;
+	for ( i = 0; i < 6; i++ ) code_getdi( -1 );
+	return 0;
+}
+
+//	z.hpi - Elona's own zlib save-file plugin.  The Windows source tree holds
+//	ZLibWrap, but that DLL exports ZWZipCompress/ZWZipExtract, not the _z* names
+//	this .ax imports, so the exact ABI is not recoverable from it.  "Get it
+//	running first": every entry is an inert success that leaves the caller's
+//	variable untouched.
+//
+static int impl_zlib_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	hspsock.dll - the socket family (Hspsock.cpp).  This port has no network
+//	stack, so open/close/get/put succeed without performing any I/O.
+//
+static int impl_hspsock_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	hspinet.dll - the HTTP family (main.cpp): netinit/netexec are the controller
+//	and neturl/netdlname/netrequest the request setters.  With no HTTP layer they
+//	are inert successes.
+//
+static int impl_hspinet_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	hspinet.dll - neterror( var ).  Declared (pexinfo, nullptr, nullptr,
+//	nullptr), so the marshaller consumes nothing; main.cpp:244-259 reads exactly
+//	one operand - the receiving variable - and stores the error text into it.
+//	No HTTP layer exists, so the message written is the empty string.
+//
+static int impl_hspinet_neterror( const DllArgValue *args, int argc )
+{
+	PVal *pval = NULL;
+	APTR aptr;
+
+	(void)args;
+	(void)argc;
+
+	aptr = code_getva( &pval );
+	if ( pval == NULL ) return 0;
+	code_setva( pval, aptr, HSPVAR_FLAG_STR, "" );
+	return 0;
+}
+
+//	water.hpi - Elona's water-ripple effect.  Only the Windows binary ships in
+//	the tree (no source), so every entry is an inert success.
+//
+static int impl_water_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+
+//	exrand.dll - _exrand_rnd@16( var, max, _, _ ).  The script uses it as a
+//	weighted random picker: `exrand_rnd dbtmp, dbsum` is followed by a scan for
+//	the first cumulative integer weight that exceeds dbtmp (blend.hsp,
+//	command.hsp, item_data.hsp), so the value written is an int in [0,max-1].
+//	A small deterministic LCG over the four seed words randomize() stored makes
+//	a given seed replay the same stream.
+//
+static int impl_exrand_rnd( const DllArgValue *args, int argc )
+{
+	int maxv;
+	unsigned int s;
+
+	if ( argc < 2 || args[0].ptr == NULL ) return 0;
+	maxv = args[1].ival;
+	if ( maxv <= 0 ) {
+		*(int *)args[0].ptr = 0;
+		return 0;
+	}
+	exrand_seed[0] = exrand_seed[0] * 1664525u + 1013904223u;
+	exrand_seed[1] = exrand_seed[1] * 22695477u + 1u;
+	s = exrand_seed[0] ^ exrand_seed[1] ^ exrand_seed[2] ^ exrand_seed[3];
+	*(int *)args[0].ptr = (int)( s % (unsigned int)maxv );
+	return 0;
+}
+
+/*----------------------------------------------------------------*/
 /*	Dispatch table													*/
 /*----------------------------------------------------------------*/
 
@@ -742,6 +897,50 @@ static const DllImplEntry impl_table[] = {
 	{ "imm32",			"ImmReleaseContext",	impl_win_true },
 	{ "imm32",			"ImmSetOpenStatus",		impl_win_true },
 	{ "imm32",			"ImmGetOpenStatus",		impl_win_zero },	// IME closed
+
+	//	hspext_ext.dll - Elona's Hspext imports: the 24-bit framebuffer writer
+	//	family, the ez-math atan, and the Win32 application-capture dialogs.
+	{ "hspext_ext.dll",	"_gfini@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_gfdec@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_gfdec2@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_gfinc@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_ematan@16",			impl_hspext_ematan },
+	{ "hspext_ext.dll",	"_aplsel@16",			impl_hspext_apl_zero },
+	{ "hspext_ext.dll",	"_aplobj@16",			impl_hspext_apl_zero },
+	{ "hspext_ext.dll",	"_apledit@16",			impl_hspext_apl_zero },
+
+	//	elona.dll - its one import; consumes its six operands by hand.
+	{ "elona.dll",		"_grotate@16",			impl_elona_grotate },
+
+	//	z.hpi - the zlib save plugin; inert for now (see impl_zlib_zero).
+	{ "z.hpi",			"_zOpen@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zRead@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zWrite@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zClose@16",			impl_zlib_zero },
+
+	//	hspsock.dll - the socket family; there is no network on the Switch.
+	{ "hspsock.dll",	"_sockopen@16",			impl_hspsock_zero },
+	{ "hspsock.dll",	"_sockclose@16",		impl_hspsock_zero },
+	{ "hspsock.dll",	"_sockget@16",			impl_hspsock_zero },
+	{ "hspsock.dll",	"_sockput@16",			impl_hspsock_zero },
+
+	//	hspinet.dll - the HTTP family; neterror reads its own operand.
+	{ "hspinet.dll",	"_netinit@16",			impl_hspinet_zero },
+	{ "hspinet.dll",	"_netexec@16",			impl_hspinet_zero },
+	{ "hspinet.dll",	"_neterror@16",			impl_hspinet_neterror },
+	{ "hspinet.dll",	"_neturl@16",			impl_hspinet_zero },
+	{ "hspinet.dll",	"_netdlname@16",		impl_hspinet_zero },
+	{ "hspinet.dll",	"_netrequest@16",		impl_hspinet_zero },
+
+	//	water.hpi - the ripple effect; Windows binary only, so inert.
+	{ "water.hpi",		"_water_getimage@16",	impl_water_zero },
+	{ "water.hpi",		"_water_refresh@16",	impl_water_zero },
+	{ "water.hpi",		"_water_setripple@16",	impl_water_zero },
+	{ "water.hpi",		"_water_calc@16",		impl_water_zero },
+	{ "water.hpi",		"_water_draw@16",		impl_water_zero },
+
+	//	exrand.dll - the extended RNG (randomize is already above).
+	{ "exrand.dll",		"_exrand_rnd@16",		impl_exrand_rnd },
 };
 
 static const DllImplEntry *find_entry( const STRUCTDAT *st )
@@ -785,6 +984,7 @@ static bool mptype_supported( int mptype )
 	case MPTYPE_FLEXSPTR:	// 0/NULL or string, decided per call
 	case MPTYPE_NULLPTR:	// NULL
 	case MPTYPE_PBMSCR:		// screen buffer, supplied by the runtime
+	case MPTYPE_PTR_REFSTR:	// reference string (prefstr), supplied by the runtime
 	case MPTYPE_PTR_EXINFO:	// pointer to the plugin info block
 		return true;
 	default:
@@ -845,6 +1045,12 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 		break;
 	case MPTYPE_PTR_EXINFO:
 		v->ptr = exinfo;
+		break;
+	case MPTYPE_PTR_REFSTR:
+		//	prefstr: the runtime's own reference-string buffer, handed over
+		//	without consuming an operand, exactly as hsp3extlib_ffi.cpp:655-659.
+		//
+		v->ptr = hspctx->refstr;
 		break;
 	case MPTYPE_FLEXSPTR: {
 		//	Either a literal 0 / NULL or a string, decided at run time.  The
