@@ -722,7 +722,11 @@ void sw_glClear( GLbitfield mask )
 			lower bound at best.  With t= the rate is (delta frames)/(delta ms)
 			regardless of when the app actually started.						*/
 		sw_frame_no++;
-		if ( ( sw_frame_no % 60 ) == 0 ) {
+		/*	The first few frames are logged individually.  Previously the first
+			line needed 60 frames, so "no frame line" could not be told apart
+			from "no frame produced at all" - with the crash reproducibly landing
+			in the first frames, the log had no way to say which.				*/
+		if ( sw_frame_no <= 5 || ( sw_frame_no % 30 ) == 0 ) {
 			sw_say( "gles1shim: frame %d, %d draws, t=%u ms\n",
 				sw_frame_no, sw_draw_no, (unsigned)SDL_GetTicks() );
 		}

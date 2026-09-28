@@ -87,6 +87,62 @@ void hsp3dish_termdevinfo_io( void )
 /*	Plugin / DLL subsystem - replaces hsp3extlib_ffi.cpp		  */
 /*----------------------------------------------------------------*/
 
+#ifdef HSPDISH
+//	P3: liveness watchdog.
+//
+//	p3s19..p3s21 all stop printing right after the first hspda call and never
+//	reach "hsp3dish: exit code", so the image dies somewhere just past that
+//	point - but the last line of the log is only the last thing the *script*
+//	happened to print, which is not necessarily where it stopped.  Nothing in
+//	the interpreter can report it either: an HSP error would be swallowed by the
+//	script's ONERROR handler and would leave error.txt behind, and no error.txt
+//	appears.
+//
+//	This thread is independent of both the script and the renderer, so it keeps
+//	ticking inside a tight script loop that never draws or opens a file.  It
+//	samples the interpreter's own code pointer (code_getpcbak() is the token the
+//	interpreter has just consumed) once per tick.  If the samples keep coming,
+//	the image is alive and wedged at the offset printed - the "(same)" marker
+//	says the pointer has not moved since the previous tick.  If they stop, it
+//	died at the last offset seen, and the difference between the two runs is
+//	the answer this build is asking for.
+//
+//	Only the graphics target gets it: the console target does not link pthread
+//	and does not run Elona.
+//
+#include <pthread.h>
+#include <time.h>
+
+static HSPCTX *watch_ctx = NULL;
+static unsigned long watch_last = (unsigned long)-1;
+static int watch_beats = 0;
+
+static void *glue_watchdog( void *arg )
+{
+	struct timespec ts;
+
+	(void)arg;
+	ts.tv_sec = 0;
+	ts.tv_nsec = 250000000L;					// 250 ms
+	for (;;) {
+		unsigned long off;
+
+		nanosleep( &ts, NULL );
+		if ( watch_ctx == NULL || watch_ctx->mem_mcs == NULL ) continue;
+
+		off = (unsigned long)( code_getpcbak() - watch_ctx->mem_mcs );
+		if ( watch_beats < 200 ) {
+			printf( "hsp3switch: ### alive %d pc=%lu%s\n", watch_beats, off,
+				( off == watch_last ) ? " (same)" : "" );
+			fflush( stdout );
+			watch_beats++;
+		}
+		watch_last = off;
+	}
+	return NULL;
+}
+#endif
+
 int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 {
 	//	There is no dlopen on the Switch, so instead of the upstream FFI this is
@@ -94,6 +150,20 @@ int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 	//	here and nowhere else (linux/hsp3ext_linux.cpp:136).
 	//
 	dllshim_install( info );
+
+#ifdef HSPDISH
+	//	Start the watchdog once the context the interpreter will actually use is
+	//	in hand; before this the pointer would be the wrong one on the heap.
+	//
+	watch_ctx = info->hspctx;
+	{
+		pthread_t th;
+		if ( pthread_create( &th, NULL, glue_watchdog, NULL ) != 0 ) {
+			printf( "hsp3switch: ### watchdog thread could not start\n" );
+			fflush( stdout );
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -212,6 +282,13 @@ hsp3::CDllManager & DllManager()
 static int glue_exit_report( int option )
 {
 	(void)option;
+#ifdef HSPDISH
+	//	Stop sampling before the context is torn down: the watchdog would
+	//	otherwise dereference freed memory and turn a clean exit into a crash
+	//	that is indistinguishable from the one this build is chasing.
+	//
+	watch_ctx = NULL;
+#endif
 	dllshim_report_exit();
 	return 0;
 }
