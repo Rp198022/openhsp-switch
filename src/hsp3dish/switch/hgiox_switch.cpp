@@ -105,6 +105,18 @@ extern bool get_key_state(int sym);
 extern SDL_Window *window;
 #endif
 
+#include "switch_input.h"
+
+/*	The pad reaches getkey/stick through two tables: the Linux glue's keys[],
+	which only the synthetic SDL key events can fill, and the pad's own table
+	inside switch_input.cpp, which is written straight from the controller once
+	per frame.  Reading both keeps the pad alive even when the events never make
+	it through the event loop.											*/
+static bool sw_input_key( int scancode )
+{
+	return get_key_state( scancode ) || ( switch_input_key_state( scancode ) != 0 );
+}
+
 #include "../supio.h"
 #include "../sysreq.h"
 #include "../hgio.h"
@@ -1133,26 +1145,26 @@ int hgio_stick( int actsw )
 	int ckey = 0;
 #if defined(HSPLINUX) || defined(HSPEMSCRIPTEN)
 #ifndef HSPRASPBIAN
-	if ( get_key_state(SDL_SCANCODE_LEFT) )  ckey|=1;		// [left]
-	if ( get_key_state(SDL_SCANCODE_UP) )    ckey|=1<<1;		// [up]
-	if ( get_key_state(SDL_SCANCODE_RIGHT) ) ckey|=1<<2;		// [right]
-	if ( get_key_state(SDL_SCANCODE_DOWN) )  ckey|=1<<3;		// [down]
-	if ( get_key_state(SDL_SCANCODE_SPACE) ) ckey|=1<<4;		// [spc]
-	if ( get_key_state(SDL_SCANCODE_RETURN) )ckey|=1<<5;		// [ent]
-	if ( get_key_state(SDL_SCANCODE_LCTRL) || get_key_state(SDL_SCANCODE_RCTRL) ) ckey|=1<<6;		// [ctrl]
-	if ( get_key_state(SDL_SCANCODE_ESCAPE) )ckey|=1<<7;	// [esc]
+	if ( sw_input_key(SDL_SCANCODE_LEFT) )  ckey|=1;		// [left]
+	if ( sw_input_key(SDL_SCANCODE_UP) )    ckey|=1<<1;		// [up]
+	if ( sw_input_key(SDL_SCANCODE_RIGHT) ) ckey|=1<<2;		// [right]
+	if ( sw_input_key(SDL_SCANCODE_DOWN) )  ckey|=1<<3;		// [down]
+	if ( sw_input_key(SDL_SCANCODE_SPACE) ) ckey|=1<<4;		// [spc]
+	if ( sw_input_key(SDL_SCANCODE_RETURN) )ckey|=1<<5;		// [ent]
+	if ( sw_input_key(SDL_SCANCODE_LCTRL) || sw_input_key(SDL_SCANCODE_RCTRL) ) ckey|=1<<6;		// [ctrl]
+	if ( sw_input_key(SDL_SCANCODE_ESCAPE) )ckey|=1<<7;	// [esc]
 	if ( mouse_btn & SDL_BUTTON_LMASK ) ckey|=1<<8;	// mouse_l
 	if ( mouse_btn & SDL_BUTTON_RMASK ) ckey|=1<<9;	// mouse_r
-	if ( get_key_state(SDL_SCANCODE_TAB) )   ckey|=1<<10;	// [tab]
+	if ( sw_input_key(SDL_SCANCODE_TAB) )   ckey|=1<<10;	// [tab]
 	
-	if ( get_key_state(SDL_SCANCODE_Z) )     ckey|=1<<11;
-	if ( get_key_state(SDL_SCANCODE_X) )     ckey|=1<<12;
-	if ( get_key_state(SDL_SCANCODE_C) )     ckey|=1<<13;
+	if ( sw_input_key(SDL_SCANCODE_Z) )     ckey|=1<<11;
+	if ( sw_input_key(SDL_SCANCODE_X) )     ckey|=1<<12;
+	if ( sw_input_key(SDL_SCANCODE_C) )     ckey|=1<<13;
 	
-	if ( get_key_state(SDL_SCANCODE_A) )     ckey|=1<<14;
-	if ( get_key_state(SDL_SCANCODE_W) )     ckey|=1<<15;
-	if ( get_key_state(SDL_SCANCODE_D) )     ckey|=1<<16;
-	if ( get_key_state(SDL_SCANCODE_S) )     ckey|=1<<17;
+	if ( sw_input_key(SDL_SCANCODE_A) )     ckey|=1<<14;
+	if ( sw_input_key(SDL_SCANCODE_W) )     ckey|=1<<15;
+	if ( sw_input_key(SDL_SCANCODE_D) )     ckey|=1<<16;
+	if ( sw_input_key(SDL_SCANCODE_S) )     ckey|=1<<17;
 #else
 	if ( get_key_state(37) ) ckey|=1;		// [left]
 	if ( get_key_state(38) ) ckey|=2;		// [up]
@@ -1220,10 +1232,10 @@ bool hgio_getkey( int kcode )
 		case 4: res = (mouse_btn & SDL_BUTTON_MMASK) > 0; break;
 		case 5: res = (mouse_btn & SDL_BUTTON_X1MASK) > 0; break;
 		case 6: res = (mouse_btn & SDL_BUTTON_X2MASK) > 0; break;
-		case 16: res = get_key_state(SDL_SCANCODE_LSHIFT) | get_key_state(SDL_SCANCODE_RSHIFT); break;
-		case 17: res = get_key_state(SDL_SCANCODE_LCTRL) | get_key_state(SDL_SCANCODE_RCTRL); break;
-		case 18: res = get_key_state(SDL_SCANCODE_LALT) | get_key_state(SDL_SCANCODE_RALT); break;
-		default: res = get_key_state( key_map[ kcode & 255 ] ); break;
+		case 16: res = sw_input_key(SDL_SCANCODE_LSHIFT) | sw_input_key(SDL_SCANCODE_RSHIFT); break;
+		case 17: res = sw_input_key(SDL_SCANCODE_LCTRL) | sw_input_key(SDL_SCANCODE_RCTRL); break;
+		case 18: res = sw_input_key(SDL_SCANCODE_LALT) | sw_input_key(SDL_SCANCODE_RALT); break;
+		default: res = sw_input_key( key_map[ kcode & 255 ] ); break;
 	}
 	return res;
 }

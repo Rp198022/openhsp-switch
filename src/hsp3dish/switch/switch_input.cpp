@@ -113,6 +113,10 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 static SDL_GameController	*sw_pad;
 static Uint8				sw_state[SW_KEYMAP_N];
 static int					sw_installed;
+#define SW_KEY_STATE_MAX	512
+static Uint8				sw_keys[SW_KEY_STATE_MAX];
+static unsigned int			sw_poll_no;
+static unsigned int			sw_push_no;
 
 /*----------------------------------------------------------------*/
 /*	Polling														  */
@@ -165,13 +169,32 @@ void switch_input_poll( void )
 	SDL_PumpEvents();
 	SDL_JoystickUpdate();
 	for ( i = 0; i < SW_KEYMAP_N; i++ ) {
+		SDL_Scancode sc = sw_keymap[i].sc;
 		Uint8 now = (Uint8)sw_entry_down( i );
+		if ( sc < SW_KEY_STATE_MAX ) sw_keys[sc] = now;
 		if ( now == sw_state[i] ) continue;
 		sw_state[i] = now;
-		sw_push_key( sw_keymap[i].sc, now );
+		sw_push_key( sc, now );
+		sw_push_no++;
+	}
+	sw_poll_no++;
+	if ( ( sw_poll_no % 120 ) == 0 ) {
+		printf( "hsp3switch: pad poll=%u pushed=%u down[", sw_poll_no, sw_push_no );
+		for ( i = 0; i < SW_KEYMAP_N; i++ ) {
+			if ( sw_state[i] ) printf( " %d", (int)sw_keymap[i].sc );
+		}
+		printf( " ]\n" );
+		fflush( stdout );
 	}
 }
 
+/*	Read by hgiox_switch.cpp's hgio_getkey/hgio_stick, so the pad stays visible
+	even if the synthetic SDL events never make it through the event loop.	*/
+int switch_input_key_state( int scancode )
+{
+	if ( scancode < 0 || scancode >= SW_KEY_STATE_MAX ) return 0;
+	return sw_keys[scancode] ? 1 : 0;
+}
 /*----------------------------------------------------------------*/
 /*	Install														  */
 /*----------------------------------------------------------------*/
@@ -185,6 +208,7 @@ void switch_input_install( void *hspctx )
 	if ( !sw_installed ) {
 		sw_installed = 1;
 		memset( sw_state, 0, sizeof( sw_state ) );
+		memset( sw_keys, 0, sizeof( sw_keys ) );
 
 		/*	GAMECONTROLLER only: enabling JOYSTICK as well makes the Switch
 			SDL port deliver every pad event twice (P1/T1.3 lesson).		*/

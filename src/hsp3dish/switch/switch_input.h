@@ -16,4 +16,10 @@ void switch_input_install( void *hspctx );
 	ctx->msgfunc cannot be used for this.								*/
 void switch_input_poll( void );
 
+/*	State of the pad's own key table, indexed by SDL scancode exactly like the
+	reused Linux glue indexes its keys[] table.  hgiox_switch.cpp consults this in
+	addition to get_key_state() so the pad still reaches getkey/stick when the
+	synthetic SDL events are not consumed by the event loop.				*/
+int switch_input_key_state( int scancode );
+
 #endif
