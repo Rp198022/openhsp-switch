@@ -2542,6 +2542,7 @@ void hgio_setinfo( int type, HSPREAL val )
 static GLuint sw_win_tex = 0;
 static int sw_win_w = 0;
 static int sw_win_h = 0;
+static int sw_win_reported = 0;
 
 static void sw_win_capture( void )
 {
@@ -2552,6 +2553,10 @@ static void sw_win_capture( void )
 	if ( w <= 0 || h <= 0 ) return;
 	if ( sw_win_tex == 0 ) glGenTextures( 1, &sw_win_tex );
 	if ( sw_win_tex == 0 ) return;
+	if ( !sw_win_reported ) {
+		sw_win_reported = 1;
+		sw_fbo_log( "hgio: window copy %dx%d tex=%u screen=%dx%d\n", w, h, (unsigned)sw_win_tex, (int)_sizex, (int)_sizey );
+	}
 
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	glBindTexture( GL_TEXTURE_2D, sw_win_tex );
