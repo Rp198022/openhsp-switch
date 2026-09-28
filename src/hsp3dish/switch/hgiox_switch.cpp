@@ -280,7 +280,9 @@ static int		sw_fbo_fail = 0;
 static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
-static int		sw_end_report = 0;		// P3 diagnostic
+static unsigned	sw_start_no = 0;		// P3 diagnostic
+static unsigned	sw_end_no = 0;		// P3 diagnostic
+static unsigned	sw_clear_no = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
 {
@@ -908,6 +910,7 @@ int hgio_bufferop(BMSCR* bm, int mode, char *ptr)
 
 void hgio_clear( void )
 {
+	sw_clear_no++;
 	glClear(GL_COLOR_BUFFER_BIT); 
 }
 
@@ -2519,6 +2522,10 @@ int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
 
+	sw_start_no++;
+	if ( ( sw_start_no % 30 ) == 0 ) {
+		sw_fbo_log( "hgio: redraw starts=%u ends=%u clears=%u\n", sw_start_no, sw_end_no, sw_clear_no );
+	}
 	if ( drawflag ) {
 		hgio_render_end();
 	}
@@ -2545,24 +2552,12 @@ int hgio_render_end( void )
 	int res;
 	res = 0;
 	if ( drawflag == 0 ) return 0;
+	sw_end_no++;
 
 #ifdef HSPIOS
     gb_render_end();
 #endif
 
-	/*	A drawing command may have left an offscreen screen as the current
-		target, in which case the mesh flush below would be rendered into that
-		screen rather than the window - which is what would make the presented
-		frame alternate between the drawn content and a bare clear.  Put the
-		window back first.												*/
-	if ( !sw_is_window() ) {
-		if ( sw_end_report < 8 ) {
-			sw_end_report++;
-			sw_fbo_log( "hgio: render_end on an offscreen target - window restored\n" );
-		}
-		sw_unbind_window();
-		sw_apply_target( mainbm );
-	}
 	tmes.texmesProc();
 
 	//	ウインドウ(FBO 0)に戻してからスワップする
