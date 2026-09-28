@@ -1004,3 +1004,9 @@ void sw_glCopyTexImage2D( GLenum target, GLint level, GLenum internalformat, GLi
 		sw_say( "gles1shim: glCopyTexImage2D %dx%d err=0x%x\n", (int)width, (int)height, (unsigned)sw_glGetError() );
 	}
 }
+
+int sw_glCopyTexImage2DAvailable( void )
+{
+	sw_init();
+	return ( sw_ready && gl_copyteximage2d != NULL ) ? 1 : 0;
+}
