@@ -891,12 +891,17 @@ void dllshim_report_exit( void )
 	fflush( stdout );
 }
 
+//	P3 DIAGNOSTIC - bounds the pc trace printed at the end of dllshim_exec().
+//
+static int dllshim_trace_count = 0;
+
 int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 {
 	STRUCTDAT *st;
 	LIBDAT *lib;
 	const DllImplEntry *entry;
 	DllArgValue args[DLLSHIM_MAX_ARGS];
+	unsigned short *pc_in = code_getpcbak();
 	const char *libname = "?";
 	const char *funcname = "?";
 	int prmmax, argc, i, result;
@@ -985,6 +990,28 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	} else {
 		hspctx->stat = result;
 	}
+
+	//	P3 DIAGNOSTIC - how far the bytecode stream moved across this command.
+	//
+	//	pc_in is the command token itself (the caller dispatched on it without
+	//	advancing; exec_dllcmd's code_next() is what consumes it).  pc_out is the
+	//	token left pending, which must be the next statement's first token - so
+	//	(pc_out - pc_in) is exactly how many words the parameter reads consumed.
+	//
+	//	That makes over-consumption directly visible: a command whose declaration
+	//	does not match the operands the compiler emitted runs on into the
+	//	following statements and leaves the interpreter mid-stream, which faults
+	//	as a data abort rather than raising an HSP error.
+	//
+	if ( dllshim_trace_count < 400 ) {
+		printf( "hsp3switch: ### dll %s cmd=%d pc=%ld->%ld result=%d\n",
+			desc, cmd,
+			(long)( pc_in - hspctx->mem_mcs ),
+			(long)( code_getpcbak() - hspctx->mem_mcs ),
+			result );
+		fflush( stdout );
+	}
+	dllshim_trace_count++;
 
 	return RUNMODE_RUN;
 }

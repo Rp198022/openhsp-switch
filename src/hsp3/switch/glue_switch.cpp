@@ -88,7 +88,7 @@ void hsp3dish_termdevinfo_io( void )
 /*----------------------------------------------------------------*/
 
 #ifdef HSPDISH
-//	P3: liveness watchdog.
+//	P3: liveness watchdog / statement breadcrumb.
 //
 //	p3s19..p3s21 all stop printing right after the first hspda call and never
 //	reach "hsp3dish: exit code", so the image dies somewhere just past that
@@ -98,14 +98,22 @@ void hsp3dish_termdevinfo_io( void )
 //	script's ONERROR handler and would leave error.txt behind, and no error.txt
 //	appears.
 //
-//	This thread is independent of both the script and the renderer, so it keeps
-//	ticking inside a tight script loop that never draws or opens a file.  It
-//	samples the interpreter's own code pointer (code_getpcbak() is the token the
-//	interpreter has just consumed) once per tick.  If the samples keep coming,
-//	the image is alive and wedged at the offset printed - the "(same)" marker
-//	says the pointer has not moved since the previous tick.  If they stop, it
-//	died at the last offset seen, and the difference between the two runs is
-//	the answer this build is asking for.
+//	p3s22 sampled once every 250 ms and proved the point that mattered: the
+//	samples STOP, and the process dies (nxlink had already exited on its own
+//	when the 45 s window closed), i.e. a hard fault rather than a hang.  It also
+//	showed the run lasts only about two seconds and never begins a third frame.
+//
+//	250 ms is far too coarse to name a statement, though: statements take
+//	microseconds, so that sampler only ever reports whichever boundary the
+//	interpreter happened to be at.  This version samples every 20 ms and prints
+//	only when the value *changes*, which turns the thread into a breadcrumb
+//	trail over the statement boundaries actually visited - the last distinct
+//	offset is then an operand token inside (or immediately before) the dying
+//	statement, and that offset can be decoded offline against start.ax.
+//
+//	code_getpcbak() is the supported view of the interpreter's position (see the
+//	probe comment in dllshim_switch.cpp: hspctx->mcs is NOT live).  Samples
+//	stopping still means the process died at the last offset printed.
 //
 //	Only the graphics target gets it: the console target does not link pthread
 //	and does not run Elona.
@@ -120,24 +128,27 @@ static int watch_beats = 0;
 static void *glue_watchdog( void *arg )
 {
 	struct timespec ts;
+	unsigned long tick = 0;
 
 	(void)arg;
 	ts.tv_sec = 0;
-	ts.tv_nsec = 250000000L;					// 250 ms
+	ts.tv_nsec = 20000000L;					// 20 ms
 	for (;;) {
 		unsigned long off;
 
 		nanosleep( &ts, NULL );
+		tick++;
 		if ( watch_ctx == NULL || watch_ctx->mem_mcs == NULL ) continue;
 
 		off = (unsigned long)( code_getpcbak() - watch_ctx->mem_mcs );
-		if ( watch_beats < 200 ) {
-			printf( "hsp3switch: ### alive %d pc=%lu%s\n", watch_beats, off,
-				( off == watch_last ) ? " (same)" : "" );
-			fflush( stdout );
-			watch_beats++;
+		if ( off != watch_last ) {
+			if ( watch_beats < 400 ) {
+				printf( "hsp3switch: ### pc=%lu at %lu ms\n", off, tick * 20 );
+				fflush( stdout );
+				watch_beats++;
+			}
+			watch_last = off;
 		}
-		watch_last = off;
 	}
 	return NULL;
 }
