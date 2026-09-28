@@ -53,7 +53,7 @@ typedef void (*PFN_glGenTextures)( GLsizei, GLuint * );
 typedef void (*PFN_glDeleteTextures)( GLsizei, const GLuint * );
 typedef void (*PFN_glBindTexture)( GLenum, GLuint );
 typedef void (*PFN_glTexImage2D)( GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void * );
-typedef void (*PFN_glTexSubImage2D)( GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void * );
+typedef void (*PFN_glTexSubImage2D)( GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void * );`ntypedef void (*PFN_glCopyTexImage2D)( GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint );
 typedef void (*PFN_glTexParameteri)( GLenum, GLenum, GLint );
 typedef void (*PFN_glDrawArrays)( GLenum, GLint, GLsizei );
 typedef void (*PFN_glReadPixels)( GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void * );
@@ -100,6 +100,7 @@ static PFN_glDeleteTextures				gl_deletetextures;
 static PFN_glBindTexture				gl_bindtexture;
 static PFN_glTexImage2D					gl_teximage2d;
 static PFN_glTexSubImage2D				gl_texsubimage2d;
+static PFN_glCopyTexImage2D				gl_copyteximage2d;
 static PFN_glTexParameteri				gl_texparameteri;
 static PFN_glDrawArrays					gl_drawarrays;
 static PFN_glReadPixels					gl_readpixels;
@@ -419,6 +420,7 @@ static void sw_init( void )
 	SW_LOAD( gl_bindtexture, "glBindTexture" );
 	SW_LOAD( gl_teximage2d, "glTexImage2D" );
 	SW_LOAD( gl_texsubimage2d, "glTexSubImage2D" );
+	SW_LOAD( gl_copyteximage2d, "glCopyTexImage2D" );
 	SW_LOAD( gl_texparameteri, "glTexParameteri" );
 	SW_LOAD( gl_drawarrays, "glDrawArrays" );
 	SW_LOAD( gl_readpixels, "glReadPixels" );
@@ -981,4 +983,9 @@ void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffse
 {
 	sw_init();
 	if ( sw_ready ) gl_texsubimage2d( target, level, xoffset, yoffset, width, height, format, type, pixels );
+}
+void sw_glCopyTexImage2D( GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border )
+{
+	sw_init();
+	if ( sw_ready && gl_copyteximage2d ) gl_copyteximage2d( target, level, internalformat, x, y, width, height, border );
 }
