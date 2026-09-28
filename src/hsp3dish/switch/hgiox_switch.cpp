@@ -2530,6 +2530,74 @@ void hgio_setinfo( int type, HSPREAL val )
 }
 
 
+/*	P3 - keep the window's two back buffers in step.
+	HSP's redraw model lets a script paint the background once and afterwards
+	repaint only what changed; Elona's title menu is written exactly that way.
+	A one-off paint lands in whichever back buffer happens to be current and
+	never reaches the other, so the two buffers stay permanently different and
+	every swap alternates between the menu and a black frame.  This EGL refuses
+	EGL_BUFFER_PRESERVED, so keep the finished frame in a texture and paint it
+	back at the start of the next one: both buffers then accumulate the same
+	content and the script's persistent background survives.					*/
+static GLuint sw_win_tex = 0;
+static int sw_win_w = 0;
+static int sw_win_h = 0;
+
+static void sw_win_capture( void )
+{
+	int w = 0, h = 0;
+
+	SDL_GetWindowSize( window, &w, &h );
+	if ( w <= 0 || h <= 0 ) { w = (int)_sizex; h = (int)_sizey; }
+	if ( w <= 0 || h <= 0 ) return;
+	if ( sw_win_tex == 0 ) glGenTextures( 1, &sw_win_tex );
+	if ( sw_win_tex == 0 ) return;
+
+	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	glBindTexture( GL_TEXTURE_2D, sw_win_tex );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0 );
+	sw_win_w = w;
+	sw_win_h = h;
+}
+
+static void sw_win_restore( void )
+{
+	GLfloat vert[8];
+	GLfloat uv[8];
+
+	if ( sw_win_tex == 0 || sw_win_w <= 0 || sw_win_h <= 0 ) return;
+
+	vert[0] = 0.0f;			vert[1] = 0.0f;
+	vert[2] = (GLfloat)sw_win_w;	vert[3] = 0.0f;
+	vert[4] = 0.0f;			vert[5] = -(GLfloat)sw_win_h;
+	vert[6] = (GLfloat)sw_win_w;	vert[7] = -(GLfloat)sw_win_h;
+
+	uv[0] = 0.0f;	uv[1] = 1.0f;
+	uv[2] = 1.0f;	uv[3] = 1.0f;
+	uv[4] = 0.0f;	uv[5] = 0.0f;
+	uv[6] = 1.0f;	uv[7] = 0.0f;
+
+	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+	glOrtho( 0, sw_win_w, -sw_win_h, 0, -100, 100 );
+	glViewport( 0, 0, sw_win_w, sw_win_h );
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+
+	glEnable( GL_TEXTURE_2D );
+	glBindTexture( GL_TEXTURE_2D, sw_win_tex );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	glDisable( GL_TEXTURE_2D );
+}
 int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
@@ -2546,6 +2614,8 @@ int hgio_render_start( void )
     gb_render_start();
 #endif
     
+
+	sw_win_restore();
 
 	hgio_reset();
 
@@ -2634,6 +2704,7 @@ int hgio_render_end( void )
 	//hgio_fcopy( 0,80,  0, 0, 256, 128, font_texid, 0xffffff );
 
 #ifndef HSPRASPBIAN
+	sw_win_capture();
 	SDL_GL_SwapWindow(window);
 	//SDL_GL_SwapBuffers();
 #endif
