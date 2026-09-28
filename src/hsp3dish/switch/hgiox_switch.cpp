@@ -2566,7 +2566,7 @@ static void sw_probe_frame( void )
 	int i, n, nonwhite = 0;
 
 	probe_no++;
-	if ( ( probe_no % 30 ) != 0 ) return;
+	if ( probe_no > 400 ) return;
 	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
 
 	n = w * h;
