@@ -2571,9 +2571,10 @@ static void sw_probe_frame( void )
 	int h = (int)_sizey;
 	unsigned char *buf;
 	int i, n, nonwhite = 0;
+	unsigned long sum = 0;
 
 	probe_no++;
-	if ( ( probe_no % 30 ) != 0 ) return;
+	if ( probe_no > 200 ) return;
 	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
 
 	n = w * h;
@@ -2582,9 +2583,10 @@ static void sw_probe_frame( void )
 	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
 	for ( i = 0; i < n; i++ ) {
 		if ( ( buf[i*4] < 200 ) || ( buf[i*4+1] < 200 ) || ( buf[i*4+2] < 200 ) ) nonwhite++;
+		sum += (unsigned long)buf[i*4] + buf[i*4+1] + buf[i*4+2];
 	}
 	free( buf );
-	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d\n", w, h, nonwhite, n );
+	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d sum=%lu\n", w, h, nonwhite, n, sum );
 }
 int hgio_render_end( void )
 {
