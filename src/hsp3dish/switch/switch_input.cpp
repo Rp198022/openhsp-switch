@@ -262,6 +262,16 @@ void switch_input_install( void *hspctx )
 		memset( sw_state, 0, sizeof( sw_state ) );
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 
+		/*	The frame is balanced - one clear, one render_start and one
+			render_end per frame - and yet the text flickers, which is what
+			an unsynchronised present looks like: the panel samples the
+			buffer while it is still being drawn.  Ask for a vsynced swap.	*/
+		if ( SDL_GL_SetSwapInterval( 1 ) != 0 ) {
+			printf( "hsp3switch: SDL_GL_SetSwapInterval(1) failed: %s\n", SDL_GetError() );
+		} else {
+			printf( "hsp3switch: vsync swap interval = %d\n", SDL_GL_GetSwapInterval() );
+		}
+
 		/*	GAMECONTROLLER only: enabling JOYSTICK as well makes the Switch
 			SDL port deliver every pad event twice (P1/T1.3 lesson).		*/
 		if ( SDL_InitSubSystem( SDL_INIT_GAMECONTROLLER ) != 0 ) {

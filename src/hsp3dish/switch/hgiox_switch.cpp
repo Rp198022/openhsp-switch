@@ -283,6 +283,7 @@ static int		sw_del_report = 0;		// P3 diagnostic
 static unsigned	sw_start_no = 0;		// P3 diagnostic
 static unsigned	sw_end_no = 0;		// P3 diagnostic
 static unsigned	sw_clear_no = 0;		// P3 diagnostic
+static int		sw_clear_report = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
 {
@@ -917,6 +918,10 @@ void hgio_clear( void )
 
 void hgio_setClear( int rval, int gval ,int bval )
 {
+	if ( sw_clear_report < 4 ) {
+		sw_clear_report++;
+		sw_fbo_log( "hgio: clear colour %d,%d,%d\n", rval, gval, bval );
+	}
 	glClearColor((GLclampf)(FVAL_BYTE1 * (float)rval), (GLclampf)(FVAL_BYTE1 * (float)gval), (GLclampf)(FVAL_BYTE1 * (float)bval), 1 );
 }
 
