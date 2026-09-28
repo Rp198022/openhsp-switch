@@ -2542,7 +2542,8 @@ void hgio_setinfo( int type, HSPREAL val )
 static GLuint sw_win_tex = 0;
 static int sw_win_w = 0;
 static int sw_win_h = 0;
-static int sw_win_reported = 0;
+static int sw_win_path = -1;			/* -1 unknown, 0 copy, 1 readback */
+static unsigned char *sw_win_pixels = NULL;
 
 static void sw_win_capture( void )
 {
@@ -2553,9 +2554,12 @@ static void sw_win_capture( void )
 	if ( w <= 0 || h <= 0 ) return;
 	if ( sw_win_tex == 0 ) glGenTextures( 1, &sw_win_tex );
 	if ( sw_win_tex == 0 ) return;
-	if ( !sw_win_reported ) {
-		sw_win_reported = 1;
-		sw_fbo_log( "hgio: window copy %dx%d tex=%u screen=%dx%d\n", w, h, (unsigned)sw_win_tex, (int)_sizex, (int)_sizey );
+
+	if ( sw_win_path < 0 ) {
+		sw_win_path = sw_glCopyTexImage2DAvailable() ? 0 : 1;
+		sw_fbo_log( "hgio: window carry %dx%d tex=%u screen=%dx%d via %s\n",
+			w, h, (unsigned)sw_win_tex, (int)_sizex, (int)_sizey,
+			sw_win_path == 0 ? "glCopyTexImage2D" : "readback" );
 	}
 
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
@@ -2564,7 +2568,21 @@ static void sw_win_capture( void )
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0 );
+
+	if ( sw_win_path == 0 ) {
+		glCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0 );
+		if ( glGetError() != GL_NO_ERROR ) {
+			sw_win_path = 1;
+			sw_fbo_log( "hgio: window carry fell back to a readback\n" );
+		}
+	}
+	if ( sw_win_path == 1 ) {
+		if ( sw_win_pixels == NULL ) sw_win_pixels = (unsigned char *)malloc( (size_t)w * h * 4 );
+		if ( sw_win_pixels != NULL ) {
+			glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
+			glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
+		}
+	}
 	sw_win_w = w;
 	sw_win_h = h;
 }
