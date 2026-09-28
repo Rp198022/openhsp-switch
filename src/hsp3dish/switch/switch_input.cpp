@@ -49,6 +49,7 @@
 #include <string.h>
 
 #include <SDL2/SDL.h>
+#include <EGL/egl.h>
 
 #include "switch_input.h"
 
@@ -262,6 +263,23 @@ void switch_input_install( void *hspctx )
 		memset( sw_state, 0, sizeof( sw_state ) );
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 
+		/*	The window is double buffered, and HSP's redraw model expects the
+			frame to persist between passes - Elona's title menu paints its
+			background once and then repaints only the cursor region.  Without
+			preservation that one-off paint lands in a single back buffer and
+			the two buffers stay permanently different, so the menu alternates
+			between the background and a black frame.  Ask EGL to keep the
+			buffer contents across the swap, which makes the two converge.	*/
+		{
+			EGLDisplay dpy = eglGetCurrentDisplay();
+			EGLSurface surf = eglGetCurrentSurface( EGL_DRAW );
+			if ( dpy != EGL_NO_DISPLAY && surf != EGL_NO_SURFACE &&
+				 eglSurfaceAttrib( dpy, surf, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED ) ) {
+				printf( "hsp3switch: swap behaviour = EGL_BUFFER_PRESERVED\n" );
+			} else {
+				printf( "hsp3switch: EGL_BUFFER_PRESERVED refused (0x%x)\n", (unsigned)eglGetError() );
+			}
+		}
 		/*	The frame is balanced - one clear, one render_start and one
 			render_end per frame - and yet the text flickers, which is what
 			an unsynchronised present looks like: the panel samples the
