@@ -987,6 +987,20 @@ void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffse
 }
 void sw_glCopyTexImage2D( GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border )
 {
+	static int reported = 0;
+
 	sw_init();
-	if ( sw_ready && gl_copyteximage2d ) gl_copyteximage2d( target, level, internalformat, x, y, width, height, border );
+	if ( !sw_ready ) return;
+	if ( gl_copyteximage2d == NULL ) {
+		if ( !reported ) {
+			reported = 1;
+			sw_say( "gles1shim: glCopyTexImage2D not resolvable - window copy cannot happen\n" );
+		}
+		return;
+	}
+	gl_copyteximage2d( target, level, internalformat, x, y, width, height, border );
+	if ( !reported ) {
+		reported = 1;
+		sw_say( "gles1shim: glCopyTexImage2D %dx%d err=0x%x\n", (int)width, (int)height, (unsigned)sw_glGetError() );
+	}
 }
