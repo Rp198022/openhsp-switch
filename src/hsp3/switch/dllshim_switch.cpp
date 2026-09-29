@@ -163,6 +163,15 @@ static int impl_timeGetTime( const DllArgValue *args, int argc )
 //	thousands of "Unsupported DLL call hmm.dll!_DMEND@16" lines in 40 seconds,
 //	which is also how this family was identified as the current blocker.
 //
+//	OLDDLLINIT: every entry in this file whose .ax name ends in `@16` is
+//	declared STRUCTPRM_SUBID_OLDDLLINIT (see _scratch/t23_ax_subids.py).  The
+//	runtime reads a *positive* return value as "wait N ticks" and raises
+//	HSPERR_DLL_ERROR for a positive value that carries neither 0x10000 nor
+//	0x20000 - so a call that should leave stat = n has to return -n here.
+//	The throw is silent, and Elona's ONERROR handler then reports only its own
+//	clean-up path, which is why this looked like a failure inside
+//	userNpc_update for so long.
+//
 static int impl_hmm_ok( const DllArgValue *args, int argc )
 {
 	(void)args;
@@ -173,11 +182,13 @@ static int impl_hmm_ok( const DllArgValue *args, int argc )
 //	The two loaders hand back a handle that the script passes to play/stop
 //	later.  0 would mean "nothing loaded", so give them a plausible one.
 //
+//	The result is negated into stat, so "one file loaded" is -1, not 1.
+//
 static int impl_hmm_load( const DllArgValue *args, int argc )
 {
 	(void)args;
 	(void)argc;
-	return 1;
+	return -1;		/* stat = 1, see the OLDDLLINIT note above */
 }
 
 //	_HMMBITON@16 / _HMMBITOFF@16 / _HMMBITCHECK@16 are real bit twiddling on the
@@ -203,7 +214,7 @@ static int impl_hmm_bitoff( const DllArgValue *args, int argc )
 static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 {
 	if ( argc < 2 || args[0].ptr == NULL ) return 0;
-	return ( *(int *)args[0].ptr >> ( args[1].ival & 31 ) ) & 1;
+	return ( ( *(int *)args[0].ptr >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT, see above */
 }
 
 //	_DIGETJOYNUM@16 / _DIGETJOYSTATE@16 - DirectInput enumeration.  The pad is
@@ -214,7 +225,7 @@ static int impl_hmm_joynum( const DllArgValue *args, int argc )
 	(void)args;
 	(void)argc;
 #ifdef HSPDISH
-	return 1;		/*	the Switch pad is the one control this port always has	*/
+	return -1;		/*	the Switch pad is the one control this port always has	*/
 #else
 	return 0;
 #endif
@@ -245,7 +256,7 @@ static int impl_win_true( const DllArgValue *args, int argc )
 {
 	(void)args;
 	(void)argc;
-	return 1;
+	return 1;		//	non-NULL handle / TRUE
 }
 
 static int impl_win_zero( const DllArgValue *args, int argc )
