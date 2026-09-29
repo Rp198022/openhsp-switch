@@ -420,12 +420,20 @@ void hsp3dish_dialog( char *mes )
 #endif
 }
 
-#ifdef HSPNDK
-/*	The Switch front end keeps a boot log on the card; hand it the value of
-	each stage so a refusal inside this function is visible.  Failure messages
-	here go to printf, which is a debug device with nobody on the other end
-	when the program was not started over nxlink. */
+/*	A boot-log hook.  hsp3dish_init()'s failure paths report through printf,
+	which on the Switch is a debug device nobody is listening to, so the value
+	of each stage is handed out here instead.  The front end supplies the real
+	one; every other target links against the no-op below.  Deliberately not
+	guarded on a platform macro - this file is compiled with a different set
+	of them than the Switch front end, and an #ifdef here silently turned the
+	whole hook into a no-op once already. */
+#if !defined(_MSC_VER)
 extern void sw_boot_trace( const char *stage, int value );
+__attribute__((weak)) void sw_boot_trace( const char *stage, int value )
+{
+	(void)stage;
+	(void)value;
+}
 #define SW_TRACE( s, v ) sw_boot_trace( s, v )
 #else
 #define SW_TRACE( s, v ) ( (void)0 )
