@@ -179,6 +179,18 @@ void switch_input_poll( void )
 		sw_push_key( sc, now );
 		sw_push_no++;
 	}
+	/*	P3 DIAGNOSTIC: the DirectInput-shaped value Elona's own gamepad path
+		reads with DIGETJOYSTATE.  Printed on change only, so a run that never
+		touches the pad stays quiet.										*/
+	{
+		static unsigned int last_bits = 0xffffffffu;
+		unsigned int bits = switch_input_pad_bits();
+		if ( bits != last_bits ) {
+			last_bits = bits;
+			printf( "hsp3switch: pad bits=0x%03x\n", bits );
+			fflush( stdout );
+		}
+	}
 	sw_poll_no++;
 	if ( ( sw_poll_no % 120 ) == 0 ) {
 		printf( "hsp3switch: pad poll=%u pushed=%u down[", sw_poll_no, sw_push_no );

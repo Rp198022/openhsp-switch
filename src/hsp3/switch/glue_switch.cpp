@@ -24,6 +24,8 @@
 #include "../supio.h"
 #include "../strbuf.h"
 #include "../hsp3ext.h"
+#include "../hsp3struct.h"
+#include "../hspvar_core.h"
 
 //	HSP3DEVINFO lives here.  On Linux the definition is pulled in indirectly by
 //	hsp3gr_linux.cpp; devctrl_io.h itself does not include it.
@@ -135,6 +137,61 @@ static HSPCTX *watch_ctx = NULL;
 static unsigned long watch_last = (unsigned long)-1;
 static int watch_beats = 0;
 
+//	P3 DIAGNOSTIC (temporary): the script's own view of the pad.
+//
+//	Elona only reads the gamepad when its own switch says so, and the switch
+//	lives in a script variable that nothing on this side can see - which is
+//	exactly why "the pad never reaches the game" was unanswerable.  The .ax
+//	carries its variable names in the debug info, so code_getdebug_seekvar()
+//	finds one by name and hspctx->mem_var holds its PVal: the same two calls
+//	the reference debugger is built on (hsp3code.cpp:3976-3989).
+//
+static int watch_var_lines = 0;
+
+static void glue_watch_i( char *out, int len, const char *name )
+{
+	int id = code_getdebug_seekvar( name );
+	PVal *pv;
+	int *p;
+
+	if ( id < 0 ) { snprintf( out, len, "%s=nofind", name ); return; }
+	pv = &watch_ctx->mem_var[id];
+	if ( pv->flag != HSPVAR_FLAG_INT ) { snprintf( out, len, "%s=flag%d", name, (int)pv->flag ); return; }
+	p = (int *)HspVarCorePtrAPTR( pv, 0 );
+	snprintf( out, len, "%s=%d", name, ( p == NULL ) ? -1 : *p );
+}
+
+static void glue_watch_s( char *out, int len, const char *name, int index )
+{
+	int id = code_getdebug_seekvar( name );
+	PVal *pv;
+	char *s;
+	int size;
+
+	if ( id < 0 ) { snprintf( out, len, "%s=nofind", name ); return; }
+	pv = &watch_ctx->mem_var[id];
+	if ( pv->flag != HSPVAR_FLAG_STR ) { snprintf( out, len, "%s=flag%d", name, (int)pv->flag ); return; }
+	s = (char *)HspVarCoreGetBlockSize( pv, HspVarCorePtrAPTR( pv, index ), &size );
+	snprintf( out, len, "%s(%d)='%.6s'", name, index, ( s == NULL ) ? "" : s );
+}
+
+static void glue_watch_script( unsigned long tick )
+{
+	char a[48], b[48], c[48], d[48], e[48], f[48];
+
+	if ( ( tick % 1000 ) != 0 ) return;				// once a second
+	if ( watch_var_lines >= 400 ) return;				// and then stop
+	watch_var_lines++;
+	glue_watch_i( a, sizeof( a ), "cfg_joypad" );
+	glue_watch_s( b, sizeof( b ), "key", 0 );
+	glue_watch_s( c, sizeof( c ), "key_enter", 0 );
+	glue_watch_s( d, sizeof( d ), "jkey", 0 );
+	glue_watch_s( e, sizeof( e ), "jkey", 2 );
+	glue_watch_s( f, sizeof( f ), "jkey", 5 );
+	printf( "hsp3switch: watch %s %s %s %s %s %s\n", a, b, c, d, e, f );
+	fflush( stdout );
+}
+
 static void *glue_watchdog( void *arg )
 {
 	struct timespec ts;
@@ -150,6 +207,8 @@ static void *glue_watchdog( void *arg )
 		nanosleep( &ts, NULL );
 		tick++;
 		if ( watch_ctx == NULL || watch_ctx->mem_mcs == NULL ) continue;
+
+		glue_watch_script( tick );
 
 		pc = code_getpcbak();
 		off = (unsigned long)( pc - watch_ctx->mem_mcs );
