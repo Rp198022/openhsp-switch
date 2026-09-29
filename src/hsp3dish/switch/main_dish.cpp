@@ -53,9 +53,16 @@ char *dpm_readalloc( char *fname );
 
 static FILE *sw_log = NULL;
 
+/*  Point stdout at the boot log rather than holding a second handle to
+    it.  There is no console in this build (see the header comment) and
+    nxlink only exists when a host is listening, so a plain printf() -
+    which is what every diagnostic outside this file uses, including the
+    DLL shim's reason for refusing a call - wrote nowhere at all.  A
+    failure inside the shim could therefore only be seen on hardware
+    attached to nxlink; a card run, or an emulator run, lost it.  */
 static void sw_log_open( void )
 {
-	sw_log = fopen( HSP3SWITCH_LOG, "w" );
+	sw_log = freopen( HSP3SWITCH_LOG, "w", stdout );
 }
 
 static void sw_say( const char *fmt, ... )
@@ -65,14 +72,7 @@ static void sw_say( const char *fmt, ... )
 	va_start( ap, fmt );
 	vprintf( fmt, ap );
 	va_end( ap );
-	fflush( stdout );			/* nxlink socket output is fully buffered */
-
-	if ( sw_log != NULL ) {
-		va_start( ap, fmt );
-		vfprintf( sw_log, fmt, ap );
-		va_end( ap );
-		fflush( sw_log );
-	}
+	fflush( stdout );			/* stdout is the boot log file now */
 }
 
 static const char *sw_pick_startfile( void )
@@ -195,6 +195,7 @@ int main( int argc, char *argv[] )
 	}
 
 	if ( sw_log != NULL ) {
+		fflush( sw_log );
 		fclose( sw_log );
 		sw_log = NULL;
 	}
