@@ -245,17 +245,17 @@ unsigned int switch_input_pad_bits( void )
 	SDL_PumpEvents();
 	SDL_JoystickUpdate();
 
-	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP ) )		bits |= 1u << 0;
-	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN ) )	bits |= 1u << 1;
-	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT ) )	bits |= 1u << 2;
-	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT ) )	bits |= 1u << 3;
-
-	lx = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX );
-	ly = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY );
-	if ( ly < -SW_STICK_DEADZONE ) bits |= 1u << 0;
-	if ( ly >  SW_STICK_DEADZONE ) bits |= 1u << 1;
-	if ( lx < -SW_STICK_DEADZONE ) bits |= 1u << 2;
-	if ( lx >  SW_STICK_DEADZONE ) bits |= 1u << 3;
+	/*	Bits 0-3 are deliberately left clear.  They hold the D-pad and the left
+		stick in a real DirectInput layout, but Elona reads the word by asking
+		HMMBITCHECK about every bit from 0 upwards and taking the index it finds
+		as jkey(n) - so a D-pad press came back as key_quickinv on the same frame
+		as the correct key_south and overwrote it, which left every menu cursor in
+		the game unable to move.  Directions do reach the script through the arrow
+		scancodes pushed here, which hsp3 turns into stick bits, so these carry
+		nothing the game needs.
+	*/
+	(void)lx;
+	(void)ly;
 
 	for ( j = 0; j < SW_PAD_BUTTON_N; j++ ) {
 		if ( SDL_GameControllerGetButton( sw_pad, sw_pad_button[j] ) ) bits |= 1u << ( 4 + j );
