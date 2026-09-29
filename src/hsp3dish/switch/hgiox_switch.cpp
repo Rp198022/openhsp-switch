@@ -2546,6 +2546,45 @@ static int sw_win_ok = 0;			/* 1 carry available, -1 given up on */
 static unsigned char *sw_win_pixels = NULL;
 static unsigned sw_restore_no = 0;
 
+/*	P3 DIAGNOSTIC - what each offscreen screen actually holds.
+	The title menu repaints the cursor region every frame with
+	cs_listbk's gcopy out of screen 3, and the background survives only a
+	frame, so if screen 3 is empty that copy is what paints over it.		*/
+static void sw_probe_screens( void )
+{
+	static unsigned screen_probe_no = 0;
+	int i, k;
+
+	screen_probe_no++;
+	if ( ( screen_probe_no % 30 ) != 0 ) return;
+
+	for ( i = 0; i < sw_target_used; i++ ) {
+		BMSCR *bm = sw_targets[i].bm;
+		GLuint fbo = sw_targets[i].fbo;
+		int sx, sy, rows[3], r;
+		unsigned long avg[3];
+
+		if ( bm == NULL || fbo == 0 ) continue;
+		sx = bm->sx; sy = bm->sy;
+		if ( sx <= 0 || sy <= 0 || sx > 4096 || sy > 4096 ) continue;
+
+		rows[0] = sy / 4; rows[1] = sy / 2; rows[2] = ( sy * 3 ) / 4;
+
+		glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+		for ( r = 0; r < 3; r++ ) {
+			unsigned long sum = 0;
+			unsigned char *row = (unsigned char *)malloc( (size_t)sx * 4 );
+			if ( row == NULL ) { avg[r] = 0; continue; }
+			glReadPixels( 0, rows[r], sx, 1, GL_RGBA, GL_UNSIGNED_BYTE, row );
+			for ( k = 0; k < sx; k++ ) sum += (unsigned long)row[k*4] + row[k*4+1] + row[k*4+2];
+			avg[r] = sx ? (unsigned)( sum / (unsigned long)( sx * 3 ) ) : 0;
+			free( row );
+		}
+		sw_fbo_log( "hgio: screen %d type=%d %dx%d row avg %u/%u/%u (0..255)\n",
+			i, bm->type, sx, sy, avg[0], avg[1], avg[2] );
+	}
+	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+}
 static void sw_measure( const char *tag )
 {
 	static unsigned measure_no = 0;
@@ -2649,6 +2688,8 @@ static void sw_win_restore( void )
 		reported at the end of the frame this content was captured from.		*/
 	sw_measure( "after restore" );
 }
+static void sw_probe_screens( void );
+
 int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
@@ -2665,6 +2706,8 @@ int hgio_render_start( void )
     gb_render_start();
 #endif
     
+
+	sw_probe_screens();
 
 	sw_win_restore();
 
