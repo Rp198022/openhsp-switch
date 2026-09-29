@@ -255,57 +255,6 @@ static int impl_win_zero( const DllArgValue *args, int argc )
 	return 0;
 }
 
-/*	From switch_input.cpp.  Declared here rather than including its header,
-	which lives in the other half of this port's source tree.  The table it
-	reads is indexed by SDL scancode, which is not what Win32 callers use. */
-/*	Weak on purpose: this shim is also compiled into the console backend,
-	which does not link switch_input.cpp, so the symbol may be absent. */
-extern int switch_input_key_state( int scancode ) __attribute__((weak));
-#define SW_KEY_DOWN( sc ) \
-	( ( switch_input_key_state != NULL ) && switch_input_key_state( sc ) )
-
-/*	user32.dll - GetKeyboardState( lpKeyState ).  Win32 contracts to fill a
-	256-byte array indexed by virtual-key code and return non-zero.  It was
-	stubbed to "always succeeds", which left the array untouched: on the title
-	screen Elona then read every key as up, so the cursor moved (that path goes
-	through the pad bits) while A/B/X/Y did nothing at all.
-
-	This port's own table is indexed by SDL scancode - UP is 82 there and 0x26
-	here - so the two have to be translated, not copied.					*/
-static int impl_GetKeyboardState( const DllArgValue *args, int argc )
-{
-	static const struct { int sc; int vk; } fixed[] = {
-		{ 40, 0x0D },	/* return	*/
-		{ 41, 0x1B },	/* escape	*/
-		{ 44, 0x20 },	/* space	*/
-		{ 79, 0x27 },	/* right	*/
-		{ 80, 0x25 },	/* left		*/
-		{ 81, 0x28 },	/* down		*/
-		{ 82, 0x26 },	/* up		*/
-	};
-	unsigned char *ks;
-	size_t i;
-
-	if ( argc < 1 || args[0].ptr == NULL ) return 0;
-	ks = (unsigned char *)args[0].ptr;
-	memset( ks, 0, 256 );
-
-	for ( i = 0; i < sizeof( fixed ) / sizeof( fixed[0] ); i++ ) {
-		if ( SW_KEY_DOWN( fixed[i].sc ) ) ks[fixed[i].vk] = 0x80;
-	}
-	/*	Letters and digits: SDL's scancodes for these run in the same order as
-		their ASCII, so a single loop covers each run.					*/
-	for ( i = 0; i < 26; i++ ) {
-		if ( SW_KEY_DOWN( (int)( 4 + i ) ) ) ks['A' + i] = 0x80;
-	}
-	for ( i = 0; i < 10; i++ ) {
-		int sc = ( i < 9 ) ? (int)( 30 + i ) : 39;
-		int vk = ( i < 9 ) ? ( '1' + i ) : '0';
-		if ( SW_KEY_DOWN( sc ) ) ks[vk] = 0x80;
-	}
-	return 1;
-}
-
 //	The rest of kernel32.dll.  CloseHandle was the third failure-in-a-loop the
 //	device runs found (about 2.8 million calls in 75 seconds, right after the
 //	game opened its own 800x600 screen), so it has to succeed like the others.
@@ -956,7 +905,7 @@ static const DllImplEntry impl_table[] = {
 	{ "user32.dll",		"DrawMenuBar",			impl_win_true },
 	{ "user32.dll",		"SetMenu",				impl_win_true },
 	{ "user32.dll",		"keybd_event",			impl_win_zero },
-	{ "user32.dll",	"GetKeyboardState",		impl_GetKeyboardState },
+	{ "user32.dll",		"GetKeyboardState",		impl_win_true },
 	{ "COMDLG32.DLL",	"GetOpenFileNameA",		impl_win_zero },	// 0 = cancelled
 	{ "COMDLG32.DLL",	"GetSaveFileNameA",		impl_win_zero },
 	{ "imm32",			"ImmGetContext",		impl_win_true },
