@@ -804,7 +804,12 @@ void hgio_uvfix( int mode )
 void hgio_reset( void )
 {
     //投影変換/ビューポート変換 (ウインドウをターゲットに戻す)
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	/*	This used to bind the window directly, so every frame began by drawing
+	straight into the window again and the main screen's own framebuffer only
+	received whatever happened to be drawn while some other path bound it.
+	Route it through the main target instead.								*/
+	sw_main_ensure();
+	glBindFramebuffer( GL_FRAMEBUFFER, ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
 	sw_cur = mainbm;
 	sw_apply_target( mainbm );
 
