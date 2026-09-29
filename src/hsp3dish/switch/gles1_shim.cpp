@@ -208,7 +208,6 @@ static int			sw_init_failed;
 static int			sw_frames_reported;
 static int			sw_frame_no;			/* glClear calls = frames begun		*/
 static int			sw_draw_no;
-static unsigned	sw_clear_calls = 0;
 static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
 
 /*----------------------------------------------------------------*/
@@ -764,7 +763,6 @@ void sw_glViewport( GLint x, GLint y, GLsizei width, GLsizei height )
 
 void sw_glClear( GLbitfield mask )
 {
-	sw_clear_calls++;
 	sw_init();
 	if ( sw_ready ) {
 		/*	This is the only genuinely once-per-frame point this port owns:
@@ -1041,13 +1039,4 @@ int sw_glCopyTexImage2DAvailable( void )
 {
 	sw_init();
 	return ( sw_ready && gl_copyteximage2d != NULL ) ? 1 : 0;
-}
-unsigned sw_glClearCount( void )
-{
-	return sw_clear_calls;
-}
-
-unsigned sw_glDrawCount( void )
-{
-	return sw_draw_no;
 }
