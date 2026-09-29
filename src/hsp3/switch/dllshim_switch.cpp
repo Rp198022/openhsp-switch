@@ -224,6 +224,18 @@ static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 	//
 	if ( argc < 2 ) return 0;
 	word = ( args[0].ptr != NULL ) ? *(int *)args[0].ptr : args[0].ival;
+	{
+		//	P3 DIAGNOSTIC: which bit the script is asking about, and the answer.
+		//	Only bits that are set are printed, so one key press produces one
+		//	line - the index here is what selects jkey(n).
+		//
+		static int bit_trace = 0;
+		if ( bit_trace < 120 && ( ( word >> ( args[1].ival & 31 ) ) & 1 ) != 0 ) {
+			printf( "hsp3switch: ### bitcheck bit=%d word=0x%04x -> set\n", (int)args[1].ival, (unsigned)word );
+			fflush( stdout );
+			bit_trace++;
+		}
+	}
 	return ( ( word >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT */
 }
 
