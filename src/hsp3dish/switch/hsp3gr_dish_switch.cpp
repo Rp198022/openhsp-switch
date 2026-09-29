@@ -435,6 +435,14 @@ static void cmdfunc_dialog( void )
 //	character sent there *is* a key press - which is how the game's letter
 //	shortcuts can be used at all.  Its text prompts are later boxes, and the one
 //	thing they need from us is a newline, sent with "@1:\n" and so on.
+//
+//	That newline cannot go through the box like an ordinary character: a
+//	keystroke is inserted by texmesPos::addStringFromCaret(), which first runs
+//	the text through validateString(), and that cuts the string short at CR or
+//	LF.  So a carriage return is appended to the box's own text and the result
+//	is pushed into the variable the box is bound to, which is the same thing
+//	Object_InputBox does after an ordinary edit.  Elona throws the newline away
+//	again with rm_crlf once it has taken the hint, so the name it keeps is clean.
 */
 #define SW_KEY_MAX		64
 #define SW_KEY_GAP		6			/* frames between two injected keys */
@@ -508,8 +516,24 @@ static void sw_key_tick( void )
 		highlight the player sees - is left where the script put it.		*/
 	info = bmscr->GetHSPObject( sw_key_target );
 	if ( info != NULL && info->owmode != HSPOBJ_NONE &&
-			( info->owmode & HSPOBJ_OPTION_LAYEROBJ ) == 0 && info->func_notice != NULL ) {
-		info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
+			( info->owmode & HSPOBJ_OPTION_LAYEROBJ ) == 0 ) {
+		if ( c == 13 || c == 10 ) {
+			/*	An edit box cannot be made to contain a newline by typing
+				one into it, so the box text and its variable are updated
+				here instead - see the note above.						*/
+			Hsp3ObjInput *edit = (Hsp3ObjInput *)info->btnset;
+			if ( edit != NULL ) {
+				edit->tpos.msg += '\n';
+				if ( info->varset.pval != NULL &&
+						info->varset.type == HSPVAR_FLAG_STR ) {
+					code_setva( info->varset.pval, info->varset.aptr,
+							HSPVAR_FLAG_STR, edit->tpos.msg.c_str() );
+				}
+			}
+		}
+		else if ( info->func_notice != NULL ) {
+			info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
+		}
 	}
 
 	printf( "hsp3switch: ## key '%c' (0x%02x) -> object %d\n",
