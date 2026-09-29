@@ -103,6 +103,14 @@ static void sw_probe_open( const char *path )
 	}
 }
 
+/*	Called from hsp3dish_init()'s own failure paths.  They report through
+	printf, which on the Switch is a debug device nobody is listening to, so
+	the value of each stage would otherwise be invisible.  */
+void sw_boot_trace( const char *stage, int value )
+{
+	sw_say( "hsp3dish: init stage %-8s -> %d\n", stage, value );
+}
+
 int main( int argc, char *argv[] )
 {
 	int res;
@@ -168,10 +176,8 @@ int main( int argc, char *argv[] )
 		file matters too: sw_pick_startfile() never opens it, it just returns
 		the name, so "start file = start.ax" does not mean it is readable. */
 	sw_probe_open( HSP3SWITCH_STARTAX );
-		/*	Reset() only gives up when dpm_readalloc() cannot size the file,
-			and that walks hsp3_flength() -> hgio_file_exist() and, on miss,
-			hgio_getstorage() before it ever reaches fopen.  Ask each link
-			directly: fopen("start.ax") succeeding says nothing about them. */
+		/*	fopen("start.ax") working says nothing about the file layer the
+			engine actually uses, so ask that one directly. */
 		{
 			const char *sf = HSP3SWITCH_STARTAX;
 			sw_say( "hsp3dish: probe hgio_file_exist('%s')  -> %d\n",
@@ -180,9 +186,10 @@ int main( int argc, char *argv[] )
 				sf, hgio_getstorage( (char *)sf ) );
 			sw_say( "hsp3dish: probe hsp3_flength('%s')     -> %d\n",
 				sf, hsp3_flength( (char *)sf ) );
-			sw_say( "hsp3dish: probe dpm_readalloc('%s')    -> %s\n",
-				sf, ( dpm_readalloc( (char *)sf ) != NULL ) ? "ok" : "NULL" );
+			sw_say( "hsp3dish: probe SDL_Init(VIDEO)        -> %d [%s]\n",
+				SDL_Init( SDL_INIT_VIDEO ), SDL_GetError() );
 		}
+
 	{
 		int sdl = SDL_Init( SDL_INIT_VIDEO );
 		sw_say( "hsp3dish: probe SDL_Init(VIDEO)      -> %d [%s]\n", sdl, SDL_GetError() );
