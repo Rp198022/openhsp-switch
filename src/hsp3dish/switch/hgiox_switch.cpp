@@ -301,10 +301,24 @@ static int		sw_clear_report = 0;		// P3 diagnostic
 static void sw_fbo_log( const char *fmt, ... )
 {
 	va_list ap;
+	char buf[512];
+	FILE *fp;
+
 	va_start( ap, fmt );
-	vprintf( fmt, ap );
+	vsnprintf( buf, sizeof( buf ), fmt, ap );
 	va_end( ap );
+
+	fputs( buf, stdout );
 	fflush( stdout );			// nxlink socket output is fully buffered
+
+	/*	Keep a copy on the card as well.  The socket only exists when the
+		program is started from the netloader, and the runs that matter are
+		the ordinary ones started from the menu.						*/
+	fp = fopen( "hsp3dish_diag.log", "ab" );
+	if ( fp != NULL ) {
+		fputs( buf, fp );
+		fclose( fp );
+	}
 }
 
 static SWTARGET *sw_find( BMSCR *bm )
