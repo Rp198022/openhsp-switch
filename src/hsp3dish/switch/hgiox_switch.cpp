@@ -2557,7 +2557,7 @@ static void sw_measure( const char *tag )
 	/*	Four call sites per frame now, so log one whole frame at a time: the
 		first four samples of every thirty-frame block.  The draw count comes
 		along because a wipe has to be drawn by something.					*/
-	if ( ( measure_no % 120 ) >= 4 ) return;
+	if ( ( measure_no % 90 ) >= 3 ) return;
 	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
 	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
 	sw_fbo_log( "hgio: %s sum=%u draws=%u\n", tag, (unsigned)rsum, (unsigned)sw_glDrawCount() );
