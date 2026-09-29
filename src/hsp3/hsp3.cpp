@@ -112,6 +112,20 @@ void Hsp3::Dispose( void )
 	}
 }
 
+/*	Boot-log hook, same weak pattern as the one in hsp3dish.cpp: the Switch
+	front end supplies the real one, everything else keeps the no-op. */
+#if !defined(_MSC_VER)
+extern void sw_boot_trace( const char *stage, int value );
+__attribute__((weak)) void sw_boot_trace( const char *stage, int value )
+{
+	(void)stage;
+	(void)value;
+}
+#define SW_TRACE( s, v ) sw_boot_trace( s, v )
+#else
+#define SW_TRACE( s, v ) ( (void)0 )
+#endif
+
 int Hsp3::Reset( int mode )
 {
 	//		axを初期化
@@ -122,6 +136,7 @@ int Hsp3::Reset( int mode )
 	char *ptr;
 	char fname[512];
 	HSPHED *hsphed;
+	SW_TRACE( "Reset/mode", mode );
 	if ( hspctx.mem_mcs != NULL ) Dispose();
 
 	//		load HSP execute object
@@ -169,8 +184,9 @@ int Hsp3::Reset( int mode )
 			sum = sum*17 + (int)ap;
 		}
 		*p = 0;
-		if ( sum != 0x6cced385 ) return -1;
+		if ( sum != 0x6cced385 ) { SW_TRACE( "Reset/sum", sum ); return -1; }
 		if ( mode ) {
+			SW_TRACE( "Reset/filebase", dpm_filebase( fname ) );
 			if (dpm_filebase(fname) != 1) {
 				return -1;	// DPM,packfileからのみstart.axを読み込む
 			}
@@ -181,7 +197,7 @@ int Hsp3::Reset( int mode )
 	}
 
 	ptr = dpm_readalloc(fname);
-	if (ptr == NULL) return -1;
+	if (ptr == NULL) { SW_TRACE( "Reset/readalloc", 1 ); return -1; }
 #endif
 
 	axfile = ptr;
@@ -191,6 +207,7 @@ int Hsp3::Reset( int mode )
 	hsphed = (HSPHED *)ptr;
 
 	if ((hsphed->h1!='H')||(hsphed->h2!='S')||(hsphed->h3!='P')||(hsphed->h4!='3')) {
+		SW_TRACE( "Reset/header", 1 );
 		mem_bye( axfile );
 		return -1;
 	}
