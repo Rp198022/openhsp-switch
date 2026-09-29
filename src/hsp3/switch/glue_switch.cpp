@@ -541,7 +541,8 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 //	and are referenced from hsp3gr_dish.swd, so --wrap reaches them without
 //	touching upstream.
 //
-static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src, int r )
+static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src,
+	int xx, int yy, int psx, int psy, int r )
 {
 	static int calls = 0;
 	static int fails = 0;
@@ -549,8 +550,8 @@ static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src, int r )
 	calls++;
 	if ( r != 0 ) fails++;
 	if ( ( r != 0 ) || ( calls <= 8 ) ) {
-		printf( "hsp3screen: %s -> %d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
-			op, r,
+		printf( "hsp3screen: %s -> %d x=%d y=%d w=%d h=%d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
+			op, r, xx, yy, psx, psy,
 			(int)self->type, (int)self->sx, (int)self->sy, self->texid,
 			( src != NULL ) ? (int)src->type : -1,
 			( src != NULL ) ? (int)src->sx : -1, ( src != NULL ) ? (int)src->sy : -1,
@@ -567,7 +568,7 @@ extern "C" int __wrap__ZN5Bmscr4CopyEPS_iiii( BMSCR *self, BMSCR *src,
 	int xx, int yy, int psx, int psy )
 {
 	int r = __real__ZN5Bmscr4CopyEPS_iiii( self, src, xx, yy, psx, psy );
-	glue_screen_op( "gcopy", self, src, r );
+	glue_screen_op( "gcopy", self, src, xx, yy, psx, psy, r );
 	return r;
 }
 
@@ -578,7 +579,7 @@ extern "C" int __wrap__ZN5Bmscr4ZoomEiiPS_iiiii( BMSCR *self, int dx, int dy,
 	BMSCR *src, int xx, int yy, int psx, int psy, int mode )
 {
 	int r = __real__ZN5Bmscr4ZoomEiiPS_iiiii( self, dx, dy, src, xx, yy, psx, psy, mode );
-	glue_screen_op( "gzoom", self, src, r );
+	glue_screen_op( "gzoom", self, src, xx, yy, psx, psy, r );
 	return r;
 }
 #endif
