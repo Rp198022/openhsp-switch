@@ -274,16 +274,6 @@ typedef struct {
 
 static SWTARGET	sw_targets[SWTARGET_MAX];
 
-/*	P3 - a screen for the window that outlives the frame.
-	hsp3dish draws the main screen straight into the window, which is double
-	buffered: a one-off paint such as Elona's title background lands in one
-	buffer and never reaches the other, so every swap alternates between the
-	menu and an empty frame.  The main screen gets a framebuffer of its own and
-	is drawn over the window once a frame, so both buffers receive the same
-	picture and the content survives between frames.						*/
-static GLuint	sw_main_tex = 0;
-static GLuint	sw_main_fbo = 0;
-static int	sw_main_ok = 0;
 static int		sw_target_used = 0;
 static BMSCR	*sw_cur = NULL;		// screen currently serving as render target
 static int		sw_fbo_report = 0;
@@ -344,9 +334,6 @@ static void sw_forget( BMSCR *bm )
 
 static void sw_forget_all( void )
 {
-	sw_main_tex = 0;
-	sw_main_fbo = 0;
-	sw_main_ok = 0;
 	sw_target_used = 0;
 	sw_cur = NULL;
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
@@ -507,84 +494,6 @@ static int sw_drawable( BMSCR *bm )
 	return ( sw_ensure( bm ) == 0 );
 }
 
-static void sw_main_ensure( void )
-{
-	int w = (int)_sizex;
-	int h = (int)_sizey;
-
-	if ( sw_main_ok != 0 ) return;
-	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) { sw_main_ok = -1; return; }
-
-	glGenTextures( 1, &sw_main_tex );
-	glGenFramebuffers( 1, &sw_main_fbo );
-	if ( sw_main_tex == 0 || sw_main_fbo == 0 ) { sw_main_ok = -1; return; }
-
-	glBindTexture( GL_TEXTURE_2D, sw_main_tex );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
-
-	glBindFramebuffer( GL_FRAMEBUFFER, sw_main_fbo );
-	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sw_main_tex, 0 );
-	if ( ( sw_glGetError() != GL_NO_ERROR ) ||
-		 ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE ) ) {
-		sw_main_ok = -1;
-		sw_fbo_log( "hgio: no target for the main screen, %dx%d; using the window\n", w, h );
-		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-		sw_cur = NULL;
-		return;
-	}
-	hgio_clear();
-	sw_main_ok = 1;
-	sw_fbo_log( "hgio: main screen target %dx%d tex=%u fbo=%u\n",
-		w, h, (unsigned)sw_main_tex, (unsigned)sw_main_fbo );
-}
-
-/*	Draw the main screen over the window.  The frame was rendered with the
-	window's matrices, so only the target changes here; the texture is sampled
-	over the viewport rectangle it was drawn into.							*/
-static void sw_main_present( void )
-{
-	GLfloat vert[8];
-	GLfloat uv[8];
-	float ox = (float)_bgsx;
-	float oy = (float)_bgsy;
-	float u0, v0, u1, v1;
-
-	if ( sw_main_ok != 1 ) return;
-
-	u0 = ( _sizex > 0 ) ? (float)_originX / (float)_sizex : 0.0f;
-	v0 = ( _sizey > 0 ) ? (float)_originY / (float)_sizey : 0.0f;
-	u1 = ( _sizex > 0 ) ? ( (float)_originX + ox * _scaleX ) / (float)_sizex : 1.0f;
-	v1 = ( _sizey > 0 ) ? ( (float)_originY + oy * _scaleY ) / (float)_sizey : 1.0f;
-
-	vert[0] = 0.0f;		vert[1] = 0.0f;
-	vert[2] = ox;		vert[3] = 0.0f;
-	vert[4] = 0.0f;		vert[5] = -oy;
-	vert[6] = ox;		vert[7] = -oy;
-
-	uv[0] = u0;	uv[1] = v1;
-	uv[2] = u1;	uv[3] = v1;
-	uv[4] = u0;	uv[5] = v0;
-	uv[6] = u1;	uv[7] = v0;
-
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-	/*	The frame may well have ended on an offscreen screen, in which case the
-		projection and viewport still belong to that screen and a quad drawn in
-		them would land somewhere else on the window - part of it new, part of
-		it left over, which is a whole-screen flicker.  Put the window's own
-		matrices back before drawing it.									*/
-	sw_apply_target( mainbm );
-	ChangeTex( (int)sw_main_tex );
-	glVertexPointer( 2, GL_FLOAT, 0, vert );
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
-	ChangeTex( -1 );
-}
 static int sw_bind_target( BMSCR *bm )
 {
 	SWTARGET *t;
@@ -592,8 +501,7 @@ static int sw_bind_target( BMSCR *bm )
 	if ( bm == NULL ) return -1;
 
 	if ( bm->type == HSPWND_TYPE_MAIN ) {
-		sw_main_ensure();
-		glBindFramebuffer( GL_FRAMEBUFFER, ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 		sw_cur = bm;
 		sw_apply_target( bm );
 		return 0;
@@ -804,12 +712,8 @@ void hgio_uvfix( int mode )
 void hgio_reset( void )
 {
     //投影変換/ビューポート変換 (ウインドウをターゲットに戻す)
-	/*	This used to bind the window directly, so every frame began by drawing
-	straight into the window again and the main screen's own framebuffer only
-	received whatever happened to be drawn while some other path bound it.
-	Route it through the main target instead.								*/
-	sw_main_ensure();
-	glBindFramebuffer( GL_FRAMEBUFFER, ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+
+    glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	sw_cur = mainbm;
 	sw_apply_target( mainbm );
 
@@ -2749,8 +2653,6 @@ int hgio_render_end( void )
 #endif
 
 		tmes.texmesProc();
-
-	sw_main_present();
 
 	sw_probe_frame();
 
