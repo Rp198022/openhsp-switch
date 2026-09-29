@@ -1131,6 +1131,8 @@ void dllshim_report_exit( void )
 #define DLLSHIM_TRACE_HI	2900000L
 
 static int dllshim_trace_count = 0;
+static int dllshim_joy_trace = 0;		// P3 DIAGNOSTIC
+static int dllshim_bit_trace = 0;		// P3 DIAGNOSTIC
 
 int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 {
@@ -1226,6 +1228,22 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 		hspctx->stat = -result;
 	} else {
 		hspctx->stat = result;
+	}
+
+	//	P3 DIAGNOSTIC: the pad entry points get their own trace, independent of
+	//	the window and the 400-line cap below.  The title loop spends that cap on
+	//	its numlock and water calls within seconds, so the windowed trace cannot
+	//	answer "is the script reading the pad at all?".
+	//
+	if ( dllshim_joy_trace < 40 && strstr( desc, "JOY" ) != NULL ) {
+		printf( "hsp3switch: ### padtrace %s result=%d\n", desc, result );
+		fflush( stdout );
+		dllshim_joy_trace++;
+	}
+	if ( dllshim_bit_trace < 40 && strstr( desc, "BIT" ) != NULL ) {
+		printf( "hsp3switch: ### padtrace %s result=%d\n", desc, result );
+		fflush( stdout );
+		dllshim_bit_trace++;
 	}
 
 	//	P3 DIAGNOSTIC - how far the bytecode stream moved across this command.

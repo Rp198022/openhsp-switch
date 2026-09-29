@@ -175,13 +175,63 @@ static void glue_watch_s( char *out, int len, const char *name, int index )
 	snprintf( out, len, "%s(%d)='%.6s'", name, index, ( s == NULL ) ? "" : s );
 }
 
+static int	glue_key_id = -2;					// -2 = unresolved
+static char	glue_key_last[40] = "";
+
+//	Called from the 1 ms loop: key_check() clears `key` at the top of every
+//	frame and fills it in at the bottom, so a 1 Hz sample sees "" almost always.
+//	Only changes are printed.
+//
+static void glue_watch_key( void )
+{
+	PVal *pv;
+	char *s;
+	int size;
+
+	if ( watch_ctx == NULL ) return;
+	if ( glue_key_id == -2 ) glue_key_id = code_getdebug_seekvar( "key" );
+	if ( glue_key_id < 0 ) return;
+	pv = &watch_ctx->mem_var[glue_key_id];
+	if ( pv->flag != HSPVAR_FLAG_STR ) return;
+	s = (char *)HspVarCoreGetBlockSize( pv, HspVarCorePtrAPTR( pv, 0 ), &size );
+	if ( s == NULL ) return;
+	if ( strcmp( s, glue_key_last ) == 0 ) return;
+	snprintf( glue_key_last, sizeof( glue_key_last ), "%.31s", s );
+	printf( "hsp3switch: key='%s'\n", glue_key_last );
+	fflush( stdout );
+}
+
+//	Every variable whose name mentions joy/pad, by value - the switch that keeps
+//	key_check() out of its gamepad block is one of them, and guessing its name
+//	has already cost a round trip.
+//
+static void glue_watch_names( unsigned long tick )
+{
+	char buf[64];
+	int id, shown = 0;
+
+	if ( ( tick % 4000 ) != 0 ) return;
+	if ( watch_var_lines >= 8 ) return;
+	watch_var_lines++;
+	for ( id = 0; id < 4000; id++ ) {
+		const char *nm = code_getdebug_varname( id );
+		if ( nm == NULL || nm[0] == 0 ) break;
+		if ( strstr( nm, "joy" ) == NULL && strstr( nm, "pad" ) == NULL ) continue;
+		glue_watch_i( buf, sizeof( buf ), nm );
+		printf( "hsp3switch: jpvar %s\n", buf );
+		if ( ++shown >= 20 ) break;
+	}
+	printf( "hsp3switch: jpvar (end, %d names)\n", shown );
+	fflush( stdout );
+}
+
 static void glue_watch_script( unsigned long tick )
 {
 	char a[48], b[48], c[48], d[48], e[48], f[48];
 
+	glue_watch_key();
+	glue_watch_names( tick );
 	if ( ( tick % 1000 ) != 0 ) return;				// once a second
-	if ( watch_var_lines >= 400 ) return;				// and then stop
-	watch_var_lines++;
 	glue_watch_i( a, sizeof( a ), "cfg_joypad" );
 	glue_watch_s( b, sizeof( b ), "key", 0 );
 	glue_watch_s( c, sizeof( c ), "key_enter", 0 );
