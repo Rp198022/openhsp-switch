@@ -213,8 +213,18 @@ static int impl_hmm_bitoff( const DllArgValue *args, int argc )
 
 static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 {
-	if ( argc < 2 || args[0].ptr == NULL ) return 0;
-	return ( ( *(int *)args[0].ptr >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT, see above */
+	int word;
+
+	//	Unlike the two writers above, this entry is declared with an MPTYPE_INUM
+	//	word, so the .ax hands over the *value* the script is testing - there is
+	//	no pointer to read (see _scratch/t23_ax_prms.py, and read_arg() above,
+	//	which only fills ptr for MPTYPE_PVARPTR).  Answering from ptr left the
+	//	word at 0 on every call, so `if (stat)` in Elona's own gamepad table was
+	//	never true and no pad button could select an action.
+	//
+	if ( argc < 2 ) return 0;
+	word = ( args[0].ptr != NULL ) ? *(int *)args[0].ptr : args[0].ival;
+	return ( ( word >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT */
 }
 
 //	_DIGETJOYNUM@16 / _DIGETJOYSTATE@16 - DirectInput enumeration.  The pad is
