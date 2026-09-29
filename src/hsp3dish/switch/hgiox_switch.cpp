@@ -2575,7 +2575,7 @@ static void sw_win_capture( void )
 	if ( sw_win_ok == 0 ) {
 		glGenTextures( 1, &sw_win_tex );
 		if ( sw_win_tex == 0 ) { sw_win_ok = -1; return; }
-		glBindTexture( GL_TEXTURE_2D, sw_win_tex );
+		ChangeTex( (int)sw_win_tex );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
@@ -2603,7 +2603,7 @@ static void sw_win_capture( void )
 
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-	glBindTexture( GL_TEXTURE_2D, sw_win_tex );
+	ChangeTex( (int)sw_win_tex );
 	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
 }
 
@@ -2632,14 +2632,17 @@ static void sw_win_restore( void )
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
 
-	glEnable( GL_TEXTURE_2D );
-	glBindTexture( GL_TEXTURE_2D, sw_win_tex );
+	/*	ChangeTex rather than glBindTexture: it keeps the port's texture cache in
+		step with the real binding.  Binding behind its back left curtex claiming
+		a texture that was no longer bound, so every later ChangeTex to that id
+		skipped the bind and the game drew with whatever this had set.			*/
+	ChangeTex( (int)sw_win_tex );
 	glVertexPointer( 2, GL_FLOAT, 0, vert );
 	glEnableClientState( GL_VERTEX_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
-	glDisable( GL_TEXTURE_2D );
+	ChangeTex( -1 );
 
 	/*	What the restore actually put on the screen, measured rather than
 		assumed: summed over the whole frame it should match the sum the probe
