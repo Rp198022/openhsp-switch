@@ -569,25 +569,40 @@ static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src,
 //	an automated run where the game is.  texmesManager::texmesRegist() is the
 //	choke point every drawn string passes through.
 //
-#define GLUE_TEXT_MAX	600
-#define GLUE_TEXT_LEN	200
+#define GLUE_TEXT_MAX		600
+#define GLUE_TEXT_LEN		200
+#define GLUE_TEXT_REPEAT	5			/* seconds before a string is shown again */
 
 static char *glue_text_seen[GLUE_TEXT_MAX];
+static unsigned glue_text_when[GLUE_TEXT_MAX];
 static int	glue_text_count = 0;
 
+//	Elona redraws its screen every frame, so a string that is still on screen is
+//	printed again after GLUE_TEXT_REPEAT seconds.  That keeps the tail of the log
+//	describing the screen the game is waiting on: with one-off printing, the tail
+//	was wherever the game had last produced *new* text, which is how a driver
+//	reading this log kept mistaking an old screen for the current one.
+//
 static void glue_text_log( const char *msg )
 {
+	unsigned now = (unsigned)time( NULL );
 	int i;
 
 	if ( msg == NULL || msg[0] == 0 ) return;
-	if ( glue_text_count >= GLUE_TEXT_MAX ) return;
 	for ( i = 0; i < glue_text_count; i++ ) {
-		if ( strcmp( glue_text_seen[i], msg ) == 0 ) return;
+		if ( strcmp( glue_text_seen[i], msg ) != 0 ) continue;
+		if ( now - glue_text_when[i] < GLUE_TEXT_REPEAT ) return;
+		glue_text_when[i] = now;
+		printf( "hsp3text: %s\n", glue_text_seen[i] );
+		fflush( stdout );
+		return;
 	}
+	if ( glue_text_count >= GLUE_TEXT_MAX ) return;
 	glue_text_seen[glue_text_count] = (char *)malloc( GLUE_TEXT_LEN + 1 );
 	if ( glue_text_seen[glue_text_count] == NULL ) return;
 	strncpy( glue_text_seen[glue_text_count], msg, GLUE_TEXT_LEN );
 	glue_text_seen[glue_text_count][GLUE_TEXT_LEN] = 0;
+	glue_text_when[glue_text_count] = now;
 	glue_text_count++;
 	printf( "hsp3text: %s\n", glue_text_seen[glue_text_count - 1] );
 	fflush( stdout );
