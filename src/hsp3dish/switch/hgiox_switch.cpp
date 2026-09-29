@@ -2554,10 +2554,13 @@ static void sw_measure( const char *tag )
 
 	if ( sw_win_ok != 1 || sw_win_pixels == NULL ) return;
 	measure_no++;
-	if ( ( measure_no % 30 ) != 1 ) return;
+	/*	Four call sites per frame now, so log one whole frame at a time: the
+		first four samples of every thirty-frame block.  The draw count comes
+		along because a wipe has to be drawn by something.					*/
+	if ( ( measure_no % 120 ) >= 4 ) return;
 	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
 	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
-	sw_fbo_log( "hgio: %s sum=%u\n", tag, (unsigned)rsum );
+	sw_fbo_log( "hgio: %s sum=%u draws=%u\n", tag, (unsigned)rsum, (unsigned)sw_glDrawCount() );
 }
 static void sw_win_capture( void )
 {
@@ -2663,6 +2666,8 @@ int hgio_render_start( void )
 	sw_win_restore();
 
 	hgio_reset();
+
+	sw_measure( "after reset" );
 
 	//	hgio_reset()はウインドウに戻すので、離屏ターゲットを復元する
 	if ( ( keep != NULL ) && ( keep->type != HSPWND_TYPE_MAIN ) ) {
