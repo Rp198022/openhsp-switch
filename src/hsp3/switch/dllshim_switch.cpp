@@ -258,7 +258,11 @@ static int impl_win_zero( const DllArgValue *args, int argc )
 /*	From switch_input.cpp.  Declared here rather than including its header,
 	which lives in the other half of this port's source tree.  The table it
 	reads is indexed by SDL scancode, which is not what Win32 callers use. */
-int switch_input_key_state( int scancode );
+/*	Weak on purpose: this shim is also compiled into the console backend,
+	which does not link switch_input.cpp, so the symbol may be absent. */
+extern int switch_input_key_state( int scancode ) __attribute__((weak));
+#define SW_KEY_DOWN( sc ) \
+	( ( switch_input_key_state != NULL ) && switch_input_key_state( sc ) )
 
 /*	user32.dll - GetKeyboardState( lpKeyState ).  Win32 contracts to fill a
 	256-byte array indexed by virtual-key code and return non-zero.  It was
@@ -287,17 +291,17 @@ static int impl_GetKeyboardState( const DllArgValue *args, int argc )
 	memset( ks, 0, 256 );
 
 	for ( i = 0; i < sizeof( fixed ) / sizeof( fixed[0] ); i++ ) {
-		if ( switch_input_key_state( fixed[i].sc ) ) ks[fixed[i].vk] = 0x80;
+		if ( SW_KEY_DOWN( fixed[i].sc ) ) ks[fixed[i].vk] = 0x80;
 	}
 	/*	Letters and digits: SDL's scancodes for these run in the same order as
 		their ASCII, so a single loop covers each run.					*/
 	for ( i = 0; i < 26; i++ ) {
-		if ( switch_input_key_state( (int)( 4 + i ) ) ) ks['A' + i] = 0x80;
+		if ( SW_KEY_DOWN( (int)( 4 + i ) ) ) ks['A' + i] = 0x80;
 	}
 	for ( i = 0; i < 10; i++ ) {
 		int sc = ( i < 9 ) ? (int)( 30 + i ) : 39;
 		int vk = ( i < 9 ) ? ( '1' + i ) : '0';
-		if ( switch_input_key_state( sc ) ) ks[vk] = 0x80;
+		if ( SW_KEY_DOWN( sc ) ) ks[vk] = 0x80;
 	}
 	return 1;
 }
