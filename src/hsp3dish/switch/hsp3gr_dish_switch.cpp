@@ -411,89 +411,82 @@ static void cmdfunc_dialog( void )
 }
 
 
-/*	Text input.
+/*	Injected keys.
 //
 //	The Switch has no keyboard and this build's event loop only sees text that
 //	something else produced (SDL_TEXTINPUT in linux/hsp3dish.cpp), so an edit
 //	object waits forever: Elona's character creation stops at its first name
-//	prompt and cannot be left.  When an input object appears, type the contents
-//	of sdmc:/switch/openhsp/input.txt into it - the same two writes
-//	linux/hsp3dish.cpp makes for a key press - and let the script's own wait
-//	see a normal edit.  keybuf is 8 bytes and carries one character, so the text
-//	goes in a character per frame.  On hardware this is where the system
-//	software keyboard belongs.
+//	prompt and cannot be left.  The pad cannot answer it either - it only ever
+//	yields functional keys (enter, cancel, the twelve buttons) and never a
+//	character, while Elona ends a text prompt on a newline *inside* the box and
+//	answers its yes/no prompts with typed letters.
+//
+//	So the harness writes what should be typed into
+//	sdmc:/switch/openhsp/keys.txt.  The file is read and emptied - a key left
+//	behind would be typed again on the next pass - and the characters go to the
+//	focused edit object a few frames apart, through the same keybuf write
+//	linux/hsp3dish.cpp makes for a real key press; the pacing is what lets the
+//	script see separate keystrokes rather than one long paste.  On hardware
+//	this is where the system software keyboard belongs.
 */
-#define SW_TEXT_MAX		64
-#define SW_TEXT_PROMPTS	8
+#define SW_KEY_MAX		64
+#define SW_KEY_GAP		6			/* frames between two injected keys */
 
-static char	sw_text_buf[SW_TEXT_MAX];
-static int	sw_text_pos = 0;
-static int	sw_text_delay = 0;
-static int	sw_text_active = 0;
-static int	sw_text_prompts = 0;
-static int	sw_text_mesbox_seen = 0;	// the first one is Elona's keylog
+static char	sw_key_buf[SW_KEY_MAX];
+static int	sw_key_len = 0;
+static int	sw_key_pos = 0;
+static int	sw_key_wait = 0;
 
-static void sw_text_begin( void )
+static void sw_key_read( void )
 {
 	FILE *fp;
 	int n;
 
-	if ( sw_text_active || sw_text_prompts >= SW_TEXT_PROMPTS ) return;
-	fp = fopen( "sdmc:/switch/openhsp/input.txt", "rb" );
-	if ( fp == NULL ) fp = fopen( "./input.txt", "rb" );
-	n = 0;
-	if ( fp != NULL ) {
-		n = (int)fread( sw_text_buf, 1, SW_TEXT_MAX - 1, fp );
-		fclose( fp );
-		if ( n < 0 ) n = 0;
-	}
-	sw_text_buf[n] = 0;
-	while ( n > 0 && ( sw_text_buf[n - 1] == '\n' || sw_text_buf[n - 1] == '\r' ) ) {
-		sw_text_buf[--n] = 0;
-	}
-	if ( n == 0 ) {
-		strcpy( sw_text_buf, "Elona" );
-	}
-	sw_text_pos = 0;
-	sw_text_delay = 20;						// let the script reach its wait
-	sw_text_active = 1;
-	sw_text_prompts++;
+	fp = fopen( "sdmc:/switch/openhsp/keys.txt", "rb" );
+	if ( fp == NULL ) return;
+	n = (int)fread( sw_key_buf, 1, SW_KEY_MAX - 1, fp );
+	fclose( fp );
+	if ( n <= 0 ) return;
+	sw_key_buf[n] = 0;
+	sw_key_len = n;
+	sw_key_pos = 0;
+
+	fp = fopen( "sdmc:/switch/openhsp/keys.txt", "wb" );
+	if ( fp != NULL ) fclose( fp );
 }
 
-static void sw_text_tick( void )
+static void sw_key_tick( void )
 {
-	int len, n;
+	int n;
 	unsigned char c;
 
-	if ( sw_text_active == 0 ) return;
-	if ( sw_text_delay > 0 ) {
-		sw_text_delay--;
+	if ( bmscr == NULL ) return;
+	if ( sw_key_wait > 0 ) {
+		sw_key_wait--;
 		return;
 	}
-	len = (int)strlen( sw_text_buf );
-	if ( sw_text_pos >= len ) {
-		sw_text_active = 0;
-		printf( "hsp3switch: ## text input done ('%s')\n", sw_text_buf );
-		fflush( stdout );
-		return;
+	if ( sw_key_pos >= sw_key_len ) {
+		sw_key_len = 0;
+		sw_key_pos = 0;
+		sw_key_read();
+		if ( sw_key_len == 0 ) return;
 	}
-	if ( bmscr == NULL ) {
-		sw_text_active = 0;
-		return;
-	}
-	c = (unsigned char)sw_text_buf[sw_text_pos];
+
+	c = (unsigned char)sw_key_buf[sw_key_pos];
 	n = 1;
 	if ( ( c & 0xe0 ) == 0xc0 ) n = 2;
 	else if ( ( c & 0xf0 ) == 0xe0 ) n = 3;
 	else if ( ( c & 0xf8 ) == 0xf0 ) n = 4;
-	if ( sw_text_pos + n > len ) n = 1;
-	memcpy( bmscr->keybuf, sw_text_buf + sw_text_pos, n );
+	if ( sw_key_pos + n > sw_key_len ) n = 1;
+	memcpy( bmscr->keybuf, sw_key_buf + sw_key_pos, n );
 	bmscr->keybuf[n] = 0;
 	bmscr->keybuf_index = 0;
 	bmscr->SendHSPObjectNotice( HSPOBJ_NOTICE_KEY_BUFFER );
-	sw_text_pos += n;
-	printf( "hsp3switch: ## text input '%.*s'\n", n, sw_text_buf + sw_text_pos - n );
+	printf( "hsp3switch: ## key '%c' (0x%02x) injected\n",
+			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c );
 	fflush( stdout );
+	sw_key_pos += n;
+	sw_key_wait = SW_KEY_GAP;
 }
 
 static int cmdfunc_extcmd( int cmd )
@@ -504,7 +497,7 @@ static int cmdfunc_extcmd( int cmd )
 	int p1,p2,p3,p4,p5,p6;
 	code_next();							// 次のコードを取得(最初に必ず必要です)
 
-	sw_text_tick();							// fork: type into a waiting edit object
+	sw_key_tick();							// fork: type a key the harness asked for
 	switch( cmd ) {							// サブコマンドごとの分岐
 
 	case 0x00:								// button
@@ -992,7 +985,6 @@ static int cmdfunc_extcmd( int cmd )
 		}
 		p3 = code_getdi(size);
 		ctx->stat = bmscr->AddHSPObjectInput(pval, aptr, p1, p2, ptr, p3, type);
-		sw_text_begin();					// fork: nothing else can produce text
 		break;
 	}
 #endif
@@ -1022,11 +1014,6 @@ static int cmdfunc_extcmd( int cmd )
 		if ( p3 & 4 ) mode |= HSPOBJ_INPUT_HSCROLL;
 		if ( p4 < 0 ) p4 = size - 1;
 		ctx->stat = bmscr->AddHSPObjectInput( pval, aptr, p1, p2, ptr, p4, (pval->flag)|mode );
-		//	The first mesbox of a run is Elona's hidden keylog, whose contents
-		//	key_check() reads as typed keys: typing into it feeds the game a
-		//	stream of stray key presses.  Only later boxes are prompts.
-		if ( sw_text_mesbox_seen == 0 ) sw_text_mesbox_seen = 1;
-		else if (( p3 & 1 ) != 0 ) sw_text_begin();	// fork: nothing can type in it
 		break;
 	}
 
