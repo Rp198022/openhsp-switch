@@ -2546,6 +2546,19 @@ static int sw_win_ok = 0;			/* 1 carry available, -1 given up on */
 static unsigned char *sw_win_pixels = NULL;
 static unsigned sw_restore_no = 0;
 
+static void sw_measure( const char *tag )
+{
+	static unsigned measure_no = 0;
+	unsigned long rsum = 0;
+	int k;
+
+	if ( sw_win_ok != 1 || sw_win_pixels == NULL ) return;
+	measure_no++;
+	if ( ( measure_no % 30 ) != 1 ) return;
+	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
+	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
+	sw_fbo_log( "hgio: %s sum=%u\n", tag, (unsigned)rsum );
+}
 static void sw_win_capture( void )
 {
 	int w = 0, h = 0;
@@ -2689,19 +2702,6 @@ static void sw_probe_frame( void )
 	}
 	free( buf );
 	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d sum=%lu\n", w, h, nonwhite, n, sum );
-}
-static void sw_measure( const char *tag )
-{
-	static unsigned measure_no = 0;
-	unsigned long rsum = 0;
-	int k;
-
-	if ( sw_win_ok != 1 || sw_win_pixels == NULL ) return;
-	measure_no++;
-	if ( ( measure_no % 30 ) != 1 ) return;
-	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
-	sw_fbo_log( "hgio: %s sum=%u\n", tag, (unsigned)rsum );
 }
 int hgio_render_end( void )
 {
