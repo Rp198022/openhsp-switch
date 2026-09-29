@@ -735,6 +735,7 @@ int hsp3dish_init( char *startfile )
 		hsp->SetPackValue( hsp_sum, hsp_dec );
 	}
 
+	SW_TRACE( "mode", mode );
 	{
 		int r = hsp->Reset( mode );
 		SW_TRACE( "Reset", r );
