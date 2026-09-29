@@ -37,10 +37,11 @@
 //	open and correctly mapped, and yet no key value ever moved, because the
 //	state was read once at startup and never again.
 //
-//	The frame tick that does work is in this port's own GL shim:
-//	hgio_reset() begins every frame with glClear(), so gles1_shim.cpp's
-//	sw_glClear() already counts frames there.  It calls switch_input_poll()
-//	once per frame, which is the sampling rate the event loop needs anyway.
+//	The frame tick that does work is hgio_render_start() in this port's
+//	graphics backend, entered once per frame.  Through gles1_shim.cpp's
+//	sw_frame_tick() it calls switch_input_poll() there.  (It first lived in
+//	sw_glClear(), which stopped being a per-frame hook once the frame clear
+//	moved into the main screen's own framebuffer.)
 //
 //	Elona's full key set is P4 work (PLAN.md R5); this is the minimal mapping
 //	the P2 gate needs (official sample scripts driving stick/getkey).

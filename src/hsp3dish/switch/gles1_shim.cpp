@@ -37,7 +37,7 @@
 
 #include <GL/gl.h>
 
-#include "switch_input.h"		/* switch_input_poll(), driven from sw_glClear */
+#include "switch_input.h"		/* switch_input_poll(), driven from hgio_render_start */
 
 /*----------------------------------------------------------------*/
 /*	Real GLES2 entry points										  */
@@ -765,13 +765,6 @@ void sw_glClear( GLbitfield mask )
 {
 	sw_init();
 	if ( sw_ready ) {
-		/*	This is the only genuinely once-per-frame point this port owns:
-			hgio_reset() opens every frame with glClear().  It is therefore
-			also where the gamepad is sampled - wrapping ctx->msgfunc does not
-			work, since that is entered once and loops internally (see the
-			header comment in switch_input.cpp).							*/
-		switch_input_poll();
-
 		gl_clear( mask );
 		/*	Report a GL error once per run so a silently broken frame is at
 			least visible over nxlink.										*/
@@ -782,22 +775,23 @@ void sw_glClear( GLbitfield mask )
 				sw_frames_reported++;
 			}
 		}
-		/*	The backend begins every frame with hgio_reset() -> glClear(), so this
-			is the frame tick.  A periodic line is the only way to prove from the
-			nxlink log that frames are really being produced.
-			The timestamp is what makes the rate measurable: the capture window
-			also contains the nxlink push, so frame count over the window is a
-			lower bound at best.  With t= the rate is (delta frames)/(delta ms)
-			regardless of when the app actually started.						*/
-		sw_frame_no++;
-		/*	The first few frames are logged individually.  Previously the first
-			line needed 60 frames, so "no frame line" could not be told apart
-			from "no frame produced at all" - with the crash reproducibly landing
-			in the first frames, the log had no way to say which.				*/
-		if ( sw_frame_no <= 5 || ( sw_frame_no % 30 ) == 0 ) {
-			sw_say( "gles1shim: frame %d, %d draws, t=%u ms\n",
-				sw_frame_no, sw_draw_no, (unsigned)SDL_GetTicks() );
-		}
+	}
+}
+
+/*	The once-per-frame tick.  glClear() used to be the point this port owned
+	for that, but the clear now happens once inside the main screen's own
+	framebuffer rather than on every frame, so the backend calls this from
+	hgio_render_start() instead.  The pad is sampled here for the same
+	reason: the script reads it at the top of its own loop, so pumping at the
+	frame boundary keeps that read fresh.									*/
+void sw_frame_tick( void )
+{
+	switch_input_poll();
+
+	sw_frame_no++;
+	if ( sw_frame_no <= 5 || ( sw_frame_no % 30 ) == 0 ) {
+		sw_say( "gles1shim: frame %d, %d draws, t=%u ms\n",
+			sw_frame_no, sw_draw_no, (unsigned)SDL_GetTicks() );
 	}
 }
 

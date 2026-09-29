@@ -2643,6 +2643,14 @@ int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
 
+	/*	This really is entered once per frame - the counters showed ~1080 calls
+		in one run - which is what a pad read needs.  sw_glClear() used to be
+		the sampling point, but the CLSMODE fix turned the frame clear into a
+		one-off inside the main screen's framebuffer, so the pad was read twice
+		in a whole run and every key looked dead.								*/
+	switch_input_poll();
+	sw_frame_tick();
+
 	if ( drawflag ) {
 		hgio_render_end();
 	}
