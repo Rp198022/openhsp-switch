@@ -431,6 +431,7 @@ static int	sw_text_pos = 0;
 static int	sw_text_delay = 0;
 static int	sw_text_active = 0;
 static int	sw_text_prompts = 0;
+static int	sw_text_mesbox_seen = 0;	// the first one is Elona's keylog
 
 static void sw_text_begin( void )
 {
@@ -1021,7 +1022,11 @@ static int cmdfunc_extcmd( int cmd )
 		if ( p3 & 4 ) mode |= HSPOBJ_INPUT_HSCROLL;
 		if ( p4 < 0 ) p4 = size - 1;
 		ctx->stat = bmscr->AddHSPObjectInput( pval, aptr, p1, p2, ptr, p4, (pval->flag)|mode );
-		if (( p3 & 1 ) != 0) sw_text_begin();	// fork: writable box, nothing can type in it
+		//	The first mesbox of a run is Elona's hidden keylog, whose contents
+		//	key_check() reads as typed keys: typing into it feeds the game a
+		//	stream of stray key presses.  Only later boxes are prompts.
+		if ( sw_text_mesbox_seen == 0 ) sw_text_mesbox_seen = 1;
+		else if (( p3 & 1 ) != 0 ) sw_text_begin();	// fork: nothing can type in it
 		break;
 	}
 
