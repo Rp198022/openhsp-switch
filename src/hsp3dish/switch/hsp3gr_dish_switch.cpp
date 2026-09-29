@@ -411,6 +411,90 @@ static void cmdfunc_dialog( void )
 }
 
 
+/*	Text input.
+//
+//	The Switch has no keyboard and this build's event loop only sees text that
+//	something else produced (SDL_TEXTINPUT in linux/hsp3dish.cpp), so an edit
+//	object waits forever: Elona's character creation stops at its first name
+//	prompt and cannot be left.  When an input object appears, type the contents
+//	of sdmc:/switch/openhsp/input.txt into it - the same two writes
+//	linux/hsp3dish.cpp makes for a key press - and let the script's own wait
+//	see a normal edit.  keybuf is 8 bytes and carries one character, so the text
+//	goes in a character per frame.  On hardware this is where the system
+//	software keyboard belongs.
+*/
+#define SW_TEXT_MAX		64
+#define SW_TEXT_PROMPTS	8
+
+static char	sw_text_buf[SW_TEXT_MAX];
+static int	sw_text_pos = 0;
+static int	sw_text_delay = 0;
+static int	sw_text_active = 0;
+static int	sw_text_prompts = 0;
+
+static void sw_text_begin( void )
+{
+	FILE *fp;
+	int n;
+
+	if ( sw_text_active || sw_text_prompts >= SW_TEXT_PROMPTS ) return;
+	fp = fopen( "sdmc:/switch/openhsp/input.txt", "rb" );
+	if ( fp == NULL ) fp = fopen( "./input.txt", "rb" );
+	n = 0;
+	if ( fp != NULL ) {
+		n = (int)fread( sw_text_buf, 1, SW_TEXT_MAX - 1, fp );
+		fclose( fp );
+		if ( n < 0 ) n = 0;
+	}
+	sw_text_buf[n] = 0;
+	while ( n > 0 && ( sw_text_buf[n - 1] == '\n' || sw_text_buf[n - 1] == '\r' ) ) {
+		sw_text_buf[--n] = 0;
+	}
+	if ( n == 0 ) {
+		strcpy( sw_text_buf, "Elona" );
+	}
+	sw_text_pos = 0;
+	sw_text_delay = 20;						// let the script reach its wait
+	sw_text_active = 1;
+	sw_text_prompts++;
+}
+
+static void sw_text_tick( void )
+{
+	int len, n;
+	unsigned char c;
+
+	if ( sw_text_active == 0 ) return;
+	if ( sw_text_delay > 0 ) {
+		sw_text_delay--;
+		return;
+	}
+	len = (int)strlen( sw_text_buf );
+	if ( sw_text_pos >= len ) {
+		sw_text_active = 0;
+		printf( "hsp3switch: ## text input done ('%s')\n", sw_text_buf );
+		fflush( stdout );
+		return;
+	}
+	if ( bmscr == NULL ) {
+		sw_text_active = 0;
+		return;
+	}
+	c = (unsigned char)sw_text_buf[sw_text_pos];
+	n = 1;
+	if ( ( c & 0xe0 ) == 0xc0 ) n = 2;
+	else if ( ( c & 0xf0 ) == 0xe0 ) n = 3;
+	else if ( ( c & 0xf8 ) == 0xf0 ) n = 4;
+	if ( sw_text_pos + n > len ) n = 1;
+	memcpy( bmscr->keybuf, sw_text_buf + sw_text_pos, n );
+	bmscr->keybuf[n] = 0;
+	bmscr->keybuf_index = 0;
+	bmscr->SendHSPObjectNotice( HSPOBJ_NOTICE_KEY_BUFFER );
+	sw_text_pos += n;
+	printf( "hsp3switch: ## text input '%.*s'\n", n, sw_text_buf + sw_text_pos - n );
+	fflush( stdout );
+}
+
 static int cmdfunc_extcmd( int cmd )
 {
 	//		cmdfunc : TYPE_EXTCMD
@@ -418,6 +502,8 @@ static int cmdfunc_extcmd( int cmd )
 	//
 	int p1,p2,p3,p4,p5,p6;
 	code_next();							// 次のコードを取得(最初に必ず必要です)
+
+	sw_text_tick();							// fork: type into a waiting edit object
 	switch( cmd ) {							// サブコマンドごとの分岐
 
 	case 0x00:								// button
@@ -905,6 +991,7 @@ static int cmdfunc_extcmd( int cmd )
 		}
 		p3 = code_getdi(size);
 		ctx->stat = bmscr->AddHSPObjectInput(pval, aptr, p1, p2, ptr, p3, type);
+		sw_text_begin();					// fork: nothing else can produce text
 		break;
 	}
 #endif
@@ -934,6 +1021,7 @@ static int cmdfunc_extcmd( int cmd )
 		if ( p3 & 4 ) mode |= HSPOBJ_INPUT_HSCROLL;
 		if ( p4 < 0 ) p4 = size - 1;
 		ctx->stat = bmscr->AddHSPObjectInput( pval, aptr, p1, p2, ptr, p4, (pval->flag)|mode );
+		if (( p3 & 1 ) != 0) sw_text_begin();	// fork: writable box, nothing can type in it
 		break;
 	}
 
