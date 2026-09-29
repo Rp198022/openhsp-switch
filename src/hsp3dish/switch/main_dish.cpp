@@ -26,6 +26,7 @@
 
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
+#include <SDL2/SDL.h>
 
 #include "../linux/hsp3dish.h"
 
@@ -151,6 +152,27 @@ int main( int argc, char *argv[] )
 	sw_probe_open( HSP3SWITCH_DISHAX );
 	sw_probe_open( "./ipaexg.ttf" );
 	sw_probe_open( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
+
+	/*	Why hsp3dish_init() can say no, checked from here.
+		It has only three refusal points - hsp->Reset(), SDL_Init(), and
+		SDL_CreateWindow() inside hsp3dish_initwindow() - and all three report
+		through printf, which on the Switch is a debug device nothing is
+		listening to when the program was not started over nxlink.  So walk
+		the same steps first and put the answers in the boot log.  The start
+		file matters too: sw_pick_startfile() never opens it, it just returns
+		the name, so "start file = start.ax" does not mean it is readable. */
+	sw_probe_open( HSP3SWITCH_STARTAX );
+	{
+		int sdl = SDL_Init( SDL_INIT_VIDEO );
+		sw_say( "hsp3dish: probe SDL_Init(VIDEO)      -> %d [%s]\n", sdl, SDL_GetError() );
+		if ( sdl == 0 ) {
+			SDL_Window *pw = SDL_CreateWindow( "probe", SDL_WINDOWPOS_UNDEFINED,
+				SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_OPENGL );
+			sw_say( "hsp3dish: probe SDL_CreateWindow      -> %s [%s]\n",
+				( pw != NULL ) ? "ok" : "NULL", SDL_GetError() );
+			if ( pw != NULL ) SDL_DestroyWindow( pw );
+		}
+	}
 
 	sw_say( "hsp3dish: calling hsp3dish_init\n" );
 	res = hsp3dish_init( startfile );
