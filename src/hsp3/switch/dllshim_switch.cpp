@@ -905,7 +905,7 @@ static const DllImplEntry impl_table[] = {
 	{ "user32.dll",		"DrawMenuBar",			impl_win_true },
 	{ "user32.dll",		"SetMenu",				impl_win_true },
 	{ "user32.dll",		"keybd_event",			impl_win_zero },
-	{ "user32.dll",		"GetKeyboardState",		impl_win_true },
+	{ "user32.dll",	"GetKeyboardState",		impl_GetKeyboardState },
 	{ "COMDLG32.DLL",	"GetOpenFileNameA",		impl_win_zero },	// 0 = cancelled
 	{ "COMDLG32.DLL",	"GetSaveFileNameA",		impl_win_zero },
 	{ "imm32",			"ImmGetContext",		impl_win_true },
