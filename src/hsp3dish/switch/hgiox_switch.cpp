@@ -282,7 +282,8 @@ static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
 static unsigned	sw_start_no = 0;		// P3 diagnostic
 static unsigned	sw_end_no = 0;		// P3 diagnostic
-static unsigned	sw_clear_no = 0;		// P3 diagnostic
+static unsigned	sw_clear_no = 0;
+static unsigned	sw_copy_no = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
@@ -1770,6 +1771,17 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
+	/*	P3 DIAGNOSTIC - every copy, with both ends and the rectangle.
+		Elona's title menu restores the cursor region out of screen 3 every
+		frame with cs_listbk, and screen 3 reads back as pure black, so that
+		copy is what covers the background.  Print it and its size.			*/
+	sw_copy_no++;
+	if ( ( sw_copy_no % 60 ) < 3 ) {
+		sw_fbo_log( "hgio: copy dst type=%d %dx%d <- src type=%d %dx%d rect %d,%d %dx%d\n",
+			bm != NULL ? bm->type : -1, bm != NULL ? bm->sx : 0, bm != NULL ? bm->sy : 0,
+			bmsrc != NULL ? bmsrc->type : -1, bmsrc != NULL ? bmsrc->sx : 0, bmsrc != NULL ? bmsrc->sy : 0,
+			(int)xx, (int)yy, (int)srcsx, (int)srcsy );
+	}
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
