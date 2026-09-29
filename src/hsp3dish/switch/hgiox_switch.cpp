@@ -2542,26 +2542,6 @@ void hgio_setinfo( int type, HSPREAL val )
 }
 
 
-/*	P3 - keep the window's two back buffers in step.
-	HSP's redraw model lets a script paint the background once and afterwards
-	repaint only what changed; Elona's title menu is written exactly that way.
-	A one-off paint lands in whichever back buffer happens to be current and
-	never reaches the other, so the two buffers stay permanently different and
-	every swap alternates between the menu and a black frame.  This EGL refuses
-	EGL_BUFFER_PRESERVED, so keep the finished frame in a texture and paint it
-	back at the start of the next one: both buffers then accumulate the same
-	content and the script's persistent background survives.					*/
-static GLuint sw_win_tex = 0;
-static int sw_win_w = 0;
-static int sw_win_h = 0;
-static int sw_win_ok = 0;			/* 1 carry available, -1 given up on */
-static unsigned char *sw_win_pixels = NULL;
-static unsigned sw_restore_no = 0;
-
-/*	P3 DIAGNOSTIC - what each offscreen screen actually holds.
-	The title menu repaints the cursor region every frame with
-	cs_listbk's gcopy out of screen 3, and the background survives only a
-	frame, so if screen 3 is empty that copy is what paints over it.		*/
 static void sw_probe_screens( void )
 {
 	static unsigned screen_probe_no = 0;
@@ -2597,111 +2577,6 @@ static void sw_probe_screens( void )
 	}
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 }
-static void sw_measure( const char *tag )
-{
-	static unsigned measure_no = 0;
-	unsigned long rsum = 0;
-	int k;
-
-	if ( sw_win_ok != 1 || sw_win_pixels == NULL ) return;
-	measure_no++;
-	/*	Four call sites per frame now, so log one whole frame at a time: the
-		first four samples of every thirty-frame block.  The draw count comes
-		along because a wipe has to be drawn by something.					*/
-	if ( ( measure_no % 90 ) >= 3 ) return;
-	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
-	sw_fbo_log( "hgio: %s sum=%u draws=%u clears=%u\n", tag, (unsigned)rsum, (unsigned)sw_glDrawCount(), (unsigned)sw_glClearCount() );
-}
-static void sw_win_capture( void )
-{
-	int w = 0, h = 0;
-
-	if ( sw_win_ok < 0 ) return;
-	if ( window == NULL ) return;
-	SDL_GetWindowSize( window, &w, &h );
-	if ( w <= 0 || h <= 0 ) { w = (int)_sizex; h = (int)_sizey; }
-	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
-
-	if ( sw_win_ok == 0 ) {
-		glGenTextures( 1, &sw_win_tex );
-		if ( sw_win_tex == 0 ) { sw_win_ok = -1; return; }
-		ChangeTex( (int)sw_win_tex );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-		/*	Allocate the storage once and update it in place.  Re-specifying
-			the level every frame asks for a fresh allocation on a machine that
-			is already short of memory, and a texture whose allocation failed
-			is not merely black to sample - it is what makes Mesa fault, which
-			is the crash this port started with.  If the storage does not come
-			back, give the whole idea up rather than sample it.				*/
-		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
-		sw_win_pixels = (unsigned char *)malloc( (size_t)w * h * 4 );
-		if ( sw_glGetError() != GL_NO_ERROR || sw_win_pixels == NULL ) {
-			sw_win_ok = -1;
-			sw_fbo_log( "hgio: window carry unavailable, %dx%d not allocatable\n", w, h );
-			return;
-		}
-		sw_win_w = w;
-		sw_win_h = h;
-		sw_win_ok = 1;
-		sw_fbo_log( "hgio: window carry ready, %dx%d tex=%u\n", w, h, (unsigned)sw_win_tex );
-	}
-
-	if ( w != sw_win_w || h != sw_win_h ) return;
-
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-	ChangeTex( (int)sw_win_tex );
-	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
-}
-
-static void sw_win_restore( void )
-{
-	GLfloat vert[8];
-	GLfloat uv[8];
-
-	if ( sw_win_ok != 1 || sw_win_w <= 0 || sw_win_h <= 0 ) return;
-
-	vert[0] = 0.0f;			vert[1] = 0.0f;
-	vert[2] = (GLfloat)sw_win_w;	vert[3] = 0.0f;
-	vert[4] = 0.0f;			vert[5] = -(GLfloat)sw_win_h;
-	vert[6] = (GLfloat)sw_win_w;	vert[7] = -(GLfloat)sw_win_h;
-
-	uv[0] = 0.0f;	uv[1] = 1.0f;
-	uv[2] = 1.0f;	uv[3] = 1.0f;
-	uv[4] = 0.0f;	uv[5] = 0.0f;
-	uv[6] = 1.0f;	uv[7] = 0.0f;
-
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-	glMatrixMode( GL_PROJECTION );
-	glLoadIdentity();
-	glOrtho( 0, sw_win_w, -sw_win_h, 0, -100, 100 );
-	glViewport( 0, 0, sw_win_w, sw_win_h );
-	glMatrixMode( GL_MODELVIEW );
-	glLoadIdentity();
-
-	/*	ChangeTex rather than glBindTexture: it keeps the port's texture cache in
-		step with the real binding.  Binding behind its back left curtex claiming
-		a texture that was no longer bound, so every later ChangeTex to that id
-		skipped the bind and the game drew with whatever this had set.			*/
-	ChangeTex( (int)sw_win_tex );
-	glVertexPointer( 2, GL_FLOAT, 0, vert );
-	glEnableClientState( GL_VERTEX_ARRAY );
-	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
-	ChangeTex( -1 );
-
-	/*	What the restore actually put on the screen, measured rather than
-		assumed: summed over the whole frame it should match the sum the probe
-		reported at the end of the frame this content was captured from.		*/
-	sw_measure( "after restore" );
-}
-static void sw_probe_screens( void );
-
 int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
@@ -2721,11 +2596,9 @@ int hgio_render_start( void )
 
 	sw_probe_screens();
 
-	sw_win_restore();
 
 	hgio_reset();
 
-	sw_measure( "after reset" );
 
 	//	hgio_reset()はウインドウに戻すので、離屏ターゲットを復元する
 	if ( ( keep != NULL ) && ( keep->type != HSPWND_TYPE_MAIN ) ) {
@@ -2777,9 +2650,7 @@ int hgio_render_end( void )
     gb_render_end();
 #endif
 
-	sw_measure( "before mesh flush" );
-
-	tmes.texmesProc();
+		tmes.texmesProc();
 
 	sw_probe_frame();
 
@@ -2814,7 +2685,6 @@ int hgio_render_end( void )
 	//hgio_fcopy( 0,80,  0, 0, 256, 128, font_texid, 0xffffff );
 
 #ifndef HSPRASPBIAN
-	sw_win_capture();
 	SDL_GL_SwapWindow(window);
 	//SDL_GL_SwapBuffers();
 #endif
