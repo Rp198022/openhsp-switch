@@ -207,7 +207,8 @@ static int			sw_ready;				/* entry points resolved			*/
 static int			sw_init_failed;
 static int			sw_frames_reported;
 static int			sw_frame_no;			/* glClear calls = frames begun		*/
-static int			sw_draw_no;				/* glDrawArrays calls				*/
+static int			sw_draw_no;
+static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
 
 /*----------------------------------------------------------------*/
 /*	Helpers														  */
@@ -689,6 +690,23 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	if ( !sw_ensure_gl() ) return;
 	if ( sw_vtx.ptr == NULL || sw_vtx.type != GL_FLOAT || count <= 0 ) return;
 
+	if ( sw_texture2d && sw_bound_tex != 0 && sw_tex_client_enabled && sw_tex.ptr != NULL ) {
+		/*	A texture whose upload failed has no content, and sampling it
+			returns black - which paints over whatever is underneath rather
+			than simply not appearing.  The frame is repainted with 122 million
+			worth of content at its start and reads zero by the time the mesh is
+			flushed, and nothing clears in between, so something draws over it.
+			Nothing to draw means nothing drawn.							*/
+		sw_texture_storage *st = sw_find_texture_storage( sw_bound_tex, 0 );
+		if ( st != NULL && !st->allocated ) {
+			sw_skip_no++;
+			if ( sw_skip_no <= 8 || ( sw_skip_no % 200 ) == 0 ) {
+				sw_say( "gles1shim: skipped draw with tex %u, no storage (total %u)\n",
+					(unsigned)sw_bound_tex, (unsigned)sw_skip_no );
+			}
+			return;
+		}
+	}
 	sw_draw_no++;
 	gl_useprogram( sw_prog );
 
