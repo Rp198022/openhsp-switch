@@ -27,6 +27,12 @@
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
 #include <SDL2/SDL.h>
+/*	Declared where each one lives upstream.  Kept local so this file does
+	not have to pull in the emscripten graphics header on a Switch build. */
+int hgio_file_exist( char *fname );
+char *hgio_getstorage( char *fname );
+int hsp3_flength( char *name );
+char *dpm_readalloc( char *fname );
 
 #include "../linux/hsp3dish.h"
 
@@ -162,6 +168,21 @@ int main( int argc, char *argv[] )
 		file matters too: sw_pick_startfile() never opens it, it just returns
 		the name, so "start file = start.ax" does not mean it is readable. */
 	sw_probe_open( HSP3SWITCH_STARTAX );
+		/*	Reset() only gives up when dpm_readalloc() cannot size the file,
+			and that walks hsp3_flength() -> hgio_file_exist() and, on miss,
+			hgio_getstorage() before it ever reaches fopen.  Ask each link
+			directly: fopen("start.ax") succeeding says nothing about them. */
+		{
+			const char *sf = HSP3SWITCH_STARTAX;
+			sw_say( "hsp3dish: probe hgio_file_exist('%s')  -> %d\n",
+				sf, hgio_file_exist( (char *)sf ) );
+			sw_say( "hsp3dish: probe hgio_getstorage('%s') -> '%s'\n",
+				sf, hgio_getstorage( (char *)sf ) );
+			sw_say( "hsp3dish: probe hsp3_flength('%s')     -> %d\n",
+				sf, hsp3_flength( (char *)sf ) );
+			sw_say( "hsp3dish: probe dpm_readalloc('%s')    -> %s\n",
+				sf, ( dpm_readalloc( (char *)sf ) != NULL ) ? "ok" : "NULL" );
+		}
 	{
 		int sdl = SDL_Init( SDL_INIT_VIDEO );
 		sw_say( "hsp3dish: probe SDL_Init(VIDEO)      -> %d [%s]\n", sdl, SDL_GetError() );
