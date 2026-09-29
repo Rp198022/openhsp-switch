@@ -585,6 +585,15 @@ static void sw_main_present( void )
 	uv[6] = u1;	uv[7] = v0;
 
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	/*	Elona paints only part of the screen (the intro and the character screens
+		leave large areas untouched) and the main texture keeps alpha 0 there.  On
+		the Switch that never shows - the display is opaque - but in a window the
+		untouched areas would be transparent and the desktop would come through,
+		which makes an emulator run impossible to judge.  Clear to opaque black,
+		then stop the quad from writing alpha at all.						*/
+	glClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+	glClear( GL_COLOR_BUFFER_BIT );
+	glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
 	/*	The frame may well have ended on an offscreen screen, in which case the
 		projection and viewport still belong to that screen and a quad drawn in
 		them would land somewhere else on the window.						*/
@@ -599,6 +608,7 @@ static void sw_main_present( void )
 	ChangeTex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
+	glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 }
 static int sw_bind_target( BMSCR *bm )
 {
