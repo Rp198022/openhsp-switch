@@ -92,3 +92,13 @@ jobs:
             hsp3dish.elf
             hsp3dish.map
           if-no-files-found: error
+
+      - name: Upload hsp3dish.nro on its own
+        #	The archive above carries the .elf and .map for hardware crash triage,
+        #	which is most of its size.  The emulator loop only ever needs the .nro,
+        #	so publish it separately as well - a much smaller fetch.
+        uses: actions/upload-artifact@v4
+        with:
+          name: hsp3dish-nro-only
+          path: hsp3dish.nro
+          if-no-files-found: error
