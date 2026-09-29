@@ -210,15 +210,19 @@ int switch_input_key_state( int scancode )
 	return sw_keys[scancode] ? 1 : 0;
 }
 /*	The DirectInput-shaped joypad state Elona's own gamepad path wants.  Its
-	config maps buttons to keys by index - `key_enter. " " ,"2"` - and reads the
-	state with DIGETJOYSTATE, so the layout here decides which Switch button
-	becomes enter.  The face buttons are ordered the Nintendo way, which makes
-	stock Elona land on what a Switch player expects: index 0 (cancel) is the
-	right-hand button, index 2 (enter) the bottom one.						*/
+	config maps buttons to keys by index - `key_cancel. "\" ,"0"`,
+	`key_enter. " " ,"2"` - and it reads the state with DIGETJOYSTATE, so the
+	layout here decides which Switch button becomes which action.
+
+	It has to agree with the keyboard map above, which is the Nintendo way round:
+	the right-hand button confirms and the bottom one cancels.  SDL names those
+	two the other way round on this mapping (`a:b1,b:b0` - SDL A is the bottom
+	button), so SDL A takes index 0 (cancel) and SDL B index 2 (enter).  With the
+	two layers disagreeing, one press produced both key_enter and key_cancel.	*/
 static const SDL_GameControllerButton sw_pad_button[] = {
-	SDL_CONTROLLER_BUTTON_B,			/* 0: cancel, right			*/
+	SDL_CONTROLLER_BUTTON_A,			/* 0: cancel, bottom (Nintendo B)	*/
 	SDL_CONTROLLER_BUTTON_X,			/* 1: top					*/
-	SDL_CONTROLLER_BUTTON_A,			/* 2: enter, bottom			*/
+	SDL_CONTROLLER_BUTTON_B,			/* 2: enter, right (Nintendo A)	*/
 	SDL_CONTROLLER_BUTTON_Y,			/* 3: left					*/
 	SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
 	SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
