@@ -550,9 +550,9 @@ static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src,
 	calls++;
 	if ( r != 0 ) fails++;
 	if ( ( r != 0 ) || ( calls <= 8 ) ) {
-		printf( "hsp3screen: %s -> %d x=%d y=%d w=%d h=%d dst type=%d (%dx%d texid=%d) src type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
-			op, r, xx, yy, psx, psy,
-			(int)self->type, (int)self->sx, (int)self->sy, self->texid,
+		printf( "hsp3screen: %s -> %d x=%d y=%d w=%d h=%d dst %p type=%d (%dx%d texid=%d) src %p type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
+			op, r, xx, yy, psx, psy, (void *)self,
+			(int)self->type, (int)self->sx, (int)self->sy, self->texid, (void *)src,
 			( src != NULL ) ? (int)src->type : -1,
 			( src != NULL ) ? (int)src->sx : -1, ( src != NULL ) ? (int)src->sy : -1,
 			( src != NULL ) ? src->texid : -1,
@@ -568,7 +568,17 @@ extern "C" int __wrap__ZN5Bmscr4CopyEPS_iiii( BMSCR *self, BMSCR *src,
 	int xx, int yy, int psx, int psy )
 {
 	int r = __real__ZN5Bmscr4CopyEPS_iiii( self, src, xx, yy, psx, psy );
+
 	glue_screen_op( "gcopy", self, src, xx, yy, psx, psy, r );
+	if ( r != 0 ) {
+		/*	The copy rectangle starts outside the source, so there is nothing to
+			blit: Bmscr::Copy fails only that way (hspwnd_dish.cpp:894) and shrinks
+			the rectangle itself when only part of it is outside.  The script
+			cannot catch it - HSP raises error 21 and the run ends - which is how
+			character generation was dying.  Draw nothing, keep going, and let the
+			line above be the record of it.										*/
+		return 0;
+	}
 	return r;
 }
 
