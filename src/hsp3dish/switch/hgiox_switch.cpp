@@ -2560,7 +2560,7 @@ static void sw_measure( const char *tag )
 	if ( ( measure_no % 90 ) >= 3 ) return;
 	glReadPixels( 0, 0, sw_win_w, sw_win_h, GL_RGBA, GL_UNSIGNED_BYTE, sw_win_pixels );
 	for ( k = 0; k < sw_win_w * sw_win_h * 4; k++ ) rsum += sw_win_pixels[k];
-	sw_fbo_log( "hgio: %s sum=%u draws=%u\n", tag, (unsigned)rsum, (unsigned)sw_glDrawCount() );
+	sw_fbo_log( "hgio: %s sum=%u draws=%u clears=%u\n", tag, (unsigned)rsum, (unsigned)sw_glDrawCount(), (unsigned)sw_glClearCount() );
 }
 static void sw_win_capture( void )
 {
@@ -2706,7 +2706,7 @@ static void sw_probe_frame( void )
 		sum += (unsigned long)buf[i*4] + buf[i*4+1] + buf[i*4+2];
 	}
 	free( buf );
-	sw_fbo_log( "hgio: frame probe %dx%d nonwhite=%d of %d sum=%lu\n", w, h, nonwhite, n, sum );
+	sw_fbo_log( "hgio: frame probe nonwhite=%d sum=%lu draws=%u clears=%u\n", nonwhite, sum, (unsigned)sw_glDrawCount(), (unsigned)sw_glClearCount() );
 }
 int hgio_render_end( void )
 {
