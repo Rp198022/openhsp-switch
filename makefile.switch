@@ -99,7 +99,8 @@ LDFLAGS_DISH  := -specs=$(LIBNX)/switch.specs -g $(ARCH) $(LIBDIRS) \
                  -Wl,-Map,$(TARGET_DISH).map -Wl,--gc-sections \
                  -Wl,--wrap=fopen -Wl,--wrap=__cxa_throw \
                  -Wl,--wrap=_ZN5Bmscr4CopyEPS_iiii \
-                 -Wl,--wrap=_ZN5Bmscr4ZoomEiiPS_iiiii
+                 -Wl,--wrap=_ZN5Bmscr4ZoomEiiPS_iiiii \
+                 -Wl,--wrap=_ZN13texmesManager12texmesRegistEPcP9texmesPos
 
 #	SDL2's static Switch build binds EGL/GLES through libglapi
 #	(SDL_VIDEO_STATIC_ANGLE), so those libraries must follow it on the link
