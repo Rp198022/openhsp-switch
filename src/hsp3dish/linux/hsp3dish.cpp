@@ -420,6 +420,17 @@ void hsp3dish_dialog( char *mes )
 #endif
 }
 
+#ifdef HSPNDK
+/*	The Switch front end keeps a boot log on the card; hand it the value of
+	each stage so a refusal inside this function is visible.  Failure messages
+	here go to printf, which is a debug device with nobody on the other end
+	when the program was not started over nxlink. */
+extern void sw_boot_trace( const char *stage, int value );
+#define SW_TRACE( s, v ) sw_boot_trace( s, v )
+#else
+#define SW_TRACE( s, v ) ( (void)0 )
+#endif
+
 static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale, char *windowtitle )
 {
 	int flags;
@@ -716,9 +727,13 @@ int hsp3dish_init( char *startfile )
 		hsp->SetPackValue( hsp_sum, hsp_dec );
 	}
 
-	if ( hsp->Reset( mode ) ) {
-		hsp3dish_dialog( "Startup failed." );
-		return 1;
+	{
+		int r = hsp->Reset( mode );
+		SW_TRACE( "Reset", r );
+		if ( r ) {
+			hsp3dish_dialog( "Startup failed." );
+			return 1;
+		}
 	}
 
 	sx = 0; sy = 0; autoscale = 0;
@@ -747,9 +762,13 @@ int hsp3dish_init( char *startfile )
 	hsp3typeinit_dllctrl( code_gettypeinfo( TYPE_DLLCTRL ) );
 
 	// Slightly different SDL initialization
-	if ( SDL_Init(SDL_INIT_VIDEO) != 0 ) {
-		hsp3dish_dialog("Unable to initialize SDL");
-		return 1;
+	{
+		int r = SDL_Init( SDL_INIT_VIDEO );
+		SW_TRACE( "SDL_Init", r );
+		if ( r != 0 ) {
+			hsp3dish_dialog( "Unable to initialize SDL" );
+			return 1;
+		}
 	}
 
 	//		Window initalize
@@ -757,8 +776,12 @@ int hsp3dish_init( char *startfile )
 	hsp_wstyle = 0;
 	hsp_wposx = SDL_WINDOWPOS_UNDEFINED;
 	hsp_wposy = SDL_WINDOWPOS_UNDEFINED;
-	if ( hsp3dish_init_sub(sx,sy,autoscale) ) {
-		return 1;
+	{
+		int r = hsp3dish_init_sub( sx, sy, autoscale );
+		SW_TRACE( "init_sub", r );
+		if ( r ) {
+			return 1;
+		}
 	}
 
 	//		Initalize GUI System
