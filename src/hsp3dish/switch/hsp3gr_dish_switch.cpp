@@ -423,11 +423,18 @@ static void cmdfunc_dialog( void )
 //
 //	So the harness writes what should be typed into
 //	sdmc:/switch/openhsp/keys.txt.  The file is read and emptied - a key left
-//	behind would be typed again on the next pass - and the characters go to the
-//	focused edit object a few frames apart, through the same keybuf write
-//	linux/hsp3dish.cpp makes for a real key press; the pacing is what lets the
-//	script see separate keystrokes rather than one long paste.  On hardware
-//	this is where the system software keyboard belongs.
+//	behind would be typed again on the next pass - and the characters go out a
+//	few frames apart through the same keybuf write linux/hsp3dish.cpp makes for
+//	a real key press; the pacing is what lets the script see separate keystrokes
+//	rather than one long paste.  On hardware this is where the system software
+//	keyboard belongs.
+//
+//	The file starts with "@<id>:" to say which object receives it.  The default
+//	is 0, Elona's hidden keylog (init.hsp:19774): key_check() empties that box
+//	with objprm 0 and reads what was typed into it as the keystroke, so a
+//	character sent there *is* a key press - which is how the game's letter
+//	shortcuts can be used at all.  Its text prompts are later boxes, and the one
+//	thing they need from us is a newline, sent with "@1:\n" and so on.
 */
 #define SW_KEY_MAX		64
 #define SW_KEY_GAP		6			/* frames between two injected keys */
@@ -436,6 +443,7 @@ static char	sw_key_buf[SW_KEY_MAX];
 static int	sw_key_len = 0;
 static int	sw_key_pos = 0;
 static int	sw_key_wait = 0;
+static int	sw_key_target = 0;
 
 static void sw_key_read( void )
 {
@@ -448,8 +456,21 @@ static void sw_key_read( void )
 	fclose( fp );
 	if ( n <= 0 ) return;
 	sw_key_buf[n] = 0;
-	sw_key_len = n;
 	sw_key_pos = 0;
+	sw_key_len = n;
+	sw_key_target = 0;
+
+	if ( sw_key_buf[0] == '@' ) {
+		int i = 1, id = 0;
+		while ( i < n && sw_key_buf[i] >= '0' && sw_key_buf[i] <= '9' ) {
+			id = id * 10 + ( sw_key_buf[i] - '0' );
+			i++;
+		}
+		if ( i < n && sw_key_buf[i] == ':' ) {
+			sw_key_target = id;
+			sw_key_pos = i + 1;
+		}
+	}
 
 	fp = fopen( "sdmc:/switch/openhsp/keys.txt", "wb" );
 	if ( fp != NULL ) fclose( fp );
@@ -457,6 +478,7 @@ static void sw_key_read( void )
 
 static void sw_key_tick( void )
 {
+	HSPOBJINFO *info;
 	int n;
 	unsigned char c;
 
@@ -469,7 +491,7 @@ static void sw_key_tick( void )
 		sw_key_len = 0;
 		sw_key_pos = 0;
 		sw_key_read();
-		if ( sw_key_len == 0 ) return;
+		if ( sw_key_pos >= sw_key_len ) return;
 	}
 
 	c = (unsigned char)sw_key_buf[sw_key_pos];
@@ -481,9 +503,17 @@ static void sw_key_tick( void )
 	memcpy( bmscr->keybuf, sw_key_buf + sw_key_pos, n );
 	bmscr->keybuf[n] = 0;
 	bmscr->keybuf_index = 0;
-	bmscr->SendHSPObjectNotice( HSPOBJ_NOTICE_KEY_BUFFER );
-	printf( "hsp3switch: ## key '%c' (0x%02x) injected\n",
-			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c );
+
+	/*	Straight to the named object, so the game's own selection - and the
+		highlight the player sees - is left where the script put it.		*/
+	info = bmscr->GetHSPObject( sw_key_target );
+	if ( info != NULL && info->owmode != HSPOBJ_NONE &&
+			( info->owmode & HSPOBJ_OPTION_LAYEROBJ ) == 0 && info->func_notice != NULL ) {
+		info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
+	}
+
+	printf( "hsp3switch: ## key '%c' (0x%02x) -> object %d\n",
+			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c, sw_key_target );
 	fflush( stdout );
 	sw_key_pos += n;
 	sw_key_wait = SW_KEY_GAP;
