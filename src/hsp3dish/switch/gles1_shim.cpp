@@ -1010,3 +1010,7 @@ int sw_glCopyTexImage2DAvailable( void )
 	sw_init();
 	return ( sw_ready && gl_copyteximage2d != NULL ) ? 1 : 0;
 }
+unsigned sw_glDrawCount( void )
+{
+	return sw_draw_no;
+}
