@@ -218,10 +218,22 @@ static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
 static void sw_say( const char *fmt, ... )
 {
 	va_list ap;
+	char buf[512];
+	FILE *fp;
+
 	va_start( ap, fmt );
-	vprintf( fmt, ap );
+	vsnprintf( buf, sizeof( buf ), fmt, ap );
 	va_end( ap );
+
+	fputs( buf, stdout );
 	fflush( stdout );		/* nxlink socket output is fully buffered */
+
+	/*	A copy on the card, so a run started from the menu is readable too. */
+	fp = fopen( "hsp3dish_diag.log", "ab" );
+	if ( fp != NULL ) {
+		fputs( buf, fp );
+		fclose( fp );
+	}
 }
 
 static void sw_identity( GLfloat *m )
