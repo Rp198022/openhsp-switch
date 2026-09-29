@@ -260,8 +260,6 @@ void sw_glTexSubImage2D( GLenum target, GLint level, GLint xoffset, GLint yoffse
 						 GLenum format, GLenum type, const GLvoid *pixels );
 void sw_glCopyTexImage2D( GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border );
 int sw_glCopyTexImage2DAvailable( void );
-unsigned sw_glDrawCount( void );
-unsigned sw_glClearCount( void );
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param );
 
 void sw_glGenFramebuffers( GLsizei n, GLuint *framebuffers );

@@ -292,10 +292,6 @@ static int		sw_fbo_fail = 0;
 static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
-static unsigned	sw_start_no = 0;		// P3 diagnostic
-static unsigned	sw_end_no = 0;		// P3 diagnostic
-static unsigned	sw_clear_no = 0;
-static unsigned	sw_copy_no = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
@@ -553,8 +549,6 @@ static void sw_main_ensure( void )
 	}
 	hgio_clear();
 	sw_main_ok = 1;
-	sw_fbo_log( "hgio: main screen target %dx%d tex=%u fbo=%u\n",
-		w, h, (unsigned)sw_main_tex, (unsigned)sw_main_fbo );
 }
 
 /*	Draw the main screen over the window.  The frame was rendered with the
@@ -1035,7 +1029,6 @@ int hgio_bufferop(BMSCR* bm, int mode, char *ptr)
 
 void hgio_clear( void )
 {
-	sw_clear_no++;
 	glClear(GL_COLOR_BUFFER_BIT); 
 }
 
@@ -1887,17 +1880,6 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
-	/*	P3 DIAGNOSTIC - every copy, with both ends and the rectangle.
-		Elona's title menu restores the cursor region out of screen 3 every
-		frame with cs_listbk, and screen 3 reads back as pure black, so that
-		copy is what covers the background.  Print it and its size.			*/
-	sw_copy_no++;
-	if ( ( sw_copy_no % 60 ) < 3 ) {
-		sw_fbo_log( "hgio: copy dst type=%d %dx%d <- src type=%d %dx%d rect %d,%d %dx%d\n",
-			bm != NULL ? bm->type : -1, bm != NULL ? bm->sx : 0, bm != NULL ? bm->sy : 0,
-			bmsrc != NULL ? bmsrc->type : -1, bmsrc != NULL ? bmsrc->sx : 0, bmsrc != NULL ? bmsrc->sy : 0,
-			(int)xx, (int)yy, (int)srcsx, (int)srcsy );
-	}
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -2657,50 +2639,10 @@ void hgio_setinfo( int type, HSPREAL val )
 	}
 }
 
-
-static void sw_probe_screens( void )
-{
-	static unsigned screen_probe_no = 0;
-	int i, k;
-
-	screen_probe_no++;
-	if ( ( screen_probe_no % 30 ) != 0 ) return;
-
-	for ( i = 0; i < sw_target_used; i++ ) {
-		BMSCR *bm = sw_targets[i].bm;
-		GLuint fbo = sw_targets[i].fbo;
-		int sx, sy, rows[3], r;
-		unsigned long avg[3];
-
-		if ( bm == NULL || fbo == 0 ) continue;
-		sx = bm->sx; sy = bm->sy;
-		if ( sx <= 0 || sy <= 0 || sx > 4096 || sy > 4096 ) continue;
-
-		rows[0] = sy / 4; rows[1] = sy / 2; rows[2] = ( sy * 3 ) / 4;
-
-		glBindFramebuffer( GL_FRAMEBUFFER, fbo );
-		for ( r = 0; r < 3; r++ ) {
-			unsigned long sum = 0;
-			unsigned char *row = (unsigned char *)malloc( (size_t)sx * 4 );
-			if ( row == NULL ) { avg[r] = 0; continue; }
-			glReadPixels( 0, rows[r], sx, 1, GL_RGBA, GL_UNSIGNED_BYTE, row );
-			for ( k = 0; k < sx; k++ ) sum += (unsigned long)row[k*4] + row[k*4+1] + row[k*4+2];
-			avg[r] = sx ? (unsigned)( sum / (unsigned long)( sx * 3 ) ) : 0;
-			free( row );
-		}
-		sw_fbo_log( "hgio: screen %d type=%d %dx%d row avg %u/%u/%u (0..255)\n",
-			i, bm->type, sx, sy, avg[0], avg[1], avg[2] );
-	}
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-}
 int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
 
-	sw_start_no++;
-	if ( ( sw_start_no % 30 ) == 0 ) {
-		sw_fbo_log( "hgio: redraw starts=%u ends=%u clears=%u\n", sw_start_no, sw_end_no, sw_clear_no );
-	}
 	if ( drawflag ) {
 		hgio_render_end();
 	}
@@ -2708,10 +2650,6 @@ int hgio_render_start( void )
 #ifdef HSPIOS
     gb_render_start();
 #endif
-    
-
-	sw_probe_screens();
-
 
 	hgio_reset();
 
@@ -2726,42 +2664,11 @@ int hgio_render_start( void )
 }
 
 
-/*	P3 DIAGNOSTIC - what the frame we are about to present actually holds.
-	The title menu flickers between the drawn text and a bare white clear even
-	though every frame reports the same number of draws, so read the buffer back
-	just before the swap: a steady count means the content is there and the
-	alternation happens after us, an alternating count means it does not.	*/
-static void sw_probe_frame( void )
-{
-	static unsigned probe_no = 0;
-	int w = (int)_sizex;
-	int h = (int)_sizey;
-	unsigned char *buf;
-	int i, n, nonwhite = 0;
-	unsigned long sum = 0;
-
-	probe_no++;
-	if ( probe_no > 200 ) return;
-	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) return;
-
-	n = w * h;
-	buf = (unsigned char *)malloc( (size_t)n * 4 );
-	if ( buf == NULL ) return;
-	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
-	for ( i = 0; i < n; i++ ) {
-		if ( ( buf[i*4] < 200 ) || ( buf[i*4+1] < 200 ) || ( buf[i*4+2] < 200 ) ) nonwhite++;
-		sum += (unsigned long)buf[i*4] + buf[i*4+1] + buf[i*4+2];
-	}
-	free( buf );
-	sw_fbo_log( "hgio: frame probe nonwhite=%d sum=%lu draws=%u clears=%u\n", nonwhite, sum, (unsigned)sw_glDrawCount(), (unsigned)sw_glClearCount() );
-}
 int hgio_render_end( void )
 {
 	int res;
 	res = 0;
 	if ( drawflag == 0 ) return 0;
-	sw_end_no++;
-
 #ifdef HSPIOS
     gb_render_end();
 #endif
@@ -2769,8 +2676,6 @@ int hgio_render_end( void )
 		tmes.texmesProc();
 
 	sw_main_present();
-
-	sw_probe_frame();
 
 	//	ウインドウ(FBO 0)に戻してからスワップする
 	sw_unbind_window();
