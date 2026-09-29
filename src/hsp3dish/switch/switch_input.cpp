@@ -245,14 +245,16 @@ unsigned int switch_input_pad_bits( void )
 	SDL_PumpEvents();
 	SDL_JoystickUpdate();
 
-	/*	Bits 0-3 are deliberately left clear.  They hold the D-pad and the left
-		stick in a real DirectInput layout, but Elona reads the word by asking
-		HMMBITCHECK about every bit from 0 upwards and taking the index it finds
-		as jkey(n) - so a D-pad press came back as key_quickinv on the same frame
-		as the correct key_south and overwrote it, which left every menu cursor in
-		the game unable to move.  Directions do reach the script through the arrow
-		scancodes pushed here, which hsp3 turns into stick bits, so these carry
-		nothing the game needs.
+	/*	Bits 0-3 are deliberately left clear.  They are the D-pad and the left
+		stick in the real DirectInput layout, and Elona does read them as
+		directions - but it reads the keyboard's directions into that same
+		variable first and then ADDS these onto them (init.hsp: `stick p,15`,
+		then `HMMBITCHECK j,0..3` doing `p += 2, 8, 1, 4`).  A D-pad press
+		reaches the script twice in this port - once as these bits, and once as
+		the arrow scancodes pushed below, which hsp3 turns into the very same
+		stick bits - so the two add up: down became 8 + 8 = 16, which is not a
+		direction, and no menu cursor in the game would move.  The scancodes
+		alone carry it correctly, so the bits are left clear to keep one source.
 	*/
 	(void)lx;
 	(void)ly;
