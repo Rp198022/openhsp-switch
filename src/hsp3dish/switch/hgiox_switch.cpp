@@ -571,6 +571,12 @@ static void sw_main_present( void )
 	uv[6] = u1;	uv[7] = v0;
 
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	/*	The frame may well have ended on an offscreen screen, in which case the
+		projection and viewport still belong to that screen and a quad drawn in
+		them would land somewhere else on the window - part of it new, part of
+		it left over, which is a whole-screen flicker.  Put the window's own
+		matrices back before drawing it.									*/
+	sw_apply_target( mainbm );
 	ChangeTex( (int)sw_main_tex );
 	glVertexPointer( 2, GL_FLOAT, 0, vert );
 	glEnableClientState( GL_VERTEX_ARRAY );
