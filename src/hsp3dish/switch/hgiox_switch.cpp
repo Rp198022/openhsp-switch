@@ -330,22 +330,39 @@ static void sw_fbo_log( const char *fmt, ... )
 	pixels records its destination rectangle and the blend parameters in
 	force, so the composition of a single frame can be replayed offline.
 	Font paths are left out on purpose - they would swamp the budget.		*/
-static int	sw_trc_used = 0;
-#define SW_TRC_MAX 2500
+#define SW_TRC_RING  1200
+#define SW_TRC_LINE  208
+#define SW_TRC_FLUSH 400
+static char	sw_trc_ring[SW_TRC_RING][SW_TRC_LINE];
+static int	sw_trc_head = 0;
+static int	sw_trc_total = 0;
+
+static void sw_trc_flush( void )
+{
+	FILE *fp = fopen( "hsp3dish_trace.log", "wb" );
+	int i, k;
+	if ( fp == NULL ) return;
+	for ( i = 0; i < SW_TRC_RING; i++ ) {
+		k = ( sw_trc_head + i ) % SW_TRC_RING;
+		if ( sw_trc_ring[k][0] != 0 ) fputs( sw_trc_ring[k], fp );
+	}
+	fclose( fp );
+}
+
 static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float w, float h,
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
-	char buf[224];
-	if ( sw_trc_used >= SW_TRC_MAX ) return;
-	sw_trc_used++;
-	snprintf( buf, sizeof( buf ),
-		"hgio: TRC %04d %-8s dst x=%g y=%g w=%g h=%g tx=%d"
+	char *buf = sw_trc_ring[sw_trc_head];
+	sw_trc_head = ( sw_trc_head + 1 ) % SW_TRC_RING;
+	sw_trc_total++;
+	snprintf( buf, SW_TRC_LINE,
+		"hgio: TRC %05d %-8s dst x=%g y=%g w=%g h=%g tx=%d"
 		" | src tx=%d %d,%d %dx%d | gm=%d rt=%d col=%06x\n",
-		sw_trc_used, tag, (double)x, (double)y, (double)w, (double)h,
+		sw_trc_total, tag, (double)x, (double)y, (double)w, (double)h,
 		( bm != NULL ) ? bm->texid : -9, srctx, sx, sy, sw_, sh_,
 		( bm != NULL ) ? bm->gmode : 0, ( bm != NULL ) ? bm->gfrate : 0,
 		( bm != NULL ) ? ( bm->color & 0xffffff ) : 0 );
-	sw_fbo_log( "%s", buf );
+	if ( ( sw_trc_total % SW_TRC_FLUSH ) == 0 ) sw_trc_flush();
 }
 
 static void sw_trc( const char *tag, const BMSCR *bm, float x, float y, float w, float h )
