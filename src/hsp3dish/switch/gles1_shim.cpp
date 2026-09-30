@@ -49,6 +49,7 @@ typedef void (*PFN_glViewport)( GLint, GLint, GLsizei, GLsizei );
 typedef void (*PFN_glEnable)( GLenum );
 typedef void (*PFN_glDisable)( GLenum );
 typedef void (*PFN_glBlendFunc)( GLenum, GLenum );
+typedef void (*PFN_glBlendEquation)( GLenum );
 typedef void (*PFN_glGenTextures)( GLsizei, GLuint * );
 typedef void (*PFN_glDeleteTextures)( GLsizei, const GLuint * );
 typedef void (*PFN_glBindTexture)( GLenum, GLuint );
@@ -96,6 +97,7 @@ static PFN_glViewport					gl_viewport;
 static PFN_glEnable						gl_enable;
 static PFN_glDisable					gl_disable;
 static PFN_glBlendFunc					gl_blendfunc;
+static PFN_glBlendEquation				gl_blendequation;
 static PFN_glGenTextures				gl_gentextures;
 static PFN_glDeleteTextures				gl_deletetextures;
 static PFN_glBindTexture				gl_bindtexture;
@@ -462,6 +464,9 @@ static void sw_init( void )
 	*(void **)( &gl_framebuffertexture2d ) = SDL_GL_GetProcAddress( "glFramebufferTexture2D" );
 	*(void **)( &gl_checkframebufferstatus ) = SDL_GL_GetProcAddress( "glCheckFramebufferStatus" );
 	*(void **)( &gl_istexture ) = SDL_GL_GetProcAddress( "glIsTexture" );
+	/*	same reasoning: a driver without glBlendEquation must not take the
+		whole renderer down, it only loses gmode 6's subtract.			*/
+	*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquation" );
 	SW_LOAD( gl_createshader, "glCreateShader" );
 	SW_LOAD( gl_shadersource, "glShaderSource" );
 	SW_LOAD( gl_compileshader, "glCompileShader" );
@@ -841,6 +846,14 @@ void sw_glBlendFunc( GLenum sfactor, GLenum dfactor )
 {
 	sw_init();
 	if ( sw_ready ) gl_blendfunc( sfactor, dfactor );
+}
+
+/*	gmode 6 (減算) is dst*1 - src*alpha; the equation defaults to
+	GL_FUNC_ADD, so it has to be reset on every path.				*/
+void sw_glBlendEquation( GLenum mode )
+{
+	sw_init();
+	if ( sw_ready && gl_blendequation != NULL ) gl_blendequation( mode );
 }
 
 void sw_glPointSize( GLfloat size )

@@ -1120,9 +1120,7 @@ void hgio_reset( void )
 
     //ブレンドの設定
     glEnable(GL_BLEND);
-#ifdef HSPIOS
-    glBlendEquationOES(GL_FUNC_ADD_OES);
-#endif
+    glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
 
     //ポイントの設定
@@ -1387,26 +1385,24 @@ static void setBlendMode( int mode )
         case 0:                     //no blend
         case 1:                     //no blend
             glDisable(GL_BLEND);
+            glBlendEquation(GL_FUNC_ADD);
             break;
         case 5:                     //add
             glEnable(GL_BLEND);
-#ifdef HSPIOS
-            glBlendEquationOES(GL_FUNC_ADD_OES);
-#endif
+            glBlendEquation(GL_FUNC_ADD);
             glBlendFunc(GL_SRC_ALPHA,GL_ONE);
             break;
         case 6:                     //sub
+            /*	The upstream equation call sits inside #ifdef HSPIOS, which
+            	this target never defines, so gmode 6 used to fall through
+            	to the same glBlendFunc() as gmode 5 and drew as add.	*/
             glEnable(GL_BLEND);
-#ifdef HSPIOS
-            glBlendEquationOES(GL_FUNC_REVERSE_SUBTRACT_OES);
-#endif
+            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
             glBlendFunc(GL_SRC_ALPHA,GL_ONE);
             break;
         default:                    //normal blend
             glEnable(GL_BLEND);
-#ifdef HSPIOS
-            glBlendEquationOES(GL_FUNC_ADD_OES);
-#endif
+            glBlendEquation(GL_FUNC_ADD);
             glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
             //glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
             break;
