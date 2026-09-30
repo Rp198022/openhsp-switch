@@ -3181,6 +3181,14 @@ void hgio_delscreen( BMSCR *bm )
 			(void *)bm, bm->texid, ( sw_find( bm ) != NULL ) ? 1 : 0 );
 	}
 	sw_forget( bm );			// FBOはbm->texidをキーにしているので先に破棄する
+	/*	sw_colorbm names the screen whose color/mulcolor the next draw picks up,
+		and only gsel() ever assigns it.  A screen is routinely deleted and
+		straight away re-created - Elona tears the title screen down and reloads
+		title.bmp the moment it starts composing it - so leaving the pointer
+		here left it naming freed memory for the whole composition.  The tiles
+		then took a garbage multiply color, and on the runs where that memory
+		held zeros every one of them was painted opaque black over the page.	*/
+	if ( sw_colorbm == bm ) sw_colorbm = NULL;
 	if ( bm->texid != -1 ) {
 		DeleteTex( bm->texid );
 		//gb_delimage( bm->texid );
