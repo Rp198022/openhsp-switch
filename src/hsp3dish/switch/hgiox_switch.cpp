@@ -275,6 +275,16 @@ typedef struct {
 
 static SWTARGET	sw_targets[SWTARGET_MAX];
 
+/*	P3 diagnostic: the real GL framebuffer binding, mirrored so the draw trace
+	can record what was actually bound rather than what the code believes.	*/
+static SWTARGET *sw_find( BMSCR *bm );
+static GLuint	sw_real_fbo = 0;
+static void sw_bfb( GLuint fbo )
+{
+	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+	sw_real_fbo = fbo;
+}
+
 /*	P3 - a screen for the window that outlives the frame.
 	hsp3dish draws the main screen straight into the window, which is double
 	buffered: a one-off paint such as Elona's title background lands in one
@@ -334,6 +344,19 @@ static void sw_fbo_log( const char *fmt, ... )
 static FILE	*sw_trc_fp = NULL;
 static int	sw_trc_total = 0;
 
+/*	P3 diagnostic: the framebuffer the destination screen is supposed to be
+	rendering into, for comparison against the mirrored real binding.		*/
+static unsigned sw_exp_fbo( const BMSCR *bm )
+{
+	SWTARGET *t;
+	if ( bm == NULL ) return 0u;
+	if ( bm->type == HSPWND_TYPE_MAIN ) {
+		return ( sw_main_ok == 1 ) ? (unsigned)sw_main_fbo : 0u;
+	}
+	t = sw_find( (BMSCR *)bm );
+	return ( t != NULL ) ? (unsigned)t->fbo : 0u;
+}
+
 static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float w, float h,
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
@@ -344,11 +367,13 @@ static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float
 	sw_trc_total++;
 	snprintf( buf, sizeof( buf ),
 		"hgio: TRC %05d %-8s dst x=%g y=%g w=%g h=%g tx=%d"
-		" | src tx=%d %d,%d %dx%d | gm=%d rt=%d col=%06x\n",
+		" | src tx=%d %d,%d %dx%d | gm=%d rt=%d col=%06x fbo=%u exp=%u c=%d\n",
 		sw_trc_total, tag, (double)x, (double)y, (double)w, (double)h,
 		( bm != NULL ) ? bm->texid : -9, srctx, sx, sy, sw_, sh_,
 		( bm != NULL ) ? bm->gmode : 0, ( bm != NULL ) ? bm->gfrate : 0,
-		( bm != NULL ) ? ( bm->color & 0xffffff ) : 0 );
+		( bm != NULL ) ? ( bm->color & 0xffffff ) : 0,
+		( unsigned )sw_real_fbo, sw_exp_fbo( bm ),
+		( ( bm != NULL ) && ( sw_cur == bm ) ) ? 1 : 0 );
 	fputs( buf, sw_trc_fp );
 	if ( ( sw_trc_total % 200 ) == 0 ) fflush( sw_trc_fp );
 }
@@ -380,7 +405,7 @@ static void sw_forget( BMSCR *bm )
 
 	fbo = t->fbo;
 	if ( sw_cur == bm ) {
-		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		sw_bfb(  0 );
 		sw_cur = NULL;
 	}
 	if ( t->owned ) glDeleteFramebuffers( 1, &fbo );
@@ -401,7 +426,7 @@ static void sw_forget_all( void )
 	sw_main_ok = 0;
 	sw_target_used = 0;
 	sw_cur = NULL;
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	sw_bfb(  0 );
 }
 
 static int sw_is_window( void )
@@ -542,9 +567,9 @@ static int sw_ensure( BMSCR *bm )
 		if ( fbo != 0 ) glDeleteFramebuffers( 1, &fbo );
 		return -1;
 	}
-	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+	sw_bfb(  fbo );
 	if ( sw_glDrainErrors( "attach-setup", (GLuint)tex->texid ) != GL_NO_ERROR ) {
-		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		sw_bfb(  0 );
 		glDeleteFramebuffers( 1, &fbo );
 		return -1;
 	}
@@ -556,7 +581,7 @@ static int sw_ensure( BMSCR *bm )
 	sw_fbo_log( "hgio: attach result glid=%u fbo=%u err=0x%x status=0x%x status_err=0x%x oom=%d\n",
 		(unsigned)tex->texid, (unsigned)fbo, (unsigned)attach_error,
 		(unsigned)st, (unsigned)status_error, (int)sw_glOutOfMemory() );
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	sw_bfb(  0 );
 
 	if ( st != GL_FRAMEBUFFER_COMPLETE || attach_error != GL_NO_ERROR ||
 		status_error != GL_NO_ERROR ) {
@@ -622,13 +647,13 @@ static void sw_main_ensure( void )
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
 
-	glBindFramebuffer( GL_FRAMEBUFFER, sw_main_fbo );
+	sw_bfb(  sw_main_fbo );
 	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sw_main_tex, 0 );
 	if ( ( sw_glGetError() != GL_NO_ERROR ) ||
 		 ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE ) ) {
 		sw_main_ok = -1;
 		sw_fbo_log( "hgio: no target for the main screen, %dx%d; using the window\n", w, h );
-		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		sw_bfb(  0 );
 		sw_cur = NULL;
 		return;
 	}
@@ -730,12 +755,12 @@ static int sw_scratch_ensure( int w, int h )
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, nw, nh, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
-	glBindFramebuffer( GL_FRAMEBUFFER, sw_scratch_fbo );
+	sw_bfb(  sw_scratch_fbo );
 	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sw_scratch_tex, 0 );
 	if ( ( sw_glGetError() != GL_NO_ERROR ) ||
 		 ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE ) ) {
 		sw_fbo_log( "hgio: no scratch target %dx%d\n", nw, nh );
-		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		sw_bfb(  0 );
 		return -1;
 	}
 	sw_scratch_w = nw;
@@ -752,7 +777,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 
 	if ( sw_scratch_ensure( w, h ) != 0 ) return -1;
 
-	glBindFramebuffer( GL_FRAMEBUFFER, sw_scratch_fbo );
+	sw_bfb(  sw_scratch_fbo );
 	glViewport( 0, 0, sw_scratch_w, sw_scratch_h );
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
@@ -805,7 +830,7 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 	}
 	p = (unsigned char *)mem_ini( w * h * 4 );
 	if ( p == NULL ) return;
-	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+	sw_bfb(  fbo );
 	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
 
 	rowsz = w * 4;
@@ -892,7 +917,7 @@ static void sw_main_present( void )
 	uv[4] = u0;	uv[5] = v0;
 	uv[6] = u1;	uv[7] = v0;
 
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	sw_bfb(  0 );
 	/*	Elona paints only part of the screen (the intro and the character screens
 		leave large areas untouched) and the main texture keeps alpha 0 there.  On
 		the Switch that never shows - the display is opaque - but in a window the
@@ -932,7 +957,7 @@ static int sw_bind_target( BMSCR *bm )
 
 	if ( bm->type == HSPWND_TYPE_MAIN ) {
 		sw_main_ensure();
-		glBindFramebuffer( GL_FRAMEBUFFER, ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+		sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
 		sw_cur = bm;
 		sw_apply_target( bm );
 		return 0;
@@ -948,7 +973,7 @@ static int sw_bind_target( BMSCR *bm )
 
 	t = sw_find( bm );
 	if ( t == NULL ) return -1;
-	glBindFramebuffer( GL_FRAMEBUFFER, t->fbo );
+	sw_bfb(  t->fbo );
 	sw_cur = bm;
 	sw_apply_target( bm );
 	return 0;
@@ -956,7 +981,7 @@ static int sw_bind_target( BMSCR *bm )
 
 static void sw_unbind_window( void )
 {
-	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	sw_bfb(  0 );
 	sw_cur = NULL;
 }
 
@@ -1145,7 +1170,7 @@ void hgio_reset( void )
     //投影変換/ビューポート変換 (ウインドウをターゲットに戻す)
 
     sw_main_ensure();
-    glBindFramebuffer( GL_FRAMEBUFFER, ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+    sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
 	sw_cur = mainbm;
 	sw_apply_target( mainbm );
 
@@ -2309,7 +2334,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			{
 				SWTARGET *st2 = sw_find( bm );
 				if ( st2 != NULL ) {
-					glBindFramebuffer( GL_FRAMEBUFFER, st2->fbo );
+					sw_bfb(  st2->fbo );
 					sw_apply_target( bm );
 				}
 			}
