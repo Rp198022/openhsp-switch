@@ -362,13 +362,64 @@ static void sw_forget( BMSCR *bm )
 	sw_targets[sw_target_used].fbo = 0;
 }
 
-static void sw_forget_all( void )
+	/*	Screens whose texture was loaded from a file.  A loaded image keeps
+		its top row at v=0, which is the convention hgio_copy() reads a source
+		with, while a screen Elona drew into stores its rows the other way round.
+		Remembering which screens are backed by an image lets only the
+		drawn-into ones have their v inverted.	*/
+#define SW_FILETEX_MAX	64
+static BMSCR *sw_filetex[SW_FILETEX_MAX];
+static int sw_filetex_used = 0;
+
+static void sw_mark_filetex( BMSCR *bm )
 {
+	int i;
+	if ( bm == NULL ) return;
+	for ( i = 0; i < sw_filetex_used; i++ ) {
+		if ( sw_filetex[i] == bm ) return;
+	}
+	if ( sw_filetex_used >= SW_FILETEX_MAX ) return;
+	sw_filetex[sw_filetex_used++] = bm;
+}
+
+static void sw_unmark_filetex( BMSCR *bm )
+{
+	int i;
+	if ( bm == NULL ) return;
+	for ( i = 0; i < sw_filetex_used; i++ ) {
+		if ( sw_filetex[i] == bm ) {
+			sw_filetex_used--;
+			sw_filetex[i] = sw_filetex[sw_filetex_used];
+			sw_filetex[sw_filetex_used] = NULL;
+			return;
+		}
+	}
+}
+
+static int sw_is_filetex( BMSCR *bm )
+{
+	int i;
+	if ( bm == NULL ) return 0;
+	for ( i = 0; i < sw_filetex_used; i++ ) {
+		if ( sw_filetex[i] == bm ) return 1;
+	}
+	return 0;
+}
+
+static void sw_filetex_clear( void )
+{
+	int i;
+	for ( i = 0; i < sw_filetex_used; i++ ) sw_filetex[i] = NULL;
+	sw_filetex_used = 0;
+}
+
+static void sw_forget_all( void )
 	sw_main_tex = 0;
 	sw_main_fbo = 0;
 	sw_main_ok = 0;
 	sw_target_used = 0;
 	sw_cur = NULL;
+	sw_filetex_clear();
 	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 }
 
@@ -1197,6 +1248,7 @@ int hgio_buffer(BMSCR *bm)
 	//		テクスチャを確保する。FBOは実際に描画する時に作る。
 	//
 	sw_forget( bm );
+	sw_unmark_filetex( bm );
 	int texid = MakeEmptyTexBuffer( bm->sx, bm->sy );
 	if (texid >= 0) {
 		bm->texid = texid;
@@ -1650,6 +1702,7 @@ int hgio_texload( BMSCR *bm, char *fname )
 	bm->sx = t->width;
 	bm->sy = t->height;
 	bm->texid = texid;
+	sw_mark_filetex( bm );
 	if ( sw_texload_report < 64 ) {
 		sw_texload_report++;
 		sw_fbo_log( "hgio: texload bm=%p '%s' -> texid=%d %dx%d\n",
@@ -2259,13 +2312,15 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		ratex = tex->ratex;
 		ratey = tex->ratey;
 	}
-	/*	A screen that has been drawn into keeps its rows in render order - screen y=0
-		lives at texture v=1 - while hgio_copy() reads a source the way a loaded image
-		is stored, with v=0 at the top.  Sampling such a source unchanged therefore
-		returns the picture upside down, which is how the title panel, its plate and the
-		credits arrived on the main screen while the text drawn there directly stayed
-		upright.  Invert v for a source that has a render target of its own.			*/
-	if ( sw_find( bmsrc ) != NULL ) {
+	/*	A screen Elona drew into keeps its rows in render order - screen y=0
+	lives at texture v=1 - while hgio_copy() reads a source the way a loaded image
+	is stored, with v=0 at the top.  Sampling such a source unchanged therefore
+	returns the picture upside down, which is how the title panel, its plate and the
+	credits arrived on the main screen while the text drawn there directly stayed
+	upright.  Invert v only for a source that is a drawn-into screen, never for one
+	backed by an image file, whose rows already match what the reader expects.	*/
+	if ( ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
+		( sw_find( bmsrc ) != NULL ) && ( !sw_is_filetex( bmsrc ) ) ) {
 		GLfloat poty = 1.0f / ratey;
 		GLfloat ty;
 		ty = poty - ty1;
@@ -3088,6 +3143,7 @@ void hgio_delscreen( BMSCR *bm )
 			(void *)bm, bm->texid, ( sw_find( bm ) != NULL ) ? 1 : 0 );
 	}
 	sw_forget( bm );			// FBOはbm->texidをキーにしているので先に破棄する
+	sw_unmark_filetex( bm );
 	if ( bm->texid != -1 ) {
 		DeleteTex( bm->texid );
 		//gb_delimage( bm->texid );
