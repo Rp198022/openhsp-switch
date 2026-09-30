@@ -270,6 +270,7 @@ typedef struct {
 	BMSCR	*bm;			// owning screen: texid alone is recycled by GetNextTex()
 	int		texid;
 	GLuint	fbo;
+	int		owned;			// 0 = another entry owns this framebuffer
 } SWTARGET;
 
 static SWTARGET	sw_targets[SWTARGET_MAX];
@@ -350,7 +351,7 @@ static void sw_forget( BMSCR *bm )
 		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 		sw_cur = NULL;
 	}
-	glDeleteFramebuffers( 1, &fbo );
+	if ( t->owned ) glDeleteFramebuffers( 1, &fbo );
 
 	sw_target_used--;
 	if ( t != &sw_targets[sw_target_used] ) {
@@ -470,6 +471,30 @@ static int sw_ensure( BMSCR *bm )
 
 	t = sw_find( bm );
 	if ( t != NULL ) return 0;
+	/*	A texture can already be someone else's render target: GetNextTex()
+		hands out any slot whose mode went back to TEXMODE_NONE, so a screen
+		that is still alive may be pointing at a texture another screen now
+		owns.  Two framebuffers on one texture is not something GL can serve,
+		and the draws into the second one do not land. */
+	{
+		int k;
+		for ( k = 0; k < sw_target_used; k++ ) {
+			if ( sw_targets[k].texid == bm->texid ) {
+				if ( sw_target_used >= SWTARGET_MAX ) return -1;
+				t = &sw_targets[sw_target_used++];
+				t->bm = bm;
+				t->texid = bm->texid;
+				t->fbo = sw_targets[k].fbo;
+				t->owned = 0;
+				if ( sw_attach_report < 96 ) {
+					sw_attach_report++;
+					sw_fbo_log( "hgio: share target texid=%d bm=%p -> fbo %u\n",
+						bm->texid, (void *)bm, (unsigned)t->fbo );
+				}
+				return 0;
+			}
+		}
+	}
 	if ( sw_target_used >= SWTARGET_MAX ) return -1;
 	fbo = 0;
 	glGenFramebuffers( 1, &fbo );
@@ -509,6 +534,7 @@ static int sw_ensure( BMSCR *bm )
 	t->bm = bm;
 	t->texid = bm->texid;
 	t->fbo = fbo;
+	t->owned = 1;
 
 	if ( sw_fbo_report < 48 ) {
 		sw_fbo_report++;
