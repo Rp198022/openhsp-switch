@@ -302,6 +302,8 @@ static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
+	static int		sw_flip_report = 0;		// P3 diagnostic
+	static int		sw_noflip_report = 0;		// P3 diagnostic
 
 static void sw_fbo_log( const char *fmt, ... )
 {
@@ -2317,16 +2319,33 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	lives at texture v=1 - while hgio_copy() reads a source the way a loaded image
 	is stored, with v=0 at the top.  Sampling such a source unchanged therefore
 	returns the picture upside down, which is how the title panel, its plate and the
-	credits arrived on the main screen while the text drawn there directly stayed
-	upright.  Invert v only for a source that is a drawn-into screen, never for one
-	backed by an image file, whose rows already match what the reader expects.	*/
-	if ( ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		( sw_find( bmsrc ) != NULL ) && ( !sw_is_filetex( bmsrc ) ) ) {
+	credits reached the window while text drawn there directly stayed upright.
+	Only the copy that lands on the window screen needs the correction: the window
+	is presented by sampling the main texture with v reversed, so anything copied
+	onto it has to arrive already inverted.  Copies between offscreen screens, and
+	copies out of a screen backed by an image file, keep their v as before.
+	if ( ( bm->type == HSPWND_TYPE_MAIN ) && ( bmsrc != NULL ) &&
+		( bmsrc->type != HSPWND_TYPE_MAIN ) && ( sw_find( bmsrc ) != NULL ) &&
+		( !sw_is_filetex( bmsrc ) ) ) {
 		GLfloat poty = 1.0f / ratey;
 		GLfloat ty;
 		ty = poty - ty1;
 		ty1 = poty - ty0;
 		ty0 = ty;
+		if ( sw_flip_report < 64 ) {
+			sw_flip_report++;
+			sw_fbo_log( "hgio: copyflip dst=%p | src=%p t=%d ft=%d tg=%d\n",
+				(void *)bm, (void *)bmsrc, bmsrc->type,
+				sw_is_filetex( bmsrc ) ? 1 : 0, ( sw_find( bmsrc ) != NULL ) ? 1 : 0 );
+		}
+	}
+	else if ( ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_noflip_report < 64 ) ) {
+		sw_noflip_report++;
+		sw_fbo_log( "hgio: copykeep dst=%p | src=%p t=%d ft=%d tg=%d slf=%d\n",
+			(void *)bm, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->type : -1,
+			sw_is_filetex( bmsrc ) ? 1 : 0,
+			( ( bmsrc != NULL ) && ( sw_find( bmsrc ) != NULL ) ) ? 1 : 0,
+			( ( bmsrc != NULL ) && ( bm->texid == bmsrc->texid ) ) ? 1 : 0 );
 	}
 
     flp = uvf2D;
