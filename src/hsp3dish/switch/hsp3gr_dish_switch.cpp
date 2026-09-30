@@ -527,6 +527,11 @@ static void sw_key_tick( void )
 	sw_key_wait = SW_KEY_GAP;
 }
 
+/*	fork: temporary diagnostic - id of the last extended command,
+	printed by the throw hook so a failure inside cmdfunc_extcmd() can be
+	attributed.  Remove together with that diagnostic.				*/
+int sw_last_extcmd = -1;
+
 static int cmdfunc_extcmd( int cmd )
 {
 	//		cmdfunc : TYPE_EXTCMD
@@ -535,6 +540,7 @@ static int cmdfunc_extcmd( int cmd )
 	int p1,p2,p3,p4,p5,p6;
 	code_next();							// 次のコードを取得(最初に必ず必要です)
 
+	sw_last_extcmd = cmd;					// fork: temporary error diagnostic
 	sw_key_tick();							// fork: type a key the harness asked for
 	switch( cmd ) {							// サブコマンドごとの分岐
 
