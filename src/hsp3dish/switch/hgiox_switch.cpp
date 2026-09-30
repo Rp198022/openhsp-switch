@@ -1937,8 +1937,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		int k, seen;
 		sig = (unsigned)bm->texid * 1000003u;
 		sig = sig * 31u + (unsigned)bmsrc->texid;
-		sig = sig * 31u + (unsigned)( xx & 0xffff );
-		sig = sig * 31u + (unsigned)( yy & 0xffff );
 		sig = sig * 31u + (unsigned)( srcsx & 0xffff );
 		sig = sig * 31u + (unsigned)( srcsy & 0xffff );
 		sig = sig * 31u + (unsigned)bm->gmode;
