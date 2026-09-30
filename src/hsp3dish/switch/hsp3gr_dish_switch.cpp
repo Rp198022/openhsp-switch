@@ -436,13 +436,11 @@ static void cmdfunc_dialog( void )
 //	shortcuts can be used at all.  Its text prompts are later boxes, and the one
 //	thing they need from us is a newline, sent with "@1:\n" and so on.
 //
-//	That newline cannot go through the box like an ordinary character: a
-//	keystroke is inserted by texmesPos::addStringFromCaret(), which first runs
-//	the text through validateString(), and that cuts the string short at CR or
-//	LF.  So a carriage return is appended to the box's own text and the result
-//	is pushed into the variable the box is bound to, which is the same thing
-//	Object_InputBox does after an ordinary edit.  Elona throws the newline away
-//	again with rm_crlf once it has taken the hint, so the name it keeps is clean.
+//	A newline travels this way like any other character - see the note in
+//	hspwnd_edit.cpp about why the typing path keeps a CR, since Elona ends its
+//	prompts on one and this backend has no other way to offer it.  Elona throws
+//	the newline away again with rm_crlf once it has taken the hint, so the name
+//	it keeps is clean.
 */
 #define SW_KEY_MAX		64
 #define SW_KEY_GAP		6			/* frames between two injected keys */
@@ -517,23 +515,7 @@ static void sw_key_tick( void )
 	info = bmscr->GetHSPObject( sw_key_target );
 	if ( info != NULL && info->owmode != HSPOBJ_NONE &&
 			( info->owmode & HSPOBJ_OPTION_LAYEROBJ ) == 0 ) {
-		if ( c == 13 || c == 10 ) {
-			/*	An edit box cannot be made to contain a newline by typing
-				one into it, so the box text and its variable are updated
-				here instead - see the note above.						*/
-			Hsp3ObjInput *edit = (Hsp3ObjInput *)info->btnset;
-			if ( edit != NULL && info->func_notice != NULL ) {
-				edit->tpos.msg += '\n';
-				bmscr->keybuf[0] = 0;		/* nothing more to insert		*/
-				bmscr->keybuf_index = 0;
-				info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
-				printf( "hsp3switch: ## cr obj=%d msg='%s' (%d)\n",
-						sw_key_target, edit->tpos.msg.c_str(),
-						(int)edit->tpos.msg.size() );
-				fflush( stdout );
-			}
-		}
-		else if ( info->func_notice != NULL ) {
+		if ( info->func_notice != NULL ) {
 			info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
 		}
 	}

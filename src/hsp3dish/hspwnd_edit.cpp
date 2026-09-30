@@ -392,11 +392,14 @@ int texmesPos::validateString(char *str, int max)
 		if (a1 == 0) {
 			break;
 		}
-		if ((a1 == 13)||(a1 == 10)) {		// CR/LFの場合はそこで打ち切る
-			*p = 0; break;
-		}
-		if (a1 < 32) {						// コントロールコードは空白に変換
-			*p = 32;
+		/*	Fork: CR/LF are kept here.  This is the path a keystroke takes, and
+			on a platform whose only keyboard is a synthesised key the newline
+			has to be typeable - Elona ends its text prompts on one and accepts
+			nothing else.  setString() still cuts at CR/LF (see
+			validateInternalString), so pasting a multi-line string is trimmed
+			as before.														*/
+		if (a1 < 32 && a1 != 13 && a1 != 10) {
+			*p = 32;						// コントロールコードは空白に変換
 		}
 		else {
 			mulchr = GetMultibyteCharacter(p);
