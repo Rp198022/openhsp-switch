@@ -854,6 +854,17 @@ static int cmdfunc_extcmd( int cmd )
 		p1 = code_getdi( 0 );
 		p2 = code_getdi( 0 );
 
+		/*	fork: the game switches to its second screen here as well, and
+			there is only the one.  GetBmscrSafe() stops the run for an id
+			that was never created, so fall back to the main screen the same
+			way `screen` does.											*/
+		if ( ( p1 < 0 ) || ( p1 >= wnd->GetBmscrMax() ) ||
+			 ( wnd->GetBmscr( p1 ) == NULL ) ) {
+			printf( "hsp3gr: gsel id=%d -> main screen\n", p1 );
+			fflush( stdout );
+			p1 = 0;
+		}
+
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
 		bmscr->Select( p2 );
@@ -1116,20 +1127,24 @@ static int cmdfunc_extcmd( int cmd )
 		}
 		else {
 			/*	fork: this port has one window.  The classic runtime opens another
-				one for a second screen, and Elona uses one (id 20) for its
-				operation-help window: it draws there and switches with `gsel`.
-				Refusing the id stopped the run twice over - once on `screen`, and
-				once on the `gsel` that followed, because HspWnd::GetBmscrSafe()
-				throws for an id it does not know.
+				one for a second screen, and Elona+ asks for one (id 20) to show
+				its operation help in.
 
-				So create it the way `buffer` does: an offscreen render target
-				with that id.  `gsel` then finds it, and what the script draws
-				there stays off the main display - the closest this target can
-				honestly come to a second window.								*/
+				Serving that id with an offscreen screen kept the run alive, but
+				the display went with it: the presenter only ever shows the main
+				screen, the game draws through whichever screen is current, and
+				the window froze on the last frame that reached screen 0.
+
+				So the second screen *is* the main screen here.  The size in the
+				call belongs to the window that is not there, so it is left
+				alone, and the game keeps drawing where it can be seen.			*/
 			if (p1 != 0) {
-				printf( "hsp3gr: screen id=%d -> offscreen screen\n", p1 );
+				printf( "hsp3gr: screen id=%d -> main screen\n", p1 );
 				fflush( stdout );
-				wnd->MakeBmscr( p1, HSPWND_TYPE_OFFSCREEN, p5, p6, p2, p3, p4 );
+				bmscr = wnd->GetBmscr( 0 );
+				cur_window = 0;
+				hgio_gsel( (BMSCR *)bmscr );
+				break;
 			}
 			else {
 				bmscr = wnd->GetBmscr(p1);
