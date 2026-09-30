@@ -771,6 +771,20 @@ static int cmdfunc_extcmd( int cmd )
 		Bmscr *src;
 		int bgtex;
 		p1 = code_getdi( 1 );
+		/*	fork: temporary - which screen does the game present, and how
+			often?  One line a second is enough to tell a live window from
+			a stale one.												*/
+		{
+			static int sw_t23_rd = -1000;
+			int sw_t23_now = hgio_gettick();
+			if ( sw_t23_now - sw_t23_rd >= 1000 ) {
+				sw_t23_rd = sw_t23_now;
+				printf( "t23: redraw flag=%d type=%d id=%d cur_window=%d max=%d\n",
+					p1, bmscr->type, bmscr->wid, cur_window,
+					wnd->GetBmscrMax() );
+				fflush( stdout );
+			}
+		}
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( 0 );
 		p4 = code_getdi( 0 );
@@ -863,6 +877,15 @@ static int cmdfunc_extcmd( int cmd )
 			printf( "hsp3gr: gsel id=%d -> main screen\n", p1 );
 			fflush( stdout );
 			p1 = 0;
+		}
+		{
+			static int sw_t23_gs = -1000;
+			int sw_t23_now = hgio_gettick();
+			if ( sw_t23_now - sw_t23_gs >= 1000 ) {
+				sw_t23_gs = sw_t23_now;
+				printf( "t23: gsel id=%d\n", p1 );
+				fflush( stdout );
+			}
 		}
 
 		bmscr = wnd->GetBmscrSafe( p1 );
@@ -1138,6 +1161,16 @@ static int cmdfunc_extcmd( int cmd )
 				So the second screen *is* the main screen here.  The size in the
 				call belongs to the window that is not there, so it is left
 				alone, and the game keeps drawing where it can be seen.			*/
+			{
+				static int sw_t23_sc = -1000;
+				int sw_t23_now = hgio_gettick();
+				if ( sw_t23_now - sw_t23_sc >= 1000 ) {
+					sw_t23_sc = sw_t23_now;
+					printf( "t23: screen cmd=%#x id=%d sx=%d sy=%d\n",
+						cmd, p1, p2, p3 );
+					fflush( stdout );
+				}
+			}
 			if (p1 != 0) {
 				printf( "hsp3gr: screen id=%d -> main screen\n", p1 );
 				fflush( stdout );

@@ -2686,6 +2686,17 @@ int hgio_render_end( void )
 	int res;
 	res = 0;
 	if ( drawflag == 0 ) return 0;
+	{
+		static int sw_t23_pr = -1000;
+		int sw_t23_now = hgio_gettick();
+		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
+			sw_t23_pr = sw_t23_now;
+			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d\n",
+				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
+				(void *)mainbm, sw_main_ok );
+			fflush( stdout );
+		}
+	}
 #ifdef HSPIOS
     gb_render_end();
 #endif
