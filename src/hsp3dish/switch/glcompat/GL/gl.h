@@ -245,6 +245,7 @@ void sw_glViewport( GLint x, GLint y, GLsizei width, GLsizei height );
 void sw_glClear( GLbitfield mask );
 void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha );
 void sw_glBlendFunc( GLenum sfactor, GLenum dfactor );
+void sw_glColorKey( int on, unsigned int rgb );
 void sw_glPointSize( GLfloat size );
 void sw_glLineWidth( GLfloat width );
 void sw_glShadeModel( GLenum mode );

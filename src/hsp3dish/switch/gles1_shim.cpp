@@ -202,6 +202,9 @@ static GLfloat		sw_mat_model[16];
 
 static GLuint		sw_prog;
 static GLint		sw_u_mvp, sw_u_tex, sw_u_usetex, sw_u_usecol, sw_u_color, sw_u_pointsize;
+static GLint		sw_u_colkey, sw_u_colkeycol;
+static int		sw_colkey_on = 0;
+static GLfloat	sw_colkey_r = 0.f, sw_colkey_g = 0.f, sw_colkey_b = 0.f;
 
 static int			sw_ready;				/* entry points resolved			*/
 static int			sw_init_failed;
@@ -321,14 +324,20 @@ static const char *SW_FS =
 	"uniform int u_usetex;\n"
 	"uniform int u_usecol;\n"
 	"uniform vec4 u_color;\n"
+	"uniform int u_colkey;\n"
+	"uniform vec4 u_colkeycol;\n"
 	"varying vec2 v_tex;\n"
 	"varying vec4 v_col;\n"
 	"void main() {\n"
-	"    vec4 c = ( u_usecol == 1 ) ? v_col : u_color;\n"
+	"    vec4 tc = vec4( 1.0 );\n"
 	"    if ( u_usetex == 1 ) {\n"
-	"        c *= texture2D( u_tex, v_tex );\n"
+	"        tc = texture2D( u_tex, v_tex );\n"
 	"    }\n"
-	"    gl_FragColor = c;\n"
+	"    if ( u_colkey == 1 ) {\n"
+	"        vec3 d = abs( tc.rgb - u_colkeycol.rgb );\n"
+	"        if ( d.r < 0.004 && d.g < 0.004 && d.b < 0.004 ) discard;\n"
+	"    }\n"
+	"    gl_FragColor = ( ( u_usecol == 1 ) ? v_col : u_color ) * tc;\n"
 	"}\n";
 
 static GLuint sw_compile( GLenum type, const char *src, const char *tag )
@@ -399,6 +408,8 @@ static int sw_build_program( void )
 	sw_u_usecol = gl_getuniformlocation( sw_prog, "u_usecol" );
 	sw_u_color = gl_getuniformlocation( sw_prog, "u_color" );
 	sw_u_pointsize = gl_getuniformlocation( sw_prog, "u_pointsize" );
+	sw_u_colkey = gl_getuniformlocation( sw_prog, "u_colkey" );
+	sw_u_colkeycol = gl_getuniformlocation( sw_prog, "u_colkeycol" );
 
 	sw_say( "gles1shim: program ok (mjvp=%d usetex=%d usecol=%d)\n",
 		(int)sw_u_mvp, (int)sw_u_usetex, (int)sw_u_usecol );
@@ -730,6 +741,8 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	gl_uniform1i( sw_u_usecol, sw_col_client_enabled ? 1 : 0 );
 	gl_uniform4f( sw_u_color, 1.f, 1.f, 1.f, 1.f );		/* fixed-function current colour */
 	gl_uniform1f( sw_u_pointsize, sw_point_size > 0.f ? sw_point_size : 1.f );
+	gl_uniform1i( sw_u_colkey, sw_colkey_on );
+	gl_uniform4f( sw_u_colkeycol, sw_colkey_r, sw_colkey_g, sw_colkey_b, 1.f );
 
 	gl_enablevertexattribarray( SW_ATTR_POS );
 	gl_vertexattribpointer( SW_ATTR_POS, sw_vtx.size, GL_FLOAT, GL_FALSE, sw_vtx.stride, sw_vtx.ptr );
@@ -800,6 +813,23 @@ void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alph
 	sw_init();
 	if ( sw_ready ) gl_clearcolor( red, green, blue, alpha );
 }
+
+/*	The classic (GDI) runtime Elona was written against does not alpha-blend
+	pictures loaded from a file: `gmode 2` drops every pixel that equals the
+	image's colour key, and `gmode 4` every pixel that equals `color` - see
+	GetAttrOperation() in src/hsp3/win32gui/hsp3gr_wingui.cpp.  A BMP carries
+	no alpha and the loader here hands every pixel alpha 255, so those key
+	pixels reached the screen opaque: the solid black window frames, key
+	boxes and chips.  The colour goes to the fragment shader, which discards
+	matching fragments.  Cleared by setBlendMode() so nothing else inherits it. */
+void sw_glColorKey( int on, unsigned int rgb )
+{
+	sw_colkey_on = on ? 1 : 0;
+	sw_colkey_r = (GLfloat)( ( rgb >> 16 ) & 0xffu ) * ( 1.0f / 255.0f );
+	sw_colkey_g = (GLfloat)( ( rgb >> 8 ) & 0xffu ) * ( 1.0f / 255.0f );
+	sw_colkey_b = (GLfloat)( rgb & 0xffu ) * ( 1.0f / 255.0f );
+}
+
 
 void sw_glBlendFunc( GLenum sfactor, GLenum dfactor )
 {
