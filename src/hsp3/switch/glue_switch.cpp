@@ -549,7 +549,12 @@ static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src,
 
 	calls++;
 	if ( r != 0 ) fails++;
-	if ( ( r != 0 ) || ( calls <= 8 ) ) {
+	/*	Only the first few failures are worth printing.  A refused copy is
+		ordinary here - Elona clips its text against the source buffer on every
+		row of a long list - and a line each time costs more than the frame: it
+		wrote a few thousand lines per frame through the emulator's filesystem
+		and dragged the feat screen down to a third of a frame per second.	*/
+	if ( ( r != 0 && fails <= 16 ) || ( calls <= 8 ) ) {
 		printf( "hsp3screen: %s -> %d x=%d y=%d w=%d h=%d dst %p type=%d (%dx%d texid=%d) src %p type=%d (%dx%d texid=%d) [%d calls, %d failed]\n",
 			op, r, xx, yy, psx, psy, (void *)self,
 			(int)self->type, (int)self->sx, (int)self->sy, self->texid, (void *)src,
