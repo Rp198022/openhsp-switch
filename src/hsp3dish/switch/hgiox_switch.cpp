@@ -661,6 +661,44 @@ static int	sw_scratch_h = 0;
 static int	sw_scratch_ok = 0;
 static int	sw_scratch_used = 0;
 
+/*	ChangeTex() caches the last GL name it bound and skips a redundant
+	bind.  Several paths here bind a texture behind that cache's back - the
+	raw glBindTexture in sw_main_ensure() below, and the shared upload code
+	(MakeEmptyTex/MakeEmptyTexBuffer/UpdateTex32) which binds directly - so
+	the cache can be left naming a texture that is no longer bound.  The
+	next ChangeTex() of that name is then skipped and the draw samples
+	whatever happens to be bound: the shape stays right and the colours go,
+	which is what turned the title panel black on some runs.				*/
+static void sw_bind_tex( int id )
+{
+	TexReset();
+	ChangeTex( id );
+}
+
+/*	The window (main screen) has no TEXINF entry - its texture lives in
+	sw_main_tex - so GetTex( bmsrc->texid ) with texid -1 read before the
+	table and handed back heap garbage: a random mode, rate and GL name.
+	Describe the window texture instead.								*/
+static TEXINF *sw_tex_src( BMSCR *bmsrc, TEXINF *scratch )
+{
+	if ( bmsrc == NULL ) return NULL;
+	if ( ( bmsrc->texid < 0 ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
+		if ( sw_main_ok != 1 ) return NULL;
+		memset( scratch, 0, sizeof( TEXINF ) );
+		scratch->mode = TEXMODE_NORMAL;
+		scratch->sx = (short)_sizex;
+		scratch->sy = (short)_sizey;
+		scratch->width = (short)_sizex;
+		scratch->height = (short)_sizey;
+		scratch->texid = (int)sw_main_tex;
+		scratch->ratex = ( _sizex > 0 ) ? 1.0f / (float)_sizex : 0.0f;
+		scratch->ratey = ( _sizey > 0 ) ? 1.0f / (float)_sizey : 0.0f;
+		return scratch;
+	}
+	return GetTex( bmsrc->texid );
+}
+
+
 static int sw_scratch_ensure( int w, int h )
 {
 	int nw = 32, nh = 32;
@@ -738,7 +776,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 	glVertexPointer( 2, GL_FLOAT, 0, vert );
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
-	ChangeTex( (int)srctex );
+	sw_bind_tex( (int)srctex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
 	if ( ( w >= 256 ) && ( sw_scratch_dumped == 0 ) ) {
@@ -882,7 +920,7 @@ static void sw_main_present( void )
 		had fallen below 1, which is what made a correctly composed window
 		panel vanish. */
 	glDisable( GL_BLEND );
-	ChangeTex( (int)sw_main_tex );
+	sw_bind_tex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
 }
@@ -2082,7 +2120,7 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 	glEnable(GL_TEXTURE_2D);
 #endif
 
-	ChangeTex( tex->texid );
+	sw_bind_tex( tex->texid );
 //    glBindTexture( GL_TEXTURE_2D, tex->texid );
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
@@ -2153,7 +2191,7 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 	glEnable(GL_TEXTURE_2D);
 #endif
 
-	ChangeTex( texid );
+	sw_bind_tex( texid );
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
@@ -2200,8 +2238,9 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	if ( bm == NULL ) return;
 	if ( !sw_drawable( bm ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
 
-	TEXINF *tex = GetTex( bmsrc->texid );
-	if ( tex->mode == TEXMODE_NONE ) return;
+	TEXINF mtex;
+	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
+	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
 
 	sw_trc_ex( "copy", bm, (float)bm->cx, (float)bm->cy, s_psx, s_psy,
 		bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
@@ -2304,7 +2343,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     *flp++ = tx1;
     *flp++ = ty1;
 
-	ChangeTex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
+	sw_bind_tex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
@@ -2324,8 +2363,9 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	sw_trc_ex( "copyrot", bm, (float)bm->cx, (float)bm->cy, psx, psy,
 		( bmsrc != NULL ) ? bmsrc->texid : -9, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
 
-	TEXINF *tex = GetTex( bmsrc->texid );
-	if ( tex->mode == TEXMODE_NONE ) return;
+	TEXINF mtex;
+	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
+	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
 
     GLfloat *flp;
     float ratex,ratey;
@@ -2410,7 +2450,7 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     
 	/*-------------------------------*/
     
-	ChangeTex( tex->texid );
+	sw_bind_tex( tex->texid );
     //glBindTexture(GL_TEXTURE_2D,image.name);
 
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
@@ -2430,8 +2470,9 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
 	if ( bm == NULL ) return;
 	if ( !sw_drawable( bm ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
 
-	TEXINF *tex = GetTex( bmsrc->texid );
-	if ( tex->mode == TEXMODE_NONE ) return;
+	TEXINF mtex;
+	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
+	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
 
     GLfloat *flp;
     float sx,sy;
@@ -2459,7 +2500,7 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
 	*flp++ = (float)posx[2];
 	*flp++ = (float)-posy[2];
 
-	ChangeTex( tex->texid );
+	sw_bind_tex( tex->texid );
     //glBindTexture(GL_TEXTURE_2D,image.name);
 
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
