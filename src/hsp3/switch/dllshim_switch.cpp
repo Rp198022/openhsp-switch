@@ -470,20 +470,13 @@ static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 	PVal *pval;
 	int maxnum;
 
-	hspda_probe_args( "xnotesel", args, argc );		// TEMPORARY P3 DIAGNOSTIC
-	return -1;
-
-	(void)args;
-	(void)argc;
-
-	hspda_note_aptr = code_getva( &pval );
-	maxnum = code_getdi( 0 );
+	pval = (PVal *)args[0].ptr;
+	maxnum = ( argc > 1 ) ? args[1].ival : 0;
 	if ( maxnum == 0 ) maxnum = 256;			// the plugin's default
-	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
-
-	hspda_note_pval = pval;
-	hspda_data_ini( maxnum );
-	return 0;
+	printf( "hsp3switch: ## xnotesel pval=%d type=%d maxnum=%d\n",
+			( pval != NULL ), ( pval == NULL ) ? -1 : (int)pval->flag, maxnum );
+	fflush( stdout );
+	return -1;					// no-op; see the note at the top of the file
 }
 
 //	xnoteadd "strings"  ->  stat = index of the line that now holds it
@@ -493,13 +486,12 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 	char *add, *buf, *p;
 	int size, line;
 
-	hspda_probe_args( "xnoteadd", args, argc );		// TEMPORARY P3 DIAGNOSTIC
-	return -1;
+	add = (char *)args[1].ptr;
+	printf( "hsp3switch: ## xnoteadd text='%.40s'\n", ( add == NULL ) ? "" : add );
+	fflush( stdout );
+	return -1;					// no-op; see the note at the top of the file
 
-	(void)args;
-	(void)argc;
-
-	add = code_gets();
+	(void)add;
 	if ( hspda_note_pval == NULL ) return -1;
 	if ( hspda_note_pval->flag != HSPVAR_FLAG_STR ) return -1;
 
@@ -1034,6 +1026,7 @@ static bool mptype_supported( int mptype )
 	case MPTYPE_PBMSCR:		// screen buffer, supplied by the runtime
 	case MPTYPE_PTR_REFSTR:	// reference string (prefstr), supplied by the runtime
 	case MPTYPE_PTR_EXINFO:	// pointer to the plugin info block
+	case MPTYPE_PPVAL:		// the variable itself (hspda declares one)
 		return true;
 	default:
 		return false;
@@ -1083,6 +1076,16 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 	case MPTYPE_NULLPTR:
 		v->ptr = NULL;
 		break;
+	case MPTYPE_PPVAL: {
+		//	`pval` in a #func declaration: one operand, the variable referred to,
+		//	handed over as its PVal - the same read as `var` but giving the stub
+		//	the variable rather than its storage.
+		//
+		APTR aptr = code_getva( &pval );
+		(void)aptr;
+		v->ptr = pval;
+		break;
+	}
 	case MPTYPE_PBMSCR:
 		//	The screen buffer is handed in by the runtime, not read from the
 		//	bytecode: the reference calls GetBMSCR() and consumes no operand.  The
