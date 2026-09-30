@@ -2259,6 +2259,19 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		ratex = tex->ratex;
 		ratey = tex->ratey;
 	}
+	/*	A screen that has been drawn into keeps its rows in render order - screen y=0
+		lives at texture v=1 - while hgio_copy() reads a source the way a loaded image
+		is stored, with v=0 at the top.  Sampling such a source unchanged therefore
+		returns the picture upside down, which is how the title panel, its plate and the
+		credits arrived on the main screen while the text drawn there directly stayed
+		upright.  Invert v for a source that has a render target of its own.			*/
+	if ( sw_find( bmsrc ) != NULL ) {
+		GLfloat poty = 1.0f / ratey;
+		GLfloat ty;
+		ty = poty - ty1;
+		ty1 = poty - ty0;
+		ty0 = ty;
+	}
 
     flp = uvf2D;
 
