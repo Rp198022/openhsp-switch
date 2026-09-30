@@ -292,7 +292,6 @@ static BMSCR	*sw_colorbm = NULL;	/* screen whose color/gmode is current */
 static int	sw_gsel_report = 0;	/* one-build diagnostic */
 static int	sw_texload_report = 0;	/* one-build diagnostic */
 static int	sw_copy_report = 0;	/* one-build diagnostic */
-static int	sw_copy_all = 0;	/* one-build full copy trace */
 static int	sw_dumped = 0;	/* one-build dump */
 #define SW_COPY_SIG_MAX 512
 static unsigned int	sw_copy_sig[SW_COPY_SIG_MAX];
@@ -545,12 +544,24 @@ static int sw_ensure( BMSCR *bm )
 	return 0;
 }
 
+static int sw_bind_target( BMSCR *bm );	/* defined below, re-binds here */
+
 static int sw_drawable( BMSCR *bm )
 {
 	if ( bm == NULL ) return 0;
-	if ( bm->type == HSPWND_TYPE_MAIN ) return 1;
+	if ( bm->type == HSPWND_TYPE_MAIN ) {
+		if ( sw_cur != bm ) sw_bind_target( bm );
+		return 1;
+	}
 	if ( bm->type == HSPWND_TYPE_NONE ) return 0;
-	return ( sw_ensure( bm ) == 0 );
+	if ( sw_ensure( bm ) != 0 ) return 0;
+	/*	A draw command names the screen it draws into, so it has to make that
+		screen the render target.  This used to be left to gsel() alone, but a
+		screen's framebuffer is keyed on the screen and dropped whenever its
+		texture is recreated (buffer/picload), which left the window bound and
+		made the drawing land outside the screen it was meant for.			*/
+	if ( sw_cur != bm ) sw_bind_target( bm );
+	return 1;
 }
 
 static void sw_main_ensure( void )
@@ -2143,16 +2154,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
 
-	if ( sw_copy_all < 600 ) {
-		SWTARGET *dt = sw_find( bm );
-		sw_copy_all++;
-		sw_fbo_log( "hgio: XCOPY n=%d dst bm=%p tx=%d %dx%d fbo=%u | src tx=%d %dx%d | %d,%d %dx%d gmode=%d swcur=%p iscur=%d\n",
-			(int)sw_copy_all, (void *)bm, bm->texid, bm->sx, bm->sy,
-			(unsigned)( dt ? dt->fbo : 0 ),
-			bmsrc->texid, bmsrc->sx, bmsrc->sy,
-			(int)xx, (int)yy, (int)srcsx, (int)srcsy, bm->gmode,
-			(void *)sw_cur, ( sw_cur == bm ) ? 1 : 0 );
-	}
 	if ( sw_copy_report < 200 ) {
 		unsigned int sig;
 		int k, seen;
