@@ -824,7 +824,13 @@ void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alph
 	matching fragments.  Cleared by setBlendMode() so nothing else inherits it. */
 void sw_glColorKey( int on, unsigned int rgb )
 {
+	static int logged = 0;
 	sw_colkey_on = on ? 1 : 0;
+	if ( on && ( logged < 2 ) ) {
+		logged++;
+		sw_say( "gles1shim: colkey on rgb=%06x loc=%d colloc=%d\n",
+			rgb, (int)sw_u_colkey, (int)sw_u_colkeycol );
+	}
 	sw_colkey_r = (GLfloat)( ( rgb >> 16 ) & 0xffu ) * ( 1.0f / 255.0f );
 	sw_colkey_g = (GLfloat)( ( rgb >> 8 ) & 0xffu ) * ( 1.0f / 255.0f );
 	sw_colkey_b = (GLfloat)( rgb & 0xffu ) * ( 1.0f / 255.0f );
