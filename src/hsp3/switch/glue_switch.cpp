@@ -456,7 +456,7 @@ static int glue_exit_report( int option )
 
 extern "C" void __real___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) );
 
-extern int sw_last_extcmd;		// fork: temporary error diagnostic
+int sw_last_extcmd = -1;		// fork: temporary error diagnostic
 
 //	The image runs at a randomised base, so a raw address cannot be looked up in
 //	the linker map.  `anchor` is a symbol in this same file: printing the distance

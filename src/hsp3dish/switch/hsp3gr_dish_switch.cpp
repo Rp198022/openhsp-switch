@@ -530,7 +530,7 @@ static void sw_key_tick( void )
 /*	fork: temporary diagnostic - id of the last extended command,
 	printed by the throw hook so a failure inside cmdfunc_extcmd() can be
 	attributed.  Remove together with that diagnostic.				*/
-int sw_last_extcmd = -1;
+extern int sw_last_extcmd;
 
 static int cmdfunc_extcmd( int cmd )
 {
