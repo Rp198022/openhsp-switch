@@ -292,6 +292,7 @@ static BMSCR	*sw_colorbm = NULL;	/* screen whose color/gmode is current */
 static int	sw_gsel_report = 0;	/* one-build diagnostic */
 static int	sw_texload_report = 0;	/* one-build diagnostic */
 static int	sw_copy_report = 0;	/* one-build diagnostic */
+static int	sw_copy_all = 0;	/* one-build full copy trace */
 static int	sw_dumped = 0;	/* one-build dump */
 #define SW_COPY_SIG_MAX 512
 static unsigned int	sw_copy_sig[SW_COPY_SIG_MAX];
@@ -2142,6 +2143,16 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
 
+	if ( sw_copy_all < 600 ) {
+		SWTARGET *dt = sw_find( bm );
+		sw_copy_all++;
+		sw_fbo_log( "hgio: XCOPY n=%d dst bm=%p tx=%d %dx%d fbo=%u | src tx=%d %dx%d | %d,%d %dx%d gmode=%d swcur=%p iscur=%d\n",
+			(int)sw_copy_all, (void *)bm, bm->texid, bm->sx, bm->sy,
+			(unsigned)( dt ? dt->fbo : 0 ),
+			bmsrc->texid, bmsrc->sx, bmsrc->sy,
+			(int)xx, (int)yy, (int)srcsx, (int)srcsy, bm->gmode,
+			(void *)sw_cur, ( sw_cur == bm ) ? 1 : 0 );
+	}
 	if ( sw_copy_report < 200 ) {
 		unsigned int sig;
 		int k, seen;
