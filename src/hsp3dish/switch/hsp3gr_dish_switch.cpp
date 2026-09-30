@@ -522,25 +522,15 @@ static void sw_key_tick( void )
 				one into it, so the box text and its variable are updated
 				here instead - see the note above.						*/
 			Hsp3ObjInput *edit = (Hsp3ObjInput *)info->btnset;
-			printf( "hsp3switch: ## cr obj=%d edit=%d pval=%p type=%d owmode=0x%x\n",
-					sw_key_target, ( edit != NULL ), (void *)info->varset.pval,
-					info->varset.type, (unsigned)info->owmode );
-			fflush( stdout );
-			if ( edit != NULL ) {
+			if ( edit != NULL && info->func_notice != NULL ) {
 				edit->tpos.msg += '\n';
-				if ( info->varset.pval != NULL &&
-						info->varset.type == HSPVAR_FLAG_STR ) {
-					code_setva( info->varset.pval, info->varset.aptr,
-							HSPVAR_FLAG_STR, edit->tpos.msg.c_str() );
-					printf( "hsp3switch: ## cr set inputlog='%s' (%d)\n",
-							edit->tpos.msg.c_str(), (int)edit->tpos.msg.size() );
-					fflush( stdout );
-				}
-				else {
-					printf( "hsp3switch: ## cr no setva (pval=%p type=%d)\n",
-							(void *)info->varset.pval, info->varset.type );
-					fflush( stdout );
-				}
+				bmscr->keybuf[0] = 0;		/* nothing more to insert		*/
+				bmscr->keybuf_index = 0;
+				info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
+				printf( "hsp3switch: ## cr obj=%d msg='%s' (%d)\n",
+						sw_key_target, edit->tpos.msg.c_str(),
+						(int)edit->tpos.msg.size() );
+				fflush( stdout );
 			}
 		}
 		else if ( info->func_notice != NULL ) {
