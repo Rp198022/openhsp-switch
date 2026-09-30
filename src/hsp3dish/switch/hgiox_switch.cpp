@@ -326,6 +326,33 @@ static void sw_fbo_log( const char *fmt, ... )
 	}
 }
 
+/*	P3 draw trace, one-build diagnostic.  Every primitive that can paint
+	pixels records its destination rectangle and the blend parameters in
+	force, so the composition of a single frame can be replayed offline.
+	Font paths are left out on purpose - they would swamp the budget.		*/
+static int	sw_trc_used = 0;
+#define SW_TRC_MAX 2500
+static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float w, float h,
+	int srctx, int sx, int sy, int sw_, int sh_ )
+{
+	char buf[224];
+	if ( sw_trc_used >= SW_TRC_MAX ) return;
+	sw_trc_used++;
+	snprintf( buf, sizeof( buf ),
+		"hgio: TRC %04d %-8s dst x=%g y=%g w=%g h=%g tx=%d"
+		" | src tx=%d %d,%d %dx%d | gm=%d rt=%d col=%06x\n",
+		sw_trc_used, tag, (double)x, (double)y, (double)w, (double)h,
+		( bm != NULL ) ? bm->texid : -9, srctx, sx, sy, sw_, sh_,
+		( bm != NULL ) ? bm->gmode : 0, ( bm != NULL ) ? bm->gfrate : 0,
+		( bm != NULL ) ? ( bm->color & 0xffffff ) : 0 );
+	sw_fbo_log( "%s", buf );
+}
+
+static void sw_trc( const char *tag, const BMSCR *bm, float x, float y, float w, float h )
+{
+	sw_trc_ex( tag, bm, x, y, w, h, -9, 0, 0, 0, 0 );
+}
+
 static SWTARGET *sw_find( BMSCR *bm )
 {
 	int i;
@@ -1733,6 +1760,7 @@ void hgio_pset( float x, float y )
 //矩形の描画
 void hgio_rect( float x, float y, float w, float h )
 {
+	sw_trc( "rect", NULL, x, y, w, h );
     //頂点配列情報
 	GLfloat colors[4*4];
 	GLfloat vert[8]={
@@ -1753,6 +1781,7 @@ void hgio_rect( float x, float y, float w, float h )
 //矩形の塗り潰し
 void hgio_boxfill( float x, float y, float w, float h )
 {
+	sw_trc( "boxfill", NULL, x, y, w, h );
     //頂点配列情報
 	GLfloat colors[4*4];
 	GLfloat vert[8]={
@@ -1875,6 +1904,7 @@ void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alpha
 	float y = y1;
 	float w = (x2-x1);
 	float h = (y2-y1);
+	sw_trc( alphamode ? "boxfA" : "boxf", bm, x, y, w, h );
 
     //頂点配列情報
 	GLfloat colors[4*4];
@@ -1932,6 +1962,7 @@ void hgio_fillrot( BMSCR *bm, float x, float y, float sx, float sy, float ang )
 {
 	if ( bm == NULL ) return;
 	if ( !sw_drawable( bm ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
+	sw_trc( "fillrot", bm, x, y, sx, sy );
     
 	GLfloat colors[16];
     GLfloat *flp;
@@ -1979,6 +2010,7 @@ void hgio_fillrot( BMSCR *bm, float x, float y, float sx, float sy, float ang )
 #if 0
 void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, short srcsy, int texid, int color )
 {
+	sw_trc_ex( "fcopy", NULL, distx, disty, (float)srcsx, (float)srcsy, texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
 	//		描画モードは3,100%、転送先はdistx,disty
@@ -2061,6 +2093,7 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
+	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
 	//		描画モードは3,100%、転送先はdistx,disty
@@ -2157,29 +2190,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
 
-	if ( sw_copy_report < 200 ) {
-		unsigned int sig;
-		int k, seen;
-		sig = (unsigned)bm->texid * 1000003u;
-		sig = sig * 31u + (unsigned)bmsrc->texid;
-		sig = sig * 31u + (unsigned)( srcsx & 0xffff );
-		sig = sig * 31u + (unsigned)( srcsy & 0xffff );
-		sig = sig * 31u + (unsigned)bm->gmode;
-		seen = 0;
-		for ( k = 0; k < sw_copy_sig_used; k++ ) {
-			if ( sw_copy_sig[k] == sig ) { seen = 1; break; }
-		}
-		if ( !seen && ( sw_copy_sig_used < SW_COPY_SIG_MAX ) ) {
-			sw_copy_sig[sw_copy_sig_used++] = sig;
-			sw_copy_report++;
-			sw_fbo_log( "hgio: copy dst tx=%d t=%d %dx%d | src tx=%d t=%d %dx%d md=%d"
-				" | %d,%d %dx%d -> %g,%g gmode=%d\n",
-				bm->texid, bm->type, bm->sx, bm->sy,
-				bmsrc->texid, bmsrc->type, bmsrc->sx, bmsrc->sy, (int)tex->mode,
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)s_psx, (double)s_psy,
-				bm->gmode );
-		}
-	}
+	sw_trc_ex( "copy", bm, (float)bm->cx, (float)bm->cy, s_psx, s_psy,
+		bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
 
     GLfloat *flp;
     GLfloat x1,y1,x2,y2,tx0,tx1,ty0,ty1;
@@ -2296,6 +2308,8 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	//
 	if ( bm == NULL ) return;
 	if ( !sw_drawable( bm ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
+	sw_trc_ex( "copyrot", bm, (float)bm->cx, (float)bm->cy, psx, psy,
+		( bmsrc != NULL ) ? bmsrc->texid : -9, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
 
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
@@ -2397,6 +2411,7 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 
 void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, int *uvy )
 {
+	if ( ( posx != NULL ) && ( posy != NULL ) ) sw_trc( "squareT", bm, (float)posx[0], (float)posy[0], (float)posx[2], (float)posy[2] );
 	//		四角形(square)テクスチャ描画
 	//
 	if ( bm == NULL ) return;
@@ -2445,6 +2460,7 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
 
 void hgio_square( BMSCR *bm, int *posx, int *posy, int *color )
 {
+	if ( ( posx != NULL ) && ( posy != NULL ) ) sw_trc( "square", bm, (float)posx[0], (float)posy[0], (float)posx[2], (float)posy[2] );
 	//		四角形(square)単色描画
 	//
     GLfloat *flp;
@@ -2485,6 +2501,7 @@ void hgio_square( BMSCR *bm, int *posx, int *posy, int *color )
 
 int hgio_celputmulti( BMSCR *bm, int *xpos, int *ypos, int *cel, int count, BMSCR *bmsrc )
 {
+	sw_trc( "celputm", bm, 0.0f, 0.0f, 0.0f, 0.0f );
 	//		マルチ画像コピー
 	//		int配列内のX,Y,CelIDを元に等倍コピーを行なう(count=個数)
 	//		カレントポジション、描画モードはBMSCRから取得

@@ -98,6 +98,7 @@ static PFN_glEnable						gl_enable;
 static PFN_glDisable					gl_disable;
 static PFN_glBlendFunc					gl_blendfunc;
 static PFN_glBlendEquation				gl_blendequation;
+static const char					*sw_blendeq_name = "(unset)";
 static PFN_glGenTextures				gl_gentextures;
 static PFN_glDeleteTextures				gl_deletetextures;
 static PFN_glBindTexture				gl_bindtexture;
@@ -467,6 +468,16 @@ static void sw_init( void )
 	/*	same reasoning: a driver without glBlendEquation must not take the
 		whole renderer down, it only loses gmode 6's subtract.			*/
 	*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquation" );
+	sw_blendeq_name = "glBlendEquation";
+	if ( gl_blendequation == NULL ) {
+		*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquationOES" );
+		sw_blendeq_name = "glBlendEquationOES";
+	}
+	if ( gl_blendequation == NULL ) {
+		*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquationEXT" );
+		sw_blendeq_name = "glBlendEquationEXT";
+	}
+	if ( gl_blendequation == NULL ) sw_blendeq_name = "NONE";
 	SW_LOAD( gl_createshader, "glCreateShader" );
 	SW_LOAD( gl_shadersource, "glShaderSource" );
 	SW_LOAD( gl_compileshader, "glCompileShader" );
@@ -516,7 +527,7 @@ static void sw_init( void )
 	}
 
 	sw_ready = 1;
-	sw_say( "gles1shim: ready\n" );
+	sw_say( "gles1shim: ready, blend equation entry = %s\n", sw_blendeq_name );
 }
 
 /*	The reused Linux platform glue rebuilds the window/GL context whenever the
