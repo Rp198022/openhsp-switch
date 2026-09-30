@@ -601,6 +601,8 @@ static void sw_main_ensure( void )
 	scratch texture and draw from that instead.								*/
 #define SW_SCRATCH_MAX 1024
 static int	sw_selfblit_log = 0;
+static int	sw_scratch_dumped = 0;
+static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
 static GLuint	sw_scratch_tex = 0;
 static GLuint	sw_scratch_fbo = 0;
 static int	sw_scratch_w = 0;
@@ -680,6 +682,10 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 	ChangeTex( (int)srctex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
+	if ( ( w >= 256 ) && ( sw_scratch_dumped == 0 ) ) {
+		sw_scratch_dumped = 1;
+		sw_dump_fbo( "smp_scratch.bmp", sw_scratch_fbo, w, h );
+	}
 	return 0;
 }
 
