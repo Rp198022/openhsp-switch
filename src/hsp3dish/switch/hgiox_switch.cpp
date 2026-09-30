@@ -678,7 +678,15 @@ static int sw_scratch_ensure( int w, int h )
 	glGenFramebuffers( 1, &sw_scratch_fbo );
 	if ( sw_scratch_tex == 0 || sw_scratch_fbo == 0 ) return -1;
 
+	/*	This bind bypasses ChangeTex(), so that cache still names whatever was
+		bound before while the scratch is now the texture in force.  The next
+		thing sw_scratch_capture() does is ChangeTex( srctex ), and when srctex
+		is the texture ChangeTex already believes is current it skips the bind -
+		leaving the scratch bound *and* sampled, so the capture reads and writes
+		one texture at once and the tile it lands is uninitialised memory.
+		Drop the cache so the bind really happens.							*/
 	glBindTexture( GL_TEXTURE_2D, sw_scratch_tex );
+	TexReset();
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
