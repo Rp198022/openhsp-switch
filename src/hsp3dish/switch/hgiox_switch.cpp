@@ -569,7 +569,96 @@ static void sw_main_ensure( void )
 	turned this copy into a red diagonal the first time round.				*/
 /*	One-build diagnostic: read a target back in BGRA and write it as a
 	32-bit BMP (bottom-up, which is the order glReadPixels hands back).	*/
+/*	Blits that sample the texture they are drawing into are undefined in GL,
+	and the classic runtime Elona targets performs them as ordinary memory
+	copies, so Elona relies on them.  Capture the rectangle 1:1 into a
+	scratch texture and draw from that instead.								*/
+#define SW_SCRATCH_MAX 1024
+static GLuint	sw_scratch_tex = 0;
+static GLuint	sw_scratch_fbo = 0;
+static int	sw_scratch_w = 0;
+static int	sw_scratch_h = 0;
+static int	sw_scratch_ok = 0;
+static int	sw_scratch_used = 0;
+
+static int sw_scratch_ensure( int w, int h )
+{
+	int nw = 32, nh = 32;
+
+	if ( w <= 0 || h <= 0 || w > SW_SCRATCH_MAX || h > SW_SCRATCH_MAX ) return -1;
+	while ( nw < w ) nw <<= 1;
+	while ( nh < h ) nh <<= 1;
+	if ( ( sw_scratch_ok == 1 ) && ( nw <= sw_scratch_w ) && ( nh <= sw_scratch_h ) ) return 0;
+
+	if ( sw_scratch_tex != 0 ) glDeleteTextures( 1, &sw_scratch_tex );
+	if ( sw_scratch_fbo != 0 ) glDeleteFramebuffers( 1, &sw_scratch_fbo );
+	sw_scratch_tex = 0; sw_scratch_fbo = 0; sw_scratch_ok = 0;
+
+	glGenTextures( 1, &sw_scratch_tex );
+	glGenFramebuffers( 1, &sw_scratch_fbo );
+	if ( sw_scratch_tex == 0 || sw_scratch_fbo == 0 ) return -1;
+
+	glBindTexture( GL_TEXTURE_2D, sw_scratch_tex );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, nw, nh, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
+	glBindFramebuffer( GL_FRAMEBUFFER, sw_scratch_fbo );
+	glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sw_scratch_tex, 0 );
+	if ( ( sw_glGetError() != GL_NO_ERROR ) ||
+		 ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE ) ) {
+		sw_fbo_log( "hgio: no scratch target %dx%d\n", nw, nh );
+		glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+		return -1;
+	}
+	sw_scratch_w = nw;
+	sw_scratch_h = nh;
+	sw_scratch_ok = 1;
+	return 0;
+}
+
+static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
+							   int xx, int yy, int w, int h )
+{
+	GLfloat vert[8];
+	GLfloat uv[8];
+
+	if ( sw_scratch_ensure( w, h ) != 0 ) return -1;
+
+	glBindFramebuffer( GL_FRAMEBUFFER, sw_scratch_fbo );
+	glViewport( 0, 0, sw_scratch_w, sw_scratch_h );
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+	glOrtho( 0, sw_scratch_w, -sw_scratch_h, 0, -100, 100 );
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+
+	vert[0] = 0.0f;			vert[1] = 0.0f;
+	vert[2] = 0.0f;			vert[3] = (GLfloat)-h;
+	vert[4] = (GLfloat)w;	vert[5] = 0.0f;
+	vert[6] = (GLfloat)w;	vert[7] = (GLfloat)-h;
+
+	uv[0] = (GLfloat)xx * ratex;		uv[1] = (GLfloat)yy * ratey;
+	uv[2] = (GLfloat)xx * ratex;		uv[3] = (GLfloat)( yy + h ) * ratey;
+	uv[4] = (GLfloat)( xx + w ) * ratex;	uv[5] = (GLfloat)yy * ratey;
+	uv[6] = (GLfloat)( xx + w ) * ratex;	uv[7] = (GLfloat)( yy + h ) * ratey;
+
+	glDisable( GL_BLEND );
+	glDisableClientState( GL_COLOR_ARRAY );
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
+	ChangeTex( (int)srctex );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	ChangeTex( -1 );
+	return 0;
+}
+
+
 #define SW_DUMP_MAX_PIXELS 1500000L
+
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
@@ -2088,8 +2177,24 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         tx1 -= 0.5f;
         ty1 -= 0.5f;
 	}
-    ratex = tex->ratex;
-    ratey = tex->ratey;
+	sw_scratch_used = 0;
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
+		if ( sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy ) == 0 ) {
+			sw_bind_target( bm );
+			sw_scratch_used = 1;
+			tx0 = 0.0f;
+			ty0 = 0.0f;
+			tx1 = (GLfloat)srcsx;
+			ty1 = (GLfloat)srcsy;
+			ratex = 1.0f / (float)sw_scratch_w;
+			ratey = 1.0f / (float)sw_scratch_h;
+		}
+	}
+	if ( !sw_scratch_used ) {
+		ratex = tex->ratex;
+		ratey = tex->ratey;
+	}
 
     flp = uvf2D;
 
@@ -2107,7 +2212,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     *flp++ = tx1;
     *flp++ = ty1;
 
-	ChangeTex( tex->texid );
+	ChangeTex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
