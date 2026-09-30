@@ -2223,7 +2223,16 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				(unsigned)sw_glGetError() );
 		}
 		if ( scret == 0 ) {
-			sw_bind_target( bm );
+			/*	sw_bind_target() may return early when sw_cur already names this
+				screen, which would leave the scratch bound and every later draw
+				going into it.  Restore the target outright. */
+			{
+				SWTARGET *st2 = sw_find( bm );
+				if ( st2 != NULL ) {
+					glBindFramebuffer( GL_FRAMEBUFFER, st2->fbo );
+					sw_apply_target( bm );
+				}
+			}
 			sw_scratch_used = 1;
 			tx0 = 0.0f;
 			ty0 = 0.0f;
