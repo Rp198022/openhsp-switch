@@ -384,17 +384,12 @@ static void sw_apply_target( BMSCR *bm )
 
 	if ( ( bm != NULL ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
 		//	オフスクリーン: テクスチャ全体に1:1で描画する
-		//	Screen y=0 must land at texture v=0: hgio_copy() reads a source back with
-		//	v = y / height, which is also where a loaded image keeps its top row.
-		//	The mirrored projection (0, ox, -oy, 0) put a draw at screen row y at
-		//	v = 1 - y/h, so everything Elona composed into a picture buffer came back
-		//	flipped and the intended rectangle still held the raw artwork.
 		float ox = (float)bm->sx;
 		float oy = (float)bm->sy;
 #if defined(HSPRASPBIAN) || defined(HSPNDK) || defined(HSPIOS)
-		glOrthof( 0, ox, 0, -oy, -100, 100 );
+		glOrthof( 0, ox, -oy, 0, -100, 100 );
 #else
-		glOrtho( 0, ox, 0, -oy, -100, 100 );
+		glOrtho( 0, ox, -oy, 0, -100, 100 );
 #endif
 		glViewport( 0, 0, bm->sx, bm->sy );
 	} else {
@@ -664,7 +659,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 	glViewport( 0, 0, sw_scratch_w, sw_scratch_h );
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
-	glOrtho( 0, sw_scratch_w, 0, -sw_scratch_h, -100, 100 );
+	glOrtho( 0, sw_scratch_w, -sw_scratch_h, 0, -100, 100 );
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
 
