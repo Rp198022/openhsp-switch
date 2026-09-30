@@ -1115,33 +1115,40 @@ static int cmdfunc_extcmd( int cmd )
 			wnd->MakeBmscr(p1, typeval, p5, p6, p2, p3, p4);
 		}
 		else {
-			/*	fork: this port has one screen.  The classic runtime opens a
-				second window for `screen 1`; the console has a single window,
-				so a script that asks for another screen would stop here on
-				HSPERR_ILLEGAL_FUNCTION.  Say so once and keep drawing on
-				screen 0 instead - the alternative is a game that cannot
-				start.														*/
+			/*	fork: this port has one window.  The classic runtime opens another
+				one for a second screen, and Elona uses one (id 20) for its
+				operation-help window: it draws there and switches with `gsel`.
+				Refusing the id stopped the run twice over - once on `screen`, and
+				once on the `gsel` that followed, because HspWnd::GetBmscrSafe()
+				throws for an id it does not know.
+
+				So create it the way `buffer` does: an offscreen render target
+				with that id.  `gsel` then finds it, and what the script draws
+				there stays off the main display - the closest this target can
+				honestly come to a second window.								*/
 			if (p1 != 0) {
-				printf( "hsp3gr: screen id=%d is not available on this target; using 0\n", p1 );
+				printf( "hsp3gr: screen id=%d -> offscreen screen\n", p1 );
 				fflush( stdout );
-				p1 = 0;
+				wnd->MakeBmscr( p1, HSPWND_TYPE_OFFSCREEN, p5, p6, p2, p3, p4 );
 			}
-			bmscr = wnd->GetBmscr(p1);
-			bmscr->sx = p2;
-			bmscr->sx2 = p2;
-			bmscr->sy = p3;
-			bmscr->buffer_option = p4;
-			bmscr->cx = p5;
-			bmscr->cy = p6;
-			bmscr->gx = p7;
-			bmscr->gy = p8;
-			if (cmd == 0x2b) {
-				bmscr->buffer_option |= 0x10000;
-			}
+			else {
+				bmscr = wnd->GetBmscr(p1);
+				bmscr->sx = p2;
+				bmscr->sx2 = p2;
+				bmscr->sy = p3;
+				bmscr->buffer_option = p4;
+				bmscr->cx = p5;
+				bmscr->cy = p6;
+				bmscr->gx = p7;
+				bmscr->gy = p8;
+				if (cmd == 0x2b) {
+					bmscr->buffer_option |= 0x10000;
+				}
 #if (defined(HSPWIN)||defined(HSPLINUX))
-			ctx->runmode = RUNMODE_RESTART;
-			return RUNMODE_RESTART;
+				ctx->runmode = RUNMODE_RESTART;
+				return RUNMODE_RESTART;
 #endif
+			}
 		}
 		bmscr = wnd->GetBmscr( p1 );
 		cur_window = p1;
