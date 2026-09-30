@@ -1115,7 +1115,17 @@ static int cmdfunc_extcmd( int cmd )
 			wnd->MakeBmscr(p1, typeval, p5, p6, p2, p3, p4);
 		}
 		else {
-			if (p1 != 0) throw HSPERR_ILLEGAL_FUNCTION;
+			/*	fork: this port has one screen.  The classic runtime opens a
+				second window for `screen 1`; the console has a single window,
+				so a script that asks for another screen would stop here on
+				HSPERR_ILLEGAL_FUNCTION.  Say so once and keep drawing on
+				screen 0 instead - the alternative is a game that cannot
+				start.														*/
+			if (p1 != 0) {
+				printf( "hsp3gr: screen id=%d is not available on this target; using 0\n", p1 );
+				fflush( stdout );
+				p1 = 0;
+			}
 			bmscr = wnd->GetBmscr(p1);
 			bmscr->sx = p2;
 			bmscr->sx2 = p2;
