@@ -1399,6 +1399,7 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 	/*	gmode 2 and gmode 4 carry the picture's colour key in the classic
 		runtime, so the key pixels must not be painted.  Every other path
 		(setBlendMode() below) turns the key back off. */
+	setBlendMode( mode );
 	if ( mode == 2 ) {
 		sw_glColorKey( 1, 0x000000u );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
@@ -1407,7 +1408,6 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		sw_glColorKey( 0, 0 );
 	}
     //ブレンドモード設定
-	setBlendMode( mode );
 
     if ( mode <= 1 ) {
         glDisableClientState(GL_COLOR_ARRAY);
