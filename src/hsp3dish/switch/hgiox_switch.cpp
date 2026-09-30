@@ -605,6 +605,7 @@ static void sw_main_present( void )
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
 
+	sw_glColorKey( 0, 0 );
 	ChangeTex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
@@ -1136,6 +1137,7 @@ static void setColorTex_mulcolor( float alpha )
 
 static void setBlendMode( int mode )
 {
+	sw_glColorKey( 0, 0 );
 	// mode=2 はアルファあり半透明レート無効なのでアルファを 1.0 で埋める
     switch( mode ) {
         case 0:                     //no blend
@@ -1167,8 +1169,18 @@ static void setBlendMode( int mode )
     }
 }
 
-static void hgio_setTexBlendMode( int mode, int aval )
+static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 {
+	/*	gmode 2 and gmode 4 carry the picture's colour key in the classic
+		runtime, so the key pixels must not be painted.  Every other path
+		(setBlendMode() below) turns the key back off. */
+	if ( mode == 2 ) {
+		sw_glColorKey( 1, 0x000000u );
+	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
+		sw_glColorKey( 1, (unsigned)bm->color & 0xffffffu );
+	} else {
+		sw_glColorKey( 0, 0 );
+	}
     //ブレンドモード設定
 	setBlendMode( mode );
 
@@ -1966,7 +1978,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
-	hgio_setTexBlendMode( bm->gmode, bm->gfrate );
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 }
 
@@ -2072,7 +2084,7 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-	hgio_setTexBlendMode( bm->gmode, bm->gfrate );
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 }
@@ -2120,7 +2132,7 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-	hgio_setTexBlendMode( bm->gmode, bm->gfrate );
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     //glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 }
