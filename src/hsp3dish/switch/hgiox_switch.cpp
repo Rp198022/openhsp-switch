@@ -600,6 +600,7 @@ static void sw_main_ensure( void )
 	copies, so Elona relies on them.  Capture the rectangle 1:1 into a
 	scratch texture and draw from that instead.								*/
 #define SW_SCRATCH_MAX 1024
+static int	sw_selfblit_log = 0;
 static GLuint	sw_scratch_tex = 0;
 static GLuint	sw_scratch_fbo = 0;
 static int	sw_scratch_w = 0;
@@ -2204,10 +2205,18 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty1 -= 0.5f;
 	}
 	sw_scratch_used = 0;
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
-		if ( sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy ) == 0 ) {
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
+		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
+		if ( sw_selfblit_log < 24 ) {
+			sw_selfblit_log++;
+			sw_fbo_log( "hgio: selfblit %d,%d %dx%d -> %g,%g gmode=%d tex=%d ret=%d "
+				"scratch=%dx%d err=0x%x\n",
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)psx, (double)psy,
+				bm->gmode, bm->texid, scret, sw_scratch_w, sw_scratch_h,
+				(unsigned)sw_glGetError() );
+		}
+		if ( scret == 0 ) {
 			sw_bind_target( bm );
 			sw_scratch_used = 1;
 			tx0 = 0.0f;
