@@ -343,13 +343,11 @@ void texmesPos::validateInternalString(void)
 		if (a1 == 0) {
 			break;
 		}
-		if ((a1 == 13) || (a1 == 10)) {		// CR/LFの場合はそこで打ち切る
-			modstr = true;
-			*p = 0;
-			break;
-		}
-		if (a1 < 32) {						// コントロールコードは空白に変換
-			*p = 32;
+		/*	Fork: CR/LF are kept, for the same reason validateString() keeps
+			them - see the note there.  Without this the newline that was just
+			let through is stripped again on the way out.					*/
+		if (a1 < 32 && a1 != 13 && a1 != 10) {
+			*p = 32;						// コントロールコードは空白に変換
 			modstr = true;
 		}
 		else {
