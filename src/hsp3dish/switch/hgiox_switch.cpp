@@ -291,6 +291,7 @@ static BMSCR	*sw_colorbm = NULL;	/* screen whose color/gmode is current */
 static int	sw_gsel_report = 0;	/* one-build diagnostic */
 static int	sw_texload_report = 0;	/* one-build diagnostic */
 static int	sw_copy_report = 0;	/* one-build diagnostic */
+static int	sw_dumped = 0;	/* one-build dump */
 #define SW_COPY_SIG_MAX 512
 static unsigned int	sw_copy_sig[SW_COPY_SIG_MAX];
 static int	sw_copy_sig_used = 0;
@@ -566,6 +567,82 @@ static void sw_main_ensure( void )
 	off explicitly.  The shader picks up whatever the last draw left enabled,
 	and a stale colour pointer is read as vertices and colours - which is what
 	turned this copy into a red diagonal the first time round.				*/
+/*	One-build diagnostic: read a target back in BGRA and write it as a
+	32-bit BMP (bottom-up, which is the order glReadPixels hands back).	*/
+#define SW_DUMP_MAX_PIXELS 1500000L
+
+static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
+{
+	unsigned char *p;
+	FILE *fp;
+	unsigned char hdr[54];
+	int i, x, y;
+	int rowsz, filesize;
+
+	if ( w <= 0 || h <= 0 ) return;
+	if ( (long)w * (long)h > SW_DUMP_MAX_PIXELS ) {
+		sw_fbo_log( "hgio: dump %s skipped, %dx%d too big\n", name, w, h );
+		return;
+	}
+	p = (unsigned char *)mem_ini( w * h * 4 );
+	if ( p == NULL ) return;
+	glBindFramebuffer( GL_FRAMEBUFFER, fbo );
+	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
+
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+
+	fp = fopen( name, "wb" );
+	if ( fp == NULL ) {
+		sw_fbo_log( "hgio: dump %s could not be opened\n", name );
+		mem_bye( p );
+		return;
+	}
+	fwrite( hdr, 1, 54, fp );
+	for ( y = 0; y < h; y++ ) {
+		unsigned char *src = p + (size_t)y * rowsz;
+		unsigned char px[4];
+		for ( x = 0; x < w; x++ ) {
+			px[0] = src[x*4+2];
+			px[1] = src[x*4+1];
+			px[2] = src[x*4+0];
+			px[3] = 255;
+			fwrite( px, 1, 4, fp );
+		}
+	}
+	fclose( fp );
+	mem_bye( p );
+	sw_fbo_log( "hgio: dumped %s %dx%d fbo=%u\n", name, w, h, (unsigned)fbo );
+}
+
+
+static void sw_dump_all( void )
+{
+	int i;
+	sw_dump_fbo( "smp_main.bmp", ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+		(int)_sizex, (int)_sizey );
+	for ( i = 0; i < sw_target_used; i++ ) {
+		char nm[40];
+		snprintf( nm, sizeof( nm ), "smp_t%02d.bmp", (int)sw_targets[i].bm->texid );
+		sw_dump_fbo( nm, sw_targets[i].fbo, sw_targets[i].bm->sx, sw_targets[i].bm->sy );
+	}
+}
+
+
 static void sw_main_present( void )
 {
 	GLfloat vert[8];
@@ -575,6 +652,11 @@ static void sw_main_present( void )
 	float u0, v0, u1, v1;
 
 	if ( sw_main_ok != 1 ) return;
+
+	if ( !sw_dumped && ( hgio_gettick() > 15000 ) ) {
+		sw_dumped = 1;
+		sw_dump_all();
+	}
 
 	u0 = ( _sizex > 0 ) ? (float)_originX / (float)_sizex : 0.0f;
 	v0 = ( _sizey > 0 ) ? (float)_originY / (float)_sizey : 0.0f;
