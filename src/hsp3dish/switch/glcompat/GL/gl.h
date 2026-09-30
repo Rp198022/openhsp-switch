@@ -103,6 +103,11 @@ typedef ptrdiff_t		GLsizeiptr;
 #define GL_DST_ALPHA					0x0304
 #define GL_ONE_MINUS_DST_ALPHA			0x0305
 
+/*	blend equations (GLES2 core; gmode 6 needs the subtract one)	*/
+#define GL_FUNC_ADD						0x8006
+#define GL_FUNC_SUBTRACT				0x800A
+#define GL_FUNC_REVERSE_SUBTRACT		0x800B
+
 /*	read buffer	*/
 #define GL_FRONT						0x0404
 #define GL_BACK							0x0405
@@ -202,6 +207,7 @@ typedef ptrdiff_t		GLsizeiptr;
 #define glClear						sw_glClear
 #define glClearColor				sw_glClearColor
 #define glBlendFunc					sw_glBlendFunc
+#define glBlendEquation				sw_glBlendEquation
 #define glPointSize					sw_glPointSize
 #define glLineWidth					sw_glLineWidth
 #define glShadeModel				sw_glShadeModel
@@ -245,6 +251,7 @@ void sw_glViewport( GLint x, GLint y, GLsizei width, GLsizei height );
 void sw_glClear( GLbitfield mask );
 void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha );
 void sw_glBlendFunc( GLenum sfactor, GLenum dfactor );
+void sw_glBlendEquation( GLenum mode );
 void sw_glColorKey( int on, unsigned int rgb );
 void sw_glPointSize( GLfloat size );
 void sw_glLineWidth( GLfloat width );
