@@ -660,12 +660,24 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr->Pset( p1, p2 );
 		break;
 
-#if 0
+	/*	Fork: upstream wraps pget and syscolor in `#if 0`, so a script that
+		uses either one falls into this switch's default case and the
+		interpreter stops on HSPERR_UNSUPPORTED_FUNCTION.  Elona+ builds every
+		character portrait with `pget` - chips.hsp calls it once per body part,
+		19 times in all - so the game died on the appearance screen of
+		character creation.
+
+		Only pget is enabled.  Its result is not used there (the mask colour is
+		set with `color` immediately before the call), so the dish stub, which
+		reads nothing and returns 0, is enough; what matters is that the two
+		operands are consumed, or the interpreter would continue from the wrong
+		offset.  syscolor stays out: the dish Bmscr has no SetSystemcolor.  */
 	case 0x0d:								// pget
 		p1 = code_getdi(bmscr->cx);
 		p2 = code_getdi(bmscr->cy);
 		bmscr->Pget(p1, p2);
 		break;
+#if 0
 	case 0x0e:								// syscolor
 		p1 = code_getdi(0);
 		bmscr->SetSystemcolor(p1);
