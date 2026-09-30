@@ -531,6 +531,8 @@ static void sw_key_tick( void )
 	printed by the throw hook so a failure inside cmdfunc_extcmd() can be
 	attributed.  Remove together with that diagnostic.				*/
 extern int sw_last_extcmd;
+extern int sw_extcmd_ring[8];		// fork: temporary error diagnostic
+extern int sw_extcmd_ring_pos;
 
 static int cmdfunc_extcmd( int cmd )
 {
@@ -541,6 +543,8 @@ static int cmdfunc_extcmd( int cmd )
 	code_next();							// 次のコードを取得(最初に必ず必要です)
 
 	sw_last_extcmd = cmd;					// fork: temporary error diagnostic
+	sw_extcmd_ring[sw_extcmd_ring_pos & 7] = cmd;	// fork: temporary error diagnostic
+	sw_extcmd_ring_pos++;
 	sw_key_tick();							// fork: type a key the harness asked for
 	switch( cmd ) {							// サブコマンドごとの分岐
 
@@ -4654,6 +4658,8 @@ void hsp3notify_extcmd( void )
 
 void hsp3excmd_rebuild_window(void)
 {
+	printf( "hsp3switch: rebuild_window (screens are recreated)\n" );	// fork: temporary
+	fflush( stdout );
 	if (wnd) delete wnd;
 	wnd = new HspWnd();
 	wnd->SetHSPCTX(ctx);

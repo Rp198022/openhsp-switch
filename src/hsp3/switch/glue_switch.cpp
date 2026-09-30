@@ -457,6 +457,8 @@ static int glue_exit_report( int option )
 extern "C" void __real___cxa_throw( void *thrown, void *tinfo, void (*dest)(void *) );
 
 int sw_last_extcmd = -1;		// fork: temporary error diagnostic
+int sw_extcmd_ring[8] = {0};		// fork: temporary error diagnostic
+int sw_extcmd_ring_pos = 0;
 
 //	The image runs at a randomised base, so a raw address cannot be looked up in
 //	the linker map.  `anchor` is a symbol in this same file: printing the distance
@@ -478,12 +480,19 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 			//	hsp3dish.map, which is built with -Map and shipped inside the
 			//	artifact.
 			//
-			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p off=%#lx anchor=%p lastExtcmd=%#x\n",
+			printf( "hsp3switch: throw %d (%s) at line %d of %s ret=%p off=%#lx anchor=%p lastExtcmd=%#x ring=",
 				code, hspd_geterror( (HSPERROR)code ),
 				code_getdebug_line(), code_getdebug_name(),
 				__builtin_return_address( 0 ),
 				(unsigned long)( (char *)__builtin_return_address( 0 ) - (char *)anchor ),
 				anchor, (unsigned)sw_last_extcmd );
+			{
+				int k;
+				for ( k = 0; k < 8; k++ ) {
+					printf( "%#x ", (unsigned)sw_extcmd_ring[( sw_extcmd_ring_pos + k ) & 7] );
+				}
+			}
+			printf( "\n" );
 			fflush( stdout );
 		}
 	}
