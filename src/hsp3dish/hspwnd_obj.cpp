@@ -584,6 +584,27 @@ static void Object_InputBox(HSPOBJINFO *info, int wparam)
 	case HSPOBJ_NOTICE_KEY_BUFFER:
 		edit->tpos.addStringFromCaret((char *)bm->keybuf);
 		update = true;
+		/*	TEMPORARY diagnostic (fork): the name prompt only ends when its
+			bound variable contains a LF, so print what the keystroke became
+			and whether there is a variable to write it back to.  Remove once
+			the prompt is understood.  */
+		{
+			static int dbg = 0;
+			if ( dbg < 80 ) {
+				const char *s = edit->tpos.getString();
+				int i;
+				dbg++;
+				printf( "hsp3obj: keybuf=[" );
+				for ( i = 0; bm->keybuf[i] != 0; i++ ) printf( "%02x ", (unsigned char)bm->keybuf[i] );
+				printf( "] msg=[" );
+				for ( i = 0; s[i] != 0; i++ ) printf( "%02x ", (unsigned char)s[i] );
+				printf( "] pval=%p flag=%d varsettype=%d enable=%d\n",
+					(void *)info->varset.pval,
+					info->varset.pval ? (int)info->varset.pval->flag : -99,
+					info->varset.type, info->enableflag );
+				fflush( stdout );
+			}
+		}
 		break;
 
 	default:
