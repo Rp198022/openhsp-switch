@@ -782,7 +782,24 @@ static int cmdfunc_extcmd( int cmd )
 			}
 		}
 
-		ctx->stat = hgio_redraw( (BMSCR *)bmscr, p1 );
+		/*	Fork: `redraw` must not write `stat`.
+			The Windows runtime this game was written for leaves `stat`
+			alone here - win32gui's case 0x1b never assigns it - and Elona+
+			reads a gosub's return value back out of `stat` after a second
+			`gosub` that itself ends in a `redraw`.  Character creation does
+			exactly that in chara.hsp:
+
+				gosub *com_trait
+				gosub *cm_bg			<- ends with `redraw 0`
+				if ( stat == 0 ) { goto *cm_stats }
+
+			with `*cm_bg`'s only stat-writing command being this one, so an
+			assignment here rewrote the trait screen's "all three feats spent,
+			return 1" into a 0 and the feat screen bounced straight back to the
+			ability screen - every time, for ever, so character creation could
+			never be finished.  The call is kept for its side effect (the frame
+			is presented); only its result is dropped.						*/
+		hgio_redraw( (BMSCR *)bmscr, p1 );
 
 		if ((p1 & 1)==0) {
 			if (bmscr->objmax) {
