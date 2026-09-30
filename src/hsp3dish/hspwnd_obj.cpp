@@ -635,6 +635,24 @@ static void Object_InputBox(HSPOBJINFO *info, int wparam)
 	if (update) {
 		char *buf = edit->tpos.getString();
 		Object_SendSetVar(info, HSPVAR_FLAG_STR,buf);
+		/*	TEMPORARY diagnostic (fork): read the variable back.  */
+		{
+			static int dbg2 = 0;
+			HSP3VARSET *v = &info->varset;
+			if ( dbg2 < 80 && v->pval != NULL ) {
+				int sz = 0;
+				char *b = (char *)HspVarCoreGetBlockSize( v->pval,
+					HspVarCorePtrAPTR( v->pval, v->aptr ), &sz );
+				int i;
+				dbg2++;
+				printf( "hsp3obj2: back sz=%d [", sz );
+				for ( i = 0; b != NULL && i < 40 && b[i] != 0; i++ ) printf( "%02x ", (unsigned char)b[i] );
+				printf( "] sameNoteVar=%d notePtr=%p\n",
+					( info->hspctx->note_pval == v->pval ) ? 1 : 0,
+					(void *)info->hspctx->note_pval );
+				fflush( stdout );
+			}
+		}
 	}
 }
 
