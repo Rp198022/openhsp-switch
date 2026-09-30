@@ -2178,7 +2178,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty1 -= 0.5f;
 	}
 	sw_scratch_used = 0;
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
 		if ( sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy ) == 0 ) {
 			sw_bind_target( bm );
