@@ -2323,7 +2323,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	Only the copy that lands on the window screen needs the correction: the window
 	is presented by sampling the main texture with v reversed, so anything copied
 	onto it has to arrive already inverted.  Copies between offscreen screens, and
-	copies out of a screen backed by an image file, keep their v as before.
+	copies out of a screen backed by an image file, keep their v as before.  */
 	if ( ( bm->type == HSPWND_TYPE_MAIN ) && ( bmsrc != NULL ) &&
 		( bmsrc->type != HSPWND_TYPE_MAIN ) && ( sw_find( bmsrc ) != NULL ) &&
 		( !sw_is_filetex( bmsrc ) ) ) {
