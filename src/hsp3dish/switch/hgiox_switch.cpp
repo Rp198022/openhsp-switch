@@ -291,6 +291,9 @@ static BMSCR	*sw_colorbm = NULL;	/* screen whose color/gmode is current */
 static int	sw_gsel_report = 0;	/* one-build diagnostic */
 static int	sw_texload_report = 0;	/* one-build diagnostic */
 static int	sw_copy_report = 0;	/* one-build diagnostic */
+#define SW_COPY_SIG_MAX 512
+static unsigned int	sw_copy_sig[SW_COPY_SIG_MAX];
+static int	sw_copy_sig_used = 0;
 static int	sw_fbo_report = 0;
 static int		sw_fbo_fail = 0;
 static int		sw_attach_report = 0;	// P3 diagnostic
@@ -1929,14 +1932,30 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
 
-	if ( sw_copy_report < 160 ) {
-		sw_copy_report++;
-		sw_fbo_log( "hgio: copy dst=%p t=%d %dx%d tx=%d | src=%p t=%d %dx%d tx=%d md=%d"
-			" | %d,%d %dx%d -> %g,%g | gmode=%d | colbm=%p\n",
-			(void *)bm, bm->type, bm->sx, bm->sy, bm->texid,
-			(void *)bmsrc, bmsrc->type, bmsrc->sx, bmsrc->sy, bmsrc->texid, (int)tex->mode,
-			(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)s_psx, (double)s_psy,
-			bm->gmode, (void *)sw_colorbm );
+	if ( sw_copy_report < 200 ) {
+		unsigned int sig;
+		int k, seen;
+		sig = (unsigned)bm->texid * 1000003u;
+		sig = sig * 31u + (unsigned)bmsrc->texid;
+		sig = sig * 31u + (unsigned)( xx & 0xffff );
+		sig = sig * 31u + (unsigned)( yy & 0xffff );
+		sig = sig * 31u + (unsigned)( srcsx & 0xffff );
+		sig = sig * 31u + (unsigned)( srcsy & 0xffff );
+		sig = sig * 31u + (unsigned)bm->gmode;
+		seen = 0;
+		for ( k = 0; k < sw_copy_sig_used; k++ ) {
+			if ( sw_copy_sig[k] == sig ) { seen = 1; break; }
+		}
+		if ( !seen && ( sw_copy_sig_used < SW_COPY_SIG_MAX ) ) {
+			sw_copy_sig[sw_copy_sig_used++] = sig;
+			sw_copy_report++;
+			sw_fbo_log( "hgio: copy dst tx=%d t=%d %dx%d | src tx=%d t=%d %dx%d md=%d"
+				" | %d,%d %dx%d -> %g,%g gmode=%d\n",
+				bm->texid, bm->type, bm->sx, bm->sy,
+				bmsrc->texid, bmsrc->type, bmsrc->sx, bmsrc->sy, (int)tex->mode,
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)s_psx, (double)s_psy,
+				bm->gmode );
+		}
 	}
 
     GLfloat *flp;
