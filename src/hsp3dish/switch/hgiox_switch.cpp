@@ -287,7 +287,11 @@ static int	sw_main_ok = 0;
 
 static int		sw_target_used = 0;
 static BMSCR	*sw_cur = NULL;		// screen currently serving as render target
-static int		sw_fbo_report = 0;
+static BMSCR	*sw_colorbm = NULL;	/* screen whose color/gmode is current */
+static int	sw_gsel_report = 0;	/* one-build diagnostic */
+static int	sw_texload_report = 0;	/* one-build diagnostic */
+static int	sw_copy_report = 0;	/* one-build diagnostic */
+static int	sw_fbo_report = 0;
 static int		sw_fbo_fail = 0;
 static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
@@ -951,6 +955,12 @@ int hgio_gsel( BMSCR *bm )
 	//		 呼ぶとdrawflagが落ちてredraw 1でSwapWindowされなくなる)。
 	//
 	if ( bm == NULL ) return -1;
+	sw_colorbm = bm;
+	if ( sw_gsel_report < 64 ) {
+		sw_gsel_report++;
+		sw_fbo_log( "hgio: gsel bm=%p type=%d %dx%d texid=%d\n",
+			(void *)bm, bm->type, bm->sx, bm->sy, bm->texid );
+	}
 	sw_bind_target( bm );
 	return 0;
 }
@@ -1095,12 +1105,13 @@ static void setColorTex_reset( float alpha )
 
 static void setColorTex_color( float alpha )
 {
+	BMSCR *cbm = ( sw_colorbm != NULL ) ? sw_colorbm : mainbm;
 	GLfloat *flp = _panelColorsTex;
 	GLfloat r,g,b;
-	if ( mainbm != NULL ) {
-		r = mainbm->colorvalue[0];
-		g = mainbm->colorvalue[1];
-		b = mainbm->colorvalue[2];
+	if ( cbm != NULL ) {
+		r = cbm->colorvalue[0];
+		g = cbm->colorvalue[1];
+		b = cbm->colorvalue[2];
 	} else {
 		r = 1.0f;
 		g = 1.0f;
@@ -1116,12 +1127,13 @@ static void setColorTex_color( float alpha )
 
 static void setColorTex_mulcolor( float alpha )
 {
+	BMSCR *cbm = ( sw_colorbm != NULL ) ? sw_colorbm : mainbm;
 	GLfloat *flp = _panelColorsTex;
 	GLfloat r,g,b;
-	if ( mainbm != NULL ) {
-		r = mainbm->mulcolorvalue[0];
-		g = mainbm->mulcolorvalue[1];
-		b = mainbm->mulcolorvalue[2];
+	if ( cbm != NULL ) {
+		r = cbm->mulcolorvalue[0];
+		g = cbm->mulcolorvalue[1];
+		b = cbm->mulcolorvalue[2];
 	} else {
 		r = 1.0f;
 		g = 1.0f;
@@ -1413,6 +1425,11 @@ int hgio_texload( BMSCR *bm, char *fname )
 	bm->sx = t->width;
 	bm->sy = t->height;
 	bm->texid = texid;
+	if ( sw_texload_report < 64 ) {
+		sw_texload_report++;
+		sw_fbo_log( "hgio: texload bm=%p '%s' -> texid=%d %dx%d\n",
+			(void *)bm, fname, texid, bm->sx, bm->sy );
+	}
 
 	return texid;
 }
@@ -1442,14 +1459,15 @@ void hgio_panelcolor( GLfloat *colors, int color, int aval )
 
 static void setCurrentColor( GLfloat *colors, int vnum )
 {
+	BMSCR *cbm = ( sw_colorbm != NULL ) ? sw_colorbm : mainbm;
 	GLfloat *flp;
 	flp = colors;
 	GLfloat r,g,b,a;
 
-	if ( mainbm ) {
-		r = mainbm->colorvalue[0];
-		g = mainbm->colorvalue[1];
-		b = mainbm->colorvalue[2];
+	if ( cbm ) {
+		r = cbm->colorvalue[0];
+		g = cbm->colorvalue[1];
+		b = cbm->colorvalue[2];
 	} else {
 		r = 1.0f;
 		g = 1.0f;
@@ -1910,6 +1928,16 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 	TEXINF *tex = GetTex( bmsrc->texid );
 	if ( tex->mode == TEXMODE_NONE ) return;
+
+	if ( sw_copy_report < 160 ) {
+		sw_copy_report++;
+		sw_fbo_log( "hgio: copy dst=%p t=%d %dx%d tx=%d | src=%p t=%d %dx%d tx=%d md=%d"
+			" | %d,%d %dx%d -> %g,%g | gmode=%d | colbm=%p\n",
+			(void *)bm, bm->type, bm->sx, bm->sy, bm->texid,
+			(void *)bmsrc, bmsrc->type, bmsrc->sx, bmsrc->sy, bmsrc->texid, (int)tex->mode,
+			(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)s_psx, (double)s_psy,
+			bm->gmode, (void *)sw_colorbm );
+	}
 
     GLfloat *flp;
     GLfloat x1,y1,x2,y2,tx0,tx1,ty0,ty1;
