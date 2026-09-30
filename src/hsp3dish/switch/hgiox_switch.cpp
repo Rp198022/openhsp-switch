@@ -613,6 +613,12 @@ static void sw_main_present( void )
 	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
 
 	sw_glColorKey( 0, 0 );
+	/*	The frame is complete, so this is a copy and not a blend.  The
+		classic runtime blitted the finished screen opaquely; blending here
+		pulled the picture towards the black clear wherever a buffer's alpha
+		had fallen below 1, which is what made a correctly composed window
+		panel vanish. */
+	glDisable( GL_BLEND );
 	ChangeTex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
