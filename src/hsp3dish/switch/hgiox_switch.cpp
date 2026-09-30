@@ -2916,23 +2916,30 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 }
 
 
+/*	The value this returns goes straight back into hgio_fontcopy() as its
+	texid argument, and that path resolves it with GetTex() - so it has to be
+	an index into the TEXINF table, which is what the classic (win32) backend
+	returns from RegistTexEmpty()/UpdateTex32().  This port had inherited the
+	emscripten body, which hands out the raw GL name instead: on this driver
+	GL names are large sparse integers that move between runs, so GetTex()
+	walked far outside texinf[] and every string was drawn from an arbitrary
+	texture, differently on each run.										*/
 void hgio_fontsystem_delete(int id)
 {
-	glDeleteTextures( 1, (GLuint *)&id );
+	DeleteTex( id );
 }
 
 
 int hgio_fontsystem_setup(int sx, int sy, void *buffer)
 {
-	GLuint id;
-	glGenTextures( 1, &id );
-	glBindTexture( GL_TEXTURE_2D, id );
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, sx, sy, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
+	int texid = MakeEmptyTexBuffer( sx, sy );
 
-	int tid = (int)id;
-	ChangeTex( tid );
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sx,sy, GL_RGBA, GL_UNSIGNED_BYTE, (char *)buffer);
-	return tid;
+	if ( texid < 0 ) return -1;
+	if ( UpdateTex32( texid, (char *)buffer, 0 ) < 0 ) {
+		DeleteTex( texid );
+		return -1;
+	}
+	return texid;
 }
 
 
