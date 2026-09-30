@@ -414,6 +414,7 @@ static void sw_filetex_clear( void )
 }
 
 static void sw_forget_all( void )
+{
 	sw_main_tex = 0;
 	sw_main_fbo = 0;
 	sw_main_ok = 0;
