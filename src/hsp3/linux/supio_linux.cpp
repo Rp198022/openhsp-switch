@@ -385,13 +385,45 @@ int dirlist( char *fname, char **target, int p3 )
 	DIR *sh;
 	struct dirent *fd;
 	struct stat st;
-	char curdir[_MAX_PATH+1];
+	char patbuf[_MAX_PATH+1];		// fname全体(区切りは'/'へ正規化)
+	char dirbuf[_MAX_PATH+1];		// ディレクトリ部
+	char fullbuf[_MAX_PATH*2+2];	// stat用の dir + '/' + name
+	const char *pat;
+	const char *slash;
+	const char *use;
+	size_t n, i;
 
 	stat_main=0;
 
-	//sh = opendir( get_current_dir_name() );
-	getcwd( curdir, _MAX_PATH );
-	sh = opendir( curdir );	// get_current_dir_nameはMinGWで通らなかったのでとりあえず
+	/*	Fork: Windows版のdirlistは FindFirstFile(fname) でディレクトリ部と
+		ワイルドカードの両方を尊重する。一方この版はエスケープされた区切りを
+		解釈せず、opendir(カレントディレクトリ)で列挙したうえでディレクトリ項名に
+		フルパスのパターンを当てていたため、パス付きのパターン(Elonaの
+		exedir + "save*" 相当)が一切ヒットせず、常に0件を返していた。
+		区切りを'/'へ正規化して最後の'/'で分割し、Windows版と同じ動作にする。*/
+	n = strlen( fname );
+	if ( n > _MAX_PATH ) n = _MAX_PATH;
+	for ( i = 0; i < n; i++ ) {
+		patbuf[i] = ( fname[i] == '\\' ) ? '/' : fname[i];
+	}
+	patbuf[n] = 0;
+
+	slash = strrchr( patbuf, '/' );
+	if ( slash == NULL ) {
+		dirbuf[0] = 0;
+		pat = patbuf;
+	} else {
+		size_t dl = (size_t)( slash - patbuf );
+		if ( dl == 0 ) dl = 1;					// "/pat"はルート直下
+		if ( dl > _MAX_PATH ) dl = _MAX_PATH;
+		memcpy( dirbuf, patbuf, dl );
+		dirbuf[dl] = 0;
+		pat = slash + 1;
+	}
+	use = ( dirbuf[0] == 0 ) ? "." : dirbuf;
+
+	sh = opendir( use );
+	if ( sh == NULL ) return 0;
 
 	fd = readdir( sh );
 	while( fd != NULL ) {
@@ -404,7 +436,10 @@ int dirlist( char *fname, char **target, int p3 )
 		//		表示/非表示のマスク
 		//		Linux用なのでシステム属性は考慮しない
 		if (p3!=0 && fl==1) {
-			stat( p, &st );
+			snprintf( fullbuf, sizeof( fullbuf ), "%s/%s", use, p );
+			if ( stat( fullbuf, &st ) != 0 ) {
+				memset( &st, 0, sizeof( st ) );
+			}
 			fmask=0;
 			if (p3&4) {				// 条件反転
 				if (S_ISREG( st.st_mode )&&( *p!='.' )) {
@@ -421,9 +456,9 @@ int dirlist( char *fname, char **target, int p3 )
 		//		ワイルドカード処理
 		//
 		if (fl) {
-			fl=wildcard( p, fname );
+			fl=wildcard( p, (char *)pat );
 		}
-		
+
 		if (fl) {
 			stat_main++;
 			sbStrAdd( target, p );
