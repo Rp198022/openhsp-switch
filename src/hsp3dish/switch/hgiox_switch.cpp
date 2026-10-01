@@ -347,7 +347,8 @@ static void sw_fbo_log( const char *fmt, ... )
 	pixels records its destination rectangle and the blend parameters in
 	force, so the composition of a single frame can be replayed offline.
 	Font paths are left out on purpose - they would swamp the budget.		*/
-#define SW_TRC_MAX   20000
+/*	t23: 20000 records stop before the name prompt; a whole run needs more. */
+#define SW_TRC_MAX   80000
 static FILE	*sw_trc_fp = NULL;
 static int	sw_trc_total = 0;
 

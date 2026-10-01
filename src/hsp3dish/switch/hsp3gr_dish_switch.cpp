@@ -502,9 +502,13 @@ static HSPOBJINFO *sw_key_object( Bmscr *bm )
 	else {
 		p = bm->GetHSPObject( sw_key_target );
 		if ( p == NULL ) why = 4;
-		else if ( p->owmode == HSPOBJ_NONE ) why = 5;
-		else if ( p->bm != (void *)bm ) why = 6;
-		else if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) why = 7;
+		/*	t23: an edit object (AddHSPObjectInput) keeps owmode at NONE -
+			that is a legitimate value for it, not the mark of a stale table
+			slot.  What actually keeps a garbage entry (sbExpand does not
+			zero its memory) from being called is the window-ownership check
+			below: a slot the window never created does not claim this bm.	*/
+		else if ( p->bm != (void *)bm ) why = 5;
+		else if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) why = 6;
 		else return p;
 	}
 	/*	t23 probe: every injected key came back found=0; name the
