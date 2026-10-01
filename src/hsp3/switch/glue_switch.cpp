@@ -139,11 +139,15 @@ static unsigned long watch_last = (unsigned long)-1;
 static int watch_beats = 0;
 /*	Stuck detector state: a run that froze used to look exactly like one
 	waiting for a key - the pc stops moving either way.  Report the spot when
-	it has not moved for eight seconds
-	(the five-minute value never fired inside a test run). */
+	it has not moved for sixty seconds, and stop for good after 500 lines:
+	the first version (8 s window, 12 lines per spot) flooded a 79-minute
+	run with 874 MB / 6.9 M lines of the same few pc values, and every line
+	is an fflush to the SD card - it slowed the game to a crawl.  The
+	thread id is in the line because that log held two interleaved tick
+	counters, i.e. a second watchdog thread may exist. */
 static unsigned long watch_stuck_off = 0;
 static unsigned long watch_stuck_tick = 0;
-static int watch_stuck_beats = 0;
+static int watch_stuck_total = 0;		/* log budget for the whole run */
 
 //	P3 DIAGNOSTIC (temporary): the script's own view of the pad.
 //
@@ -275,17 +279,17 @@ static void *glue_watchdog( void *arg )
 		if ( off != watch_stuck_off ) {
 			watch_stuck_off = off;
 			watch_stuck_tick = tick;
-			watch_stuck_beats = 0;
 		}
-		else if ( ( watch_stuck_beats < 12 ) &&
-				( tick - watch_stuck_tick >= 8000 ) ) {
+		else if ( ( watch_stuck_total < 500 ) &&
+				( tick - watch_stuck_tick >= 60000 ) ) {
 			watch_stuck_tick = tick;
-			watch_stuck_beats++;
-			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d line=%d file=%.24s at %lu ms\n",
+			watch_stuck_total++;
+			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d line=%d file=%.24s tid=%lu at %lu ms\n",
 				off, (unsigned)pc[0], (unsigned)pc[1],
 				(int)watch_ctx->runmode, (int)watch_ctx->waitcount,
 				(int)watch_ctx->waittick, (int)watch_ctx->lasttick,
-				code_getdebug_line(), code_getdebug_name(), tick );
+				code_getdebug_line(), code_getdebug_name(),
+				(unsigned long)pthread_self(), tick );
 			fflush( stdout );
 		}
 		if ( off == watch_last ) continue;
@@ -316,10 +320,18 @@ int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 	//
 	watch_ctx = info->hspctx;
 	{
-		pthread_t th;
-		if ( pthread_create( &th, NULL, glue_watchdog, NULL ) != 0 ) {
-			printf( "hsp3switch: ### watchdog thread could not start\n" );
-			fflush( stdout );
+		/*	A second Hsp3ExtLibInit (a script restart calls the init again)
+			must not start a second watchdog: two threads double every probe
+			line and race the shared stuck state - and the 874 MB log held
+			exactly that, two interleaved tick counters. */
+		static int watch_started = 0;
+		if ( !watch_started ) {
+			pthread_t th;
+			if ( pthread_create( &th, NULL, glue_watchdog, NULL ) != 0 ) {
+				printf( "hsp3switch: ### watchdog thread could not start\n" );
+				fflush( stdout );
+			}
+			watch_started = 1;
 		}
 	}
 #endif

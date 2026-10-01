@@ -347,8 +347,12 @@ static void sw_fbo_log( const char *fmt, ... )
 	pixels records its destination rectangle and the blend parameters in
 	force, so the composition of a single frame can be replayed offline.
 	Font paths are left out on purpose - they would swamp the budget.		*/
-/*	t23: 20000 records stop before the name prompt; a whole run needs more. */
-#define SW_TRC_MAX   80000
+/*	t23: 20000 records stop before the name prompt; a whole run needs more.
+	80000 then filled up during the opening scene on 5x5 floor tiles alone
+	(the message board repaints every frame), so the budget is 150000 with
+	anything 8x8 or smaller dropped - the tiles are noise, the 32x32 map
+	copies and the big composites are what a screen bug needs. */
+#define SW_TRC_MAX   150000
 static FILE	*sw_trc_fp = NULL;
 static int	sw_trc_total = 0;
 
@@ -369,6 +373,9 @@ static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
 	char buf[224];
+	/*	5x5 message-board tiles are rebuilt every frame and ate the whole
+		budget before the world stage; drop anything that small. */
+	if ( w <= 8.0f && h <= 8.0f ) return;
 	if ( sw_trc_total >= SW_TRC_MAX ) return;
 	if ( sw_trc_fp == NULL ) sw_trc_fp = fopen( "hsp3dish_trace.log", "wb" );
 	if ( sw_trc_fp == NULL ) return;
