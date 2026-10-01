@@ -18,7 +18,9 @@
 #include <time.h>
 #include <math.h>
 #include <algorithm>
+#ifdef HSPDISH				/* z.hpi exists in the graphical build only */
 #include <zlib.h>			/* gz* - z.hpi's save files are gzip streams */
+#endif
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -779,6 +781,7 @@ static int impl_elona_grotate( const DllArgValue *args, int argc )
 	return 0;
 }
 
+#ifdef HSPDISH
 /*	z.hpi, now real.  The ABI comes from 2.15R main.hsp:27-31 (the same four
 	imports are in this .ax's own finfo table, inv232.txt:54-57):
 
@@ -910,6 +913,16 @@ static int impl_zlib_zclose( const DllArgValue *args, int argc )
 	}
 	return 0;
 }
+#else
+/*	The console build links no zlib (its LIBS is -lnx -lm) and runs no
+	Elona, so z.hpi stays the inert success it used to be there. */
+static int impl_zlib_zero( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+	return 0;
+}
+#endif
 
 //	hspsock.dll - the socket family (Hspsock.cpp).  This port has no network
 //	stack, so open/close/get/put succeed without performing any I/O.
@@ -1072,11 +1085,19 @@ static const DllImplEntry impl_table[] = {
 	//	elona.dll - its one import; consumes its six operands by hand.
 	{ "elona.dll",		"_grotate@16",			impl_elona_grotate },
 
-	//	z.hpi - the zlib save plugin; real file I/O now (see impl_zlib_zopen).
+	//	z.hpi - the zlib save plugin; real file I/O in the graphical
+	//	build (see impl_zlib_zopen), inert in the console build.
+#ifdef HSPDISH
 	{ "z.hpi",			"_zOpen@16",			impl_zlib_zopen },
 	{ "z.hpi",			"_zRead@16",			impl_zlib_zread },
 	{ "z.hpi",			"_zWrite@16",			impl_zlib_zwrite },
 	{ "z.hpi",			"_zClose@16",			impl_zlib_zclose },
+#else
+	{ "z.hpi",			"_zOpen@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zRead@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zWrite@16",			impl_zlib_zero },
+	{ "z.hpi",			"_zClose@16",			impl_zlib_zero },
+#endif
 
 	//	hspsock.dll - the socket family; there is no network on the Switch.
 	{ "hspsock.dll",	"_sockopen@16",			impl_hspsock_zero },
@@ -1265,8 +1286,10 @@ void dllshim_report_exit( void )
 	printf( "hsp3switch: script end: err=%d (%s) runmode=%d endcode=%d\n",
 		(int)hspctx->err, hspd_geterror( hspctx->err ),
 		hspctx->runmode, hspctx->endcode );
+#ifdef HSPDISH
 	printf( "hsp3switch: z.hpi alloc=%d read=%d write=%d close=%d fail=%d\n",
 		zlib_open_n, zlib_read_n, zlib_write_n, zlib_close_n, zlib_fail_n );
+#endif
 	fflush( stdout );
 }
 
