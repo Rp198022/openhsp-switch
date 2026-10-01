@@ -2659,42 +2659,57 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 probe: the character sheet is copied on to the window with the
-		right rectangle every frame, yet the composed screen shows no sheet -
-		only a narrow ornament survives at x=568..589.  Either the copy does
-		not land or something paints over it before the frame is presented,
-		and the end-of-frame dump cannot separate those.  Photograph the
-		window here and again at present, and restart the draw trace at the
-		same moment: its budget is spent long before the character screens,
-		so this is the only way to see what paints over the sheet.  The three
-		points sit inside the sheet's rectangle (50..750 x 86..486) so the
-		answer is readable without opening the images.						*/
-	if ( ( sw_panel_a == 0 ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( srcsx == 700 ) && ( srcsy == 400 ) && ( sw_main_ok == 1 ) ) {
+	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
+		and never fired, although the copy is logged with the right rectangle
+		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
+		only screen with texid -1, so `dst tx=-1` has to be a *different*
+		screen whose texture was released by delscreen and never re-made -
+		which would compose the sheet into something nothing shows.  Arm on
+		the copy geometry alone and name the destination instead of assuming
+		it: screen, type, texid, size, sw_cur, the framebuffer bound and the
+		one sw_find() resolves, source and its texture, sw_main_ok, blend
+		mode, uv rectangle, plus three pixels read straight back inside the
+		sheet's rectangle (50..750 x 86..486).  Four copies are kept, which
+		covers the single gmode 6 pass at the panel origin and the repeating
+		gmode 2 pass beside it.												*/
+	if ( ( sw_panel_a < 4 ) && ( srcsx == 700 ) && ( srcsy == 400 ) ) {
 		unsigned char pt[3][4];
 		int k;
-		sw_panel_a = 1;
-		sw_panel_b = 1;
+		SWTARGET *ptgt = sw_find( bm );
+		unsigned dfo = (unsigned)sw_real_fbo;
+		int dw = (int)bm->sx;
+		int dh = (int)bm->sy;
+		if ( dw <= 0 ) dw = 800;
+		if ( dh <= 0 ) dh = 600;
+		if ( dh < 301 ) dh = 301;
+		sw_panel_a++;
+		if ( sw_panel_a == 1 ) sw_panel_b = 1;
 		for ( k = 0; k < 3; k++ ) {
 			pt[k][0] = pt[k][1] = pt[k][2] = pt[k][3] = 0;
 		}
-		glReadPixels( 100, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[0] );
-		glReadPixels( 300, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[1] );
-		glReadPixels( 600, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[2] );
-		sw_dump_fbo( "panel_a.bmp", sw_main_fbo, (int)_sizex, (int)_sizey );
-		sw_bfb(  sw_main_fbo );
-		sw_fbo_log( "hgio: panel probe cx=%g cy=%g psx=%g psy=%g gm=%d rt=%d"
-			" tex=%u srctx=%d uv=%g,%g-%g,%g px100=%d,%d,%d px300=%d,%d,%d"
-			" px600=%d,%d,%d tick=%d\n",
-			(double)bm->cx, (double)bm->cy, (double)psx, (double)psy,
-			bm->gmode, bm->gfrate, (unsigned)tex->texid, bmsrc->texid,
+		glReadPixels( 100, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[0] );
+		glReadPixels( 300, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[1] );
+		glReadPixels( 600, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[2] );
+		sw_fbo_log( "hgio: panel probe #%d bm=%p type=%d tx=%d sx=%d sy=%d"
+			" cur=%p curtype=%d rfbo=%u tfbo=%u ttx=%d src=%p srctx=%d stex=%u"
+			" mainok=%d gm=%d rt=%d uv=%g,%g-%g,%g"
+			" p100=%d,%d,%d p300=%d,%d,%d p600=%d,%d,%d tick=%d\n",
+			sw_panel_a, (void *)bm, bm->type, bm->texid, (int)bm->sx, (int)bm->sy,
+			(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
+			(unsigned)sw_real_fbo, ( ptgt != NULL ) ? (unsigned)ptgt->fbo : 0u,
+			( ptgt != NULL ) ? ptgt->texid : -99,
+			(void *)bmsrc, bmsrc->texid, (unsigned)tex->texid,
+			sw_main_ok, bm->gmode, bm->gfrate,
 			(double)uvf2D[0], (double)uvf2D[1],
 			(double)uvf2D[4], (double)uvf2D[5],
 			pt[0][0], pt[0][1], pt[0][2], pt[1][0], pt[1][1], pt[1][2],
 			pt[2][0], pt[2][1], pt[2][2], hgio_gettick() );
-		if ( sw_trc_fp != NULL ) fclose( sw_trc_fp );
-		sw_trc_fp = fopen( "hsp3dish_trace_panel.log", "wb" );
-		sw_trc_total = 0;
+		if ( dfo != 0 ) {
+			char pnm[32];
+			sprintf( pnm, "panel_%d.bmp", sw_panel_a );
+			sw_dump_fbo( pnm, dfo, dw, dh );
+			sw_bfb(  dfo );
+		}
 	}
 }
 
