@@ -778,16 +778,133 @@ static int impl_elona_grotate( const DllArgValue *args, int argc )
 	return 0;
 }
 
-//	z.hpi - Elona's own zlib save-file plugin.  The Windows source tree holds
-//	ZLibWrap, but that DLL exports ZWZipCompress/ZWZipExtract, not the _z* names
-//	this .ax imports, so the exact ABI is not recoverable from it.  "Get it
-//	running first": every entry is an inert success that leaves the caller's
-//	variable untouched.
-//
-static int impl_zlib_zero( const DllArgValue *args, int argc )
+/*	z.hpi, now real.  The ABI comes from 2.15R main.hsp:27-31 (the same four
+	imports are in this .ax's own finfo table, inv232.txt:54-57):
+
+		#func zOpen  "_zOpen@16"  var, str, int, int
+		#func zRead  "_zRead@16"  var, int, int, int
+		#func zWrite "_zWrite@16" var, int, int, int
+		#func zClose "_zClose@16" int, int, int, int
+
+	zOpen's leading `var` is the handle output (0 = no file), zRead/zWrite's
+	is the data buffer, and the int after it is that handle; the trailing int
+	of zOpen is the compression level (mode 1 = write, 0 = read - 2.15R
+	writes `zOpen hgz, file, 1, 3` and reads `zOpen hgz, file, 0`).
+
+	This is a direct store: zWrite appends the raw bytes, zRead reads them
+	back, zClose closes.  The round trip inside this port is byte-exact,
+	which is what the save/new-game flow exercises; the on-card format is
+	not PC-compatible yet (a real zlib stream can follow once the round
+	trip is proven).  Return values stay 0 like the no-op era, since the
+	script uses these as statements. */
+#define ZLIB_MAX_PORTS	16
+
+static FILE *zlib_port[ZLIB_MAX_PORTS];
+static int zlib_open_n = 0, zlib_read_n = 0, zlib_write_n = 0;
+static int zlib_close_n = 0, zlib_fail_n = 0;
+
+static int zlib_port_alloc( FILE *fp )
 {
-	(void)args;
-	(void)argc;
+	int i;
+	for ( i = 0; i < ZLIB_MAX_PORTS; i++ ) {
+		if ( zlib_port[i] == NULL ) { zlib_port[i] = fp; return i + 1; }
+	}
+	return 0;
+}
+
+static FILE *zlib_port_get( int handle )
+{
+	if ( handle <= 0 || handle > ZLIB_MAX_PORTS ) return NULL;
+	return zlib_port[handle - 1];
+}
+
+static int impl_zlib_zopen( const DllArgValue *args, int argc )
+{
+	const char *path;
+	int mode, slot;
+	FILE *fp;
+
+	if ( argc < 3 || args[0].ptr == NULL || args[1].ptr == NULL ) return 0;
+	path = (const char *)args[1].ptr;
+	mode = args[2].ival;
+	fp = fopen( path, ( mode != 0 ) ? "wb" : "rb" );
+	if ( fp == NULL ) {
+		*(int *)args[0].ptr = 0;
+		zlib_fail_n++;
+		if ( zlib_fail_n <= 40 ) {
+			printf( "hsp3switch: zOpen FAIL '%s' (mode %d)\n", path, mode );
+			fflush( stdout );
+		}
+		return 0;
+	}
+	slot = zlib_port_alloc( fp );
+	if ( slot == 0 ) { fclose( fp ); *(int *)args[0].ptr = 0; return 0; }
+	*(int *)args[0].ptr = slot;
+	zlib_open_n++;
+	if ( zlib_open_n <= 40 ) {
+		printf( "hsp3switch: zOpen '%s' (mode %d) -> h=%d\n", path, mode, slot );
+		fflush( stdout );
+	}
+	return 0;
+}
+
+static int impl_zlib_zread( const DllArgValue *args, int argc )
+{
+	FILE *fp;
+	size_t want, got;
+
+	if ( argc < 3 || args[0].ptr == NULL ) return 0;
+	fp = zlib_port_get( args[1].ival );
+	if ( fp == NULL ) return 0;
+	want = (size_t)args[2].ival;
+	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
+	got = fread( args[0].ptr, 1, want, fp );
+	zlib_read_n++;
+	if ( zlib_read_n <= 40 ) {
+		printf( "hsp3switch: zRead h=%d want=%u got=%u\n",
+			args[1].ival, (unsigned)want, (unsigned)got );
+		fflush( stdout );
+	}
+	return 0;
+}
+
+static int impl_zlib_zwrite( const DllArgValue *args, int argc )
+{
+	FILE *fp;
+	size_t want, put;
+
+	if ( argc < 3 || args[0].ptr == NULL ) return 0;
+	fp = zlib_port_get( args[1].ival );
+	if ( fp == NULL ) return 0;
+	want = (size_t)args[2].ival;
+	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
+	put = fwrite( args[0].ptr, 1, want, fp );
+	zlib_write_n++;
+	if ( zlib_write_n <= 40 ) {
+		printf( "hsp3switch: zWrite h=%d want=%u put=%u\n",
+			args[1].ival, (unsigned)want, (unsigned)put );
+		fflush( stdout );
+	}
+	return 0;
+}
+
+static int impl_zlib_zclose( const DllArgValue *args, int argc )
+{
+	int handle;
+	FILE *fp;
+
+	if ( argc < 1 ) return 0;
+	handle = args[0].ival;
+	fp = zlib_port_get( handle );
+	if ( fp != NULL ) {
+		fclose( fp );
+		zlib_port[handle - 1] = NULL;
+	}
+	zlib_close_n++;
+	if ( zlib_close_n <= 40 ) {
+		printf( "hsp3switch: zClose h=%d\n", handle );
+		fflush( stdout );
+	}
 	return 0;
 }
 
@@ -952,11 +1069,11 @@ static const DllImplEntry impl_table[] = {
 	//	elona.dll - its one import; consumes its six operands by hand.
 	{ "elona.dll",		"_grotate@16",			impl_elona_grotate },
 
-	//	z.hpi - the zlib save plugin; inert for now (see impl_zlib_zero).
-	{ "z.hpi",			"_zOpen@16",			impl_zlib_zero },
-	{ "z.hpi",			"_zRead@16",			impl_zlib_zero },
-	{ "z.hpi",			"_zWrite@16",			impl_zlib_zero },
-	{ "z.hpi",			"_zClose@16",			impl_zlib_zero },
+	//	z.hpi - the zlib save plugin; real file I/O now (see impl_zlib_zopen).
+	{ "z.hpi",			"_zOpen@16",			impl_zlib_zopen },
+	{ "z.hpi",			"_zRead@16",			impl_zlib_zread },
+	{ "z.hpi",			"_zWrite@16",			impl_zlib_zwrite },
+	{ "z.hpi",			"_zClose@16",			impl_zlib_zclose },
 
 	//	hspsock.dll - the socket family; there is no network on the Switch.
 	{ "hspsock.dll",	"_sockopen@16",			impl_hspsock_zero },
@@ -1145,6 +1262,8 @@ void dllshim_report_exit( void )
 	printf( "hsp3switch: script end: err=%d (%s) runmode=%d endcode=%d\n",
 		(int)hspctx->err, hspd_geterror( hspctx->err ),
 		hspctx->runmode, hspctx->endcode );
+	printf( "hsp3switch: z.hpi alloc=%d read=%d write=%d close=%d fail=%d\n",
+		zlib_open_n, zlib_read_n, zlib_write_n, zlib_close_n, zlib_fail_n );
 	fflush( stdout );
 }
 

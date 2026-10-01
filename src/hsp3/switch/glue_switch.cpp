@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>			/* mkdir(), for the write-path helper */
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -138,7 +139,8 @@ static unsigned long watch_last = (unsigned long)-1;
 static int watch_beats = 0;
 /*	Stuck detector state: a run that froze used to look exactly like one
 	waiting for a key - the pc stops moving either way.  Report the spot when
-	it has not moved for three seconds. */
+	it has not moved for eight seconds
+	(the five-minute value never fired inside a test run). */
 static unsigned long watch_stuck_off = 0;
 static unsigned long watch_stuck_tick = 0;
 static int watch_stuck_beats = 0;
@@ -275,14 +277,15 @@ static void *glue_watchdog( void *arg )
 			watch_stuck_tick = tick;
 			watch_stuck_beats = 0;
 		}
-		else if ( ( watch_stuck_beats < 3 ) &&
-				( tick - watch_stuck_tick >= 300000 ) ) {
+		else if ( ( watch_stuck_beats < 12 ) &&
+				( tick - watch_stuck_tick >= 8000 ) ) {
 			watch_stuck_tick = tick;
 			watch_stuck_beats++;
-			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d at %lu ms\n",
+			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d line=%d file=%.24s at %lu ms\n",
 				off, (unsigned)pc[0], (unsigned)pc[1],
 				(int)watch_ctx->runmode, (int)watch_ctx->waitcount,
-				(int)watch_ctx->waittick, (int)watch_ctx->lasttick, tick );
+				(int)watch_ctx->waittick, (int)watch_ctx->lasttick,
+				code_getdebug_line(), code_getdebug_name(), tick );
 			fflush( stdout );
 		}
 		if ( off == watch_last ) continue;
@@ -522,11 +525,41 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 	__real___cxa_throw( thrown, tinfo, dest );
 }
 
+/*	Write-mode detection and the one repair a failed write open gets:
+	create the parent folders.  Elona builds its save paths by string
+	concatenation (sdmc:/switch/openhsp/save/sav_XXX/tmp/...), and a
+	missing intermediate folder is the one cause fopen cannot repair. */
+static int glue_fopen_writes( const char *mode )
+{
+	if ( mode == NULL ) return 0;
+	return ( strchr( mode, 'w' ) != NULL ||
+			 strchr( mode, 'a' ) != NULL ||
+			 strchr( mode, '+' ) != NULL );
+}
+
+static void glue_mkdir_p( const char *path )
+{
+	char buf[512];
+	size_t i, n;
+
+	if ( path == NULL ) return;
+	n = strlen( path );
+	if ( n >= sizeof( buf ) ) return;
+	memcpy( buf, path, n + 1 );
+	for ( i = 1; i < n; i++ ) {
+		if ( buf[i] != '/' ) continue;
+		buf[i] = 0;
+		if ( buf[i - 1] != ':' ) mkdir( buf, 0777 );		/* skip "sdmc:" */
+		buf[i] = '/';
+	}
+}
+
 extern "C" FILE *__real_fopen( const char *path, const char *mode );
 
 extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 {
 	static int shown = 0;
+	static int shown_w = 0;			/* write-mode opens, their own budget */
 	static char fixed[512];
 	const char *use = path;
 	FILE *fp;
@@ -550,9 +583,25 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	}
 
 	fp = __real_fopen( use, mode );
+	if ( fp == NULL && glue_fopen_writes( mode ) ) {
+		/*	A write cannot create its own folders, and the card run that
+			never wrote a single file is exactly that symptom. */
+		glue_mkdir_p( use );
+		fp = __real_fopen( use, mode );
+		if ( fp != NULL ) {
+			printf( "hsp3file: mkdir-p opened '%s' (mode %s)\n", use, mode );
+			fflush( stdout );
+		}
+	}
 	if ( fp == NULL ) {
 		printf( "hsp3file: FAIL '%s' (mode %s)\n", use, mode );
 		fflush( stdout );
+	} else if ( glue_fopen_writes( mode ) ) {
+		if ( shown_w < 300 ) {
+			shown_w++;
+			printf( "hsp3file: write '%s' (mode %s)\n", use, mode );
+			fflush( stdout );
+		}
 	} else if ( shown < 150 ) {
 		shown++;
 		printf( "hsp3file: ok   '%s'\n", use );
