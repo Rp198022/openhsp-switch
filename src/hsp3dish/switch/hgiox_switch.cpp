@@ -1854,6 +1854,74 @@ int hgio_texload( BMSCR *bm, char *fname )
 	return texid;
 }
 
+
+/*	`picload file, 1` is *overwrite*, not resize: the classic runtime
+	writes the decoded picture into the screen's memory at (0,0) and
+	leaves the screen's size alone (hspwnd_win.cpp, Picload: only mode 0
+	and 2 re-make the screen).  Elona loads 180x300 background tiles into
+	its 1584x1632 picture buffer this way, and the dish path - which
+	always re-builds the screen from the picture - used to shrink that
+	buffer to 180x300: every later read-back of it (the satisfied-menu
+	restore, `gcopy BUFFER_MAP, 0, 0, 800, 500`) then came back clipped
+	to 180x300 and the old composition stayed on the screen.
+
+	Here the picture is decoded and drawn once into the screen's own
+	framebuffer, so the screen keeps its size and its read-back works.
+	Returns 0 when it handled the load, -1 to fall back to the classic
+	path.																*/
+int hgio_picload_overwrite( BMSCR *bm, char *fname )
+{
+	TEXINF *t;
+	int texid;
+	GLfloat vert[8];
+	GLfloat uv[8];
+	float w, h;
+
+	if ( bm == NULL ) return -1;
+	if ( bm->type == HSPWND_TYPE_MAIN ) return -1;
+	if ( bm->type == HSPWND_TYPE_NONE ) return -1;
+
+	texid = RegistTex( fname );
+	if ( texid < 0 ) return -1;
+	t = GetTex( texid );
+	if ( ( t == NULL ) || ( t->mode == TEXMODE_NONE ) ) return -1;
+	w = (float)t->width;
+	h = (float)t->height;
+	if ( ( w <= 0.0f ) || ( h <= 0.0f ) ) return -1;
+
+	if ( sw_bind_target( bm ) != 0 ) return -1;
+
+	vert[0] = 0.0f;	vert[1] = 0.0f;
+	vert[2] = w;		vert[3] = 0.0f;
+	vert[4] = 0.0f;	vert[5] = -h;
+	vert[6] = w;		vert[7] = -h;
+
+	uv[0] = 0.0f;		uv[1] = 0.0f;
+	uv[2] = w * t->ratex;	uv[3] = 0.0f;
+	uv[4] = 0.0f;		uv[5] = h * t->ratey;
+	uv[6] = w * t->ratex;	uv[7] = h * t->ratey;
+
+	glDisableClientState( GL_COLOR_ARRAY );
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
+
+	sw_glColorKey( 0, 0 );
+	glDisable( GL_BLEND );			/* overwrite writes pixels, it does not blend */
+	sw_bind_tex( (int)t->texid );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	ChangeTex( -1 );
+
+	if ( sw_texload_report < 64 ) {
+		sw_texload_report++;
+		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d\n",
+			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy );
+	}
+
+	return 0;
+}
+
 /*-------------------------------------------------------------------------------*/
 
 //ポイントカラー設定

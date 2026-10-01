@@ -821,11 +821,27 @@ static int cmdfunc_extcmd( int cmd )
 		{
 		int wid;
 		char fname[64];
+		int i;
+		extern int hgio_picload_overwrite( BMSCR *bm, char *fname );
 		strncpy( fname, code_gets(), 63 );
 		p1 = code_getdi( 0 );
 		wid = bmscr->wid;
-		int i = wnd->Picload( wid, fname, p1 );
-		if ( i ) throw HSPERR_PICTURE_MISSING;
+		/*	fork: `picload file, 1` means *overwrite* in the classic runtime -
+			the picture goes into the screen as it is and the screen keeps its
+			size.  The dish path re-builds the screen from the picture instead,
+			which shrinks it to the picture: Elona loads 180x300 background
+			tiles into its 1584x1632 picture buffer that way, and every later
+			read-back (`gcopy BUFFER_MAP, 0, 0, 800, 500`) came back clipped.	*/
+		if ( p1 == 1 ) {
+			i = hgio_picload_overwrite( (BMSCR *)bmscr, fname );
+			if ( i != 0 ) {
+				i = wnd->Picload( wid, fname, p1 );
+				if ( i ) throw HSPERR_PICTURE_MISSING;
+			}
+		} else {
+			i = wnd->Picload( wid, fname, p1 );
+			if ( i ) throw HSPERR_PICTURE_MISSING;
+		}
 		bmscr = wnd->GetBmscr( wid );
 		cur_window = wid;
 		break;
