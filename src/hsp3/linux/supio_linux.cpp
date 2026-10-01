@@ -354,21 +354,47 @@ void getpath( char *stmp, char *outbuf, int p2 )
 }
 
 
+/*	Fork: the script is a Windows program and hands these three the paths it
+	builds that way, e.g. Elona sweeping its tmp folder with
+	exedir + "tmp\\" + name.  fopen is normalised (see --wrap=fopen in
+	glue_switch.cpp) and dpm_exist() goes through fopen, so a path like that
+	could be tested for existence but never removed or created: the cleanup
+	threw "File I/O error" the moment dirlist() started returning real names.
+	Normalise here as well, so that the whole file command set agrees.		*/
+static const char *supio_slash( const char *name, char *buf, size_t len )
+{
+	size_t i, n;
+
+	if ( name == NULL ) return name;
+	if ( strchr( name, '\\' ) == NULL ) return name;
+	n = strlen( name );
+	if ( n > len - 1 ) n = len - 1;
+	for ( i = 0; i < n; i++ ) {
+		buf[i] = ( name[i] == '\\' ) ? '/' : name[i];
+	}
+	buf[n] = 0;
+	return buf;
+}
+
+
 int makedir( char *name )
 {
-	return mkdir( name, 0755 );
+	char buf[_MAX_PATH+1];
+	return mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
 }
 
 
 int changedir( char *name )
 {
-	return chdir( name );
+	char buf[_MAX_PATH+1];
+	return chdir( supio_slash( name, buf, sizeof( buf ) ) );
 }
 
 
 int delfile( char *name )
 {
-	return unlink( name );
+	char buf[_MAX_PATH+1];
+	return unlink( supio_slash( name, buf, sizeof( buf ) ) );
 	//return remove( name );		// ディレクトリにもファイルにも対応
 }
 
