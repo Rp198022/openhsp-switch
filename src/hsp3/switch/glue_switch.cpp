@@ -275,8 +275,8 @@ static void *glue_watchdog( void *arg )
 			watch_stuck_tick = tick;
 			watch_stuck_beats = 0;
 		}
-		else if ( ( watch_stuck_beats < 60 ) &&
-				( tick - watch_stuck_tick >= 3000 ) ) {
+		else if ( ( watch_stuck_beats < 3 ) &&
+				( tick - watch_stuck_tick >= 300000 ) ) {
 			watch_stuck_tick = tick;
 			watch_stuck_beats++;
 			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d at %lu ms\n",

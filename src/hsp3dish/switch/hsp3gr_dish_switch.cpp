@@ -1209,7 +1209,16 @@ static int cmdfunc_extcmd( int cmd )
 				}
 			}
 			if (p1 != 0) {
-				bmscr = wnd->GetBmscr( p1 );
+				/*	GetBmscr() reads the screen table by index with no bound
+					check, and Elona's second screen is id 20 while the table
+					holds seventeen slots: the stray word read from beyond it
+					went into the FBO calls (the emulator log shows unmapped
+					accesses at 0x3c/0x64/0x68 right afterwards) and a later
+					command threw Unsupported and ended the script.				*/
+				bmscr = NULL;
+				if ( ( p1 >= 0 ) && ( p1 < wnd->GetBmscrMax() ) ) {
+					bmscr = wnd->GetBmscr( p1 );
+				}
 				if ( bmscr == NULL ) {
 					wnd->MakeBmscr( p1, HSPWND_TYPE_OFFSCREEN, p5, p6, p2, p3, p4 );
 					bmscr = wnd->GetBmscr( p1 );
