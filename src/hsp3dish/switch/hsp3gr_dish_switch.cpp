@@ -520,8 +520,11 @@ static void sw_key_tick( void )
 		}
 	}
 
-	printf( "hsp3switch: ## key '%c' (0x%02x) -> object %d\n",
-			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c, sw_key_target );
+	printf( "hsp3switch: ## key '%c' (0x%02x) -> obj %d bm=%p wid=%d cur=%d found=%d om=%d\n",
+			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c, sw_key_target,
+			(void *)bmscr, bmscr->wid, cur_window,
+			( info != NULL ) ? 1 : 0,
+			( info != NULL ) ? (int)info->owmode : -1 );
 	fflush( stdout );
 	sw_key_pos += n;
 	sw_key_wait = SW_KEY_GAP;

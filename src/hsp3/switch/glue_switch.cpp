@@ -136,6 +136,12 @@ void hsp3dish_termdevinfo_io( void )
 static HSPCTX *watch_ctx = NULL;
 static unsigned long watch_last = (unsigned long)-1;
 static int watch_beats = 0;
+/*	Stuck detector state: a run that froze used to look exactly like one
+	waiting for a key - the pc stops moving either way.  Report the spot when
+	it has not moved for three seconds. */
+static unsigned long watch_stuck_off = 0;
+static unsigned long watch_stuck_tick = 0;
+static int watch_stuck_beats = 0;
 
 //	P3 DIAGNOSTIC (temporary): the script's own view of the pad.
 //
@@ -227,18 +233,20 @@ static void glue_watch_names( unsigned long tick )
 
 static void glue_watch_script( unsigned long tick )
 {
-	char a[48], b[48], c[48], d[48], e[48], f[48];
+	char a[48], b[48], c[48], d[48], e[48], f[48], g[48], h[48];
 
 	glue_watch_key();
 	glue_watch_names( tick );
 	if ( ( tick % 1000 ) != 0 ) return;				// once a second
 	glue_watch_i( a, sizeof( a ), "cfg_joypad" );
+	glue_watch_i( g, sizeof( g ), "msgalert" );
+	glue_watch_i( h, sizeof( h ), "cfg_alert" );
 	glue_watch_s( b, sizeof( b ), "key", 0 );
 	glue_watch_s( c, sizeof( c ), "key_enter", 0 );
 	glue_watch_s( d, sizeof( d ), "jkey", 0 );
 	glue_watch_s( e, sizeof( e ), "jkey", 2 );
 	glue_watch_s( f, sizeof( f ), "jkey", 5 );
-	printf( "hsp3switch: watch %s %s %s %s %s %s\n", a, b, c, d, e, f );
+	printf( "hsp3switch: watch %s %s %s %s %s %s %s %s\n", a, g, h, b, c, d, e, f );
 	fflush( stdout );
 }
 
@@ -262,6 +270,21 @@ static void *glue_watchdog( void *arg )
 
 		pc = code_getpcbak();
 		off = (unsigned long)( pc - watch_ctx->mem_mcs );
+		if ( off != watch_stuck_off ) {
+			watch_stuck_off = off;
+			watch_stuck_tick = tick;
+			watch_stuck_beats = 0;
+		}
+		else if ( ( watch_stuck_beats < 60 ) &&
+				( tick - watch_stuck_tick >= 3000 ) ) {
+			watch_stuck_tick = tick;
+			watch_stuck_beats++;
+			printf( "hsp3switch: ### STUCK pc=%lu tok=%#06x/%#06x rm=%d wc=%d wt=%d lt=%d at %lu ms\n",
+				off, (unsigned)pc[0], (unsigned)pc[1],
+				(int)watch_ctx->runmode, (int)watch_ctx->waitcount,
+				(int)watch_ctx->waittick, (int)watch_ctx->lasttick, tick );
+			fflush( stdout );
+		}
 		if ( off == watch_last ) continue;
 		watch_last = off;
 		if ( off < GLUE_WATCH_LO || off > GLUE_WATCH_HI ) continue;
