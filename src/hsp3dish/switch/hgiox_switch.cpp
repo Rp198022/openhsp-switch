@@ -314,6 +314,8 @@ static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
 static int		sw_copy_skip_report = 0;	// t23 probe: copies dropped for a missing source
 static int		sw_copy_big_report = 0;	// t23 probe: picture-buffer restores seen
+static int		sw_panel_a = 0;	// t23 probe: window caught right after the sheet copy
+static int		sw_panel_b = 0;	// t23 probe: ...and again when that frame is presented
 /*	Elona's second screen (`screen 20`, 800x190).  The classic runtime gives it
 	a window of its own; this port gives it an offscreen framebuffer instead, and
 	sw_main_overlay() draws it back along the bottom of the main screen.  NULL
@@ -975,6 +977,17 @@ static void sw_main_present( void )
 	float u0, v0, u1, v1;
 
 	if ( sw_main_ok != 1 ) return;
+
+	/*	t23 probe: the other half of the sheet-copy frame.  panel_a is the
+		window just after the copy; this is the same frame as it leaves.  The
+		trace is closed here so it holds exactly those two moments.			*/
+	if ( sw_panel_b == 1 ) {
+		sw_panel_b = 0;
+		sw_dump_fbo( "panel_b.bmp", sw_main_fbo, (int)_sizex, (int)_sizey );
+		if ( sw_trc_fp != NULL ) fclose( sw_trc_fp );
+		sw_trc_fp = NULL;
+		sw_trc_total = SW_TRC_MAX;
+	}
 
 	if ( !sw_dumped && ( hgio_gettick() > 15000 ) ) {
 		sw_dumped = 1;
@@ -2645,6 +2658,44 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	t23 probe: the character sheet is copied on to the window with the
+		right rectangle every frame, yet the composed screen shows no sheet -
+		only a narrow ornament survives at x=568..589.  Either the copy does
+		not land or something paints over it before the frame is presented,
+		and the end-of-frame dump cannot separate those.  Photograph the
+		window here and again at present, and restart the draw trace at the
+		same moment: its budget is spent long before the character screens,
+		so this is the only way to see what paints over the sheet.  The three
+		points sit inside the sheet's rectangle (50..750 x 86..486) so the
+		answer is readable without opening the images.						*/
+	if ( ( sw_panel_a == 0 ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( srcsx == 700 ) && ( srcsy == 400 ) && ( sw_main_ok == 1 ) ) {
+		unsigned char pt[3][4];
+		int k;
+		sw_panel_a = 1;
+		sw_panel_b = 1;
+		for ( k = 0; k < 3; k++ ) {
+			pt[k][0] = pt[k][1] = pt[k][2] = pt[k][3] = 0;
+		}
+		glReadPixels( 100, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[0] );
+		glReadPixels( 300, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[1] );
+		glReadPixels( 600, 300, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[2] );
+		sw_dump_fbo( "panel_a.bmp", sw_main_fbo, (int)_sizex, (int)_sizey );
+		sw_bfb(  sw_main_fbo );
+		sw_fbo_log( "hgio: panel probe cx=%g cy=%g psx=%g psy=%g gm=%d rt=%d"
+			" tex=%u srctx=%d uv=%g,%g-%g,%g px100=%d,%d,%d px300=%d,%d,%d"
+			" px600=%d,%d,%d tick=%d\n",
+			(double)bm->cx, (double)bm->cy, (double)psx, (double)psy,
+			bm->gmode, bm->gfrate, (unsigned)tex->texid, bmsrc->texid,
+			(double)uvf2D[0], (double)uvf2D[1],
+			(double)uvf2D[4], (double)uvf2D[5],
+			pt[0][0], pt[0][1], pt[0][2], pt[1][0], pt[1][1], pt[1][2],
+			pt[2][0], pt[2][1], pt[2][2], hgio_gettick() );
+		if ( sw_trc_fp != NULL ) fclose( sw_trc_fp );
+		sw_trc_fp = fopen( "hsp3dish_trace_panel.log", "wb" );
+		sw_trc_total = 0;
+	}
 }
 
 
