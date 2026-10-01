@@ -18,6 +18,7 @@
 #include <time.h>
 #include <math.h>
 #include <algorithm>
+#include <zlib.h>			/* gz* - z.hpi's save files are gzip streams */
 
 #include "../hsp3config.h"
 #include "../hsp3code.h"
@@ -791,19 +792,21 @@ static int impl_elona_grotate( const DllArgValue *args, int argc )
 	of zOpen is the compression level (mode 1 = write, 0 = read - 2.15R
 	writes `zOpen hgz, file, 1, 3` and reads `zOpen hgz, file, 0`).
 
-	This is a direct store: zWrite appends the raw bytes, zRead reads them
-	back, zClose closes.  The round trip inside this port is byte-exact,
-	which is what the save/new-game flow exercises; the on-card format is
-	not PC-compatible yet (a real zlib stream can follow once the round
-	trip is proven).  Return values stay 0 like the no-op era, since the
-	script uses these as statements. */
+	The save files are gzip streams: map/*.idx, .map and .obj all begin
+	1f 8b 08, and a plain store read them back as compressed garbage - the
+	first run that used it filled the map tables with junk (mdata width
+	came out 559903) and died on HspError 7 inside map_initCuston.  So this
+	is zlib's gzip layer - gzopen/gzread/gzwrite/gzclose - which is also
+	what wrote those PC files (their gzip OS byte is 0x0b = NTFS).  The
+	round trip is byte-exact and PC-compatible.  Return values stay 0 like
+	the no-op era, since the script uses these as statements. */
 #define ZLIB_MAX_PORTS	16
 
-static FILE *zlib_port[ZLIB_MAX_PORTS];
+static gzFile zlib_port[ZLIB_MAX_PORTS];
 static int zlib_open_n = 0, zlib_read_n = 0, zlib_write_n = 0;
 static int zlib_close_n = 0, zlib_fail_n = 0;
 
-static int zlib_port_alloc( FILE *fp )
+static int zlib_port_alloc( gzFile fp )
 {
 	int i;
 	for ( i = 0; i < ZLIB_MAX_PORTS; i++ ) {
@@ -812,7 +815,7 @@ static int zlib_port_alloc( FILE *fp )
 	return 0;
 }
 
-static FILE *zlib_port_get( int handle )
+static gzFile zlib_port_get( int handle )
 {
 	if ( handle <= 0 || handle > ZLIB_MAX_PORTS ) return NULL;
 	return zlib_port[handle - 1];
@@ -822,13 +825,13 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 {
 	const char *path;
 	int mode, slot;
-	FILE *fp;
+	gzFile gz;
 
 	if ( argc < 3 || args[0].ptr == NULL || args[1].ptr == NULL ) return 0;
 	path = (const char *)args[1].ptr;
 	mode = args[2].ival;
-	fp = fopen( path, ( mode != 0 ) ? "wb" : "rb" );
-	if ( fp == NULL ) {
+	gz = gzopen( path, ( mode != 0 ) ? "wb" : "rb" );
+	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;
 		zlib_fail_n++;
 		if ( zlib_fail_n <= 40 ) {
@@ -837,8 +840,8 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 		}
 		return 0;
 	}
-	slot = zlib_port_alloc( fp );
-	if ( slot == 0 ) { fclose( fp ); *(int *)args[0].ptr = 0; return 0; }
+	slot = zlib_port_alloc( gz );
+	if ( slot == 0 ) { gzclose( gz ); *(int *)args[0].ptr = 0; return 0; }
 	*(int *)args[0].ptr = slot;
 	zlib_open_n++;
 	if ( zlib_open_n <= 40 ) {
@@ -850,15 +853,15 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 
 static int impl_zlib_zread( const DllArgValue *args, int argc )
 {
-	FILE *fp;
+	gzFile gz;
 	size_t want, got;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
-	fp = zlib_port_get( args[1].ival );
-	if ( fp == NULL ) return 0;
+	gz = zlib_port_get( args[1].ival );
+	if ( gz == NULL ) return 0;
 	want = (size_t)args[2].ival;
 	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
-	got = fread( args[0].ptr, 1, want, fp );
+	got = (size_t)gzread( gz, args[0].ptr, (unsigned)want );
 	zlib_read_n++;
 	if ( zlib_read_n <= 40 ) {
 		printf( "hsp3switch: zRead h=%d want=%u got=%u\n",
@@ -870,15 +873,15 @@ static int impl_zlib_zread( const DllArgValue *args, int argc )
 
 static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 {
-	FILE *fp;
+	gzFile gz;
 	size_t want, put;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
-	fp = zlib_port_get( args[1].ival );
-	if ( fp == NULL ) return 0;
+	gz = zlib_port_get( args[1].ival );
+	if ( gz == NULL ) return 0;
 	want = (size_t)args[2].ival;
 	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
-	put = fwrite( args[0].ptr, 1, want, fp );
+	put = (size_t)gzwrite( gz, args[0].ptr, (unsigned)want );
 	zlib_write_n++;
 	if ( zlib_write_n <= 40 ) {
 		printf( "hsp3switch: zWrite h=%d want=%u put=%u\n",
@@ -891,13 +894,13 @@ static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 static int impl_zlib_zclose( const DllArgValue *args, int argc )
 {
 	int handle;
-	FILE *fp;
+	gzFile gz;
 
 	if ( argc < 1 ) return 0;
 	handle = args[0].ival;
-	fp = zlib_port_get( handle );
-	if ( fp != NULL ) {
-		fclose( fp );
+	gz = zlib_port_get( handle );
+	if ( gz != NULL ) {
+		gzclose( gz );
 		zlib_port[handle - 1] = NULL;
 	}
 	zlib_close_n++;
