@@ -239,7 +239,7 @@ static void glue_watch_names( unsigned long tick )
 
 static void glue_watch_script( unsigned long tick )
 {
-	char a[48], b[48], c[48], d[48], e[48], f[48], g[48], h[48];
+	char a[48], b[48], c[48], d[48], e[48], f[48], g[48], h[48], i[48];
 
 	glue_watch_key();
 	glue_watch_names( tick );
@@ -247,12 +247,16 @@ static void glue_watch_script( unsigned long tick )
 	glue_watch_i( a, sizeof( a ), "cfg_joypad" );
 	glue_watch_i( g, sizeof( g ), "msgalert" );
 	glue_watch_i( h, sizeof( h ), "cfg_alert" );
+	/*	Decides the map tile library load (map.hsp:11986 compares it
+		with mdata(MDATA_TILE_FILE)): world_init sets it to -1, only the
+		load writes it again - and the load never ran, 17 compares false.	*/
+	glue_watch_i( i, sizeof( i ), "mtilefilecur" );
 	glue_watch_s( b, sizeof( b ), "key", 0 );
 	glue_watch_s( c, sizeof( c ), "key_enter", 0 );
 	glue_watch_s( d, sizeof( d ), "jkey", 0 );
 	glue_watch_s( e, sizeof( e ), "jkey", 2 );
 	glue_watch_s( f, sizeof( f ), "jkey", 5 );
-	printf( "hsp3switch: watch %s %s %s %s %s %s %s %s\n", a, g, h, b, c, d, e, f );
+	printf( "hsp3switch: watch %s %s %s %s %s %s %s %s %s\n", a, g, h, b, c, d, e, f, i );
 	fflush( stdout );
 }
 
