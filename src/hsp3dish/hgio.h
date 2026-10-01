@@ -16,6 +16,9 @@ void hgio_init( int mode, int sx, int sy, void *hwnd );
 void hgio_term( void );
 void hgio_resume( void );
 int hgio_gsel( BMSCR *bm );
+/*	The second screen (`screen 20`): its framebuffer is composited back over the
+	main screen along the bottom by the presenter.								*/
+void hgio_set_help( BMSCR *bm );
 int hgio_buffer(BMSCR *bm);
 int hgio_bufferop(BMSCR* bm, int mode, char *ptr);
 

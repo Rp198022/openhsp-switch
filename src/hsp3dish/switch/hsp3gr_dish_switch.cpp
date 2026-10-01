@@ -1149,18 +1149,19 @@ static int cmdfunc_extcmd( int cmd )
 			wnd->MakeBmscr(p1, typeval, p5, p6, p2, p3, p4);
 		}
 		else {
-			/*	fork: this port has one window.  The classic runtime opens another
-				one for a second screen, and Elona+ asks for one (id 20) to show
-				its operation help in.
+			/*	fork: the classic runtime opens a second window here, and Elona+
+				asks for one (id 20, 800x190) to draw its operation help into.
 
-				Serving that id with an offscreen screen kept the run alive, but
-				the display went with it: the presenter only ever shows the main
-				screen, the game draws through whichever screen is current, and
-				the window froze on the last frame that reached screen 0.
+				This port has only the main window, and serving id 20 with it
+				painted the help panel straight into the main framebuffer -
+				which accumulates and never clears - so the panel stayed burned
+				in underneath the world map and both screens showed at once.
 
-				So the second screen *is* the main screen here.  The size in the
-				call belongs to the window that is not there, so it is left
-				alone, and the game keeps drawing where it can be seen.			*/
+				The second screen now gets an offscreen framebuffer of its own,
+				and the presenter composites it back along the bottom of the main
+				screen (hgio_set_help / sw_main_overlay).  The main screen still
+				presents every frame, so the window cannot freeze the way it did
+				when id 20 was given a screen the presenter never showed.		*/
 			{
 				static int sw_t23_sc = -1000;
 				int sw_t23_now = hgio_gettick();
@@ -1172,7 +1173,29 @@ static int cmdfunc_extcmd( int cmd )
 				}
 			}
 			if (p1 != 0) {
-				printf( "hsp3gr: screen id=%d -> main screen\n", p1 );
+				bmscr = wnd->GetBmscr( p1 );
+				if ( bmscr == NULL ) {
+					wnd->MakeBmscr( p1, HSPWND_TYPE_OFFSCREEN, p5, p6, p2, p3, p4 );
+					bmscr = wnd->GetBmscr( p1 );
+				}
+				if ( bmscr != NULL ) {
+					bmscr->sx = p2; bmscr->sx2 = p2; bmscr->sy = p3;
+					bmscr->buffer_option = p4;
+					bmscr->cx = p5; bmscr->cy = p6;
+					bmscr->gx = p7; bmscr->gy = p8;
+					/*	An offscreen projection is built from the screen's own
+						size, and only while no 2D/3D viewport is in force; a
+						fresh screen must not inherit the previous one's.		*/
+					bmscr->Viewcalc_reset();
+					printf( "hsp3gr: screen id=%d -> offscreen %dx%d texid=%d\n",
+						p1, bmscr->sx, bmscr->sy, bmscr->texid );
+					fflush( stdout );
+					cur_window = p1;
+					hgio_set_help( (BMSCR *)bmscr );
+					hgio_gsel( (BMSCR *)bmscr );
+					break;
+				}
+				printf( "hsp3gr: screen id=%d -> main screen (no screen)\n", p1 );
 				fflush( stdout );
 				bmscr = wnd->GetBmscr( 0 );
 				cur_window = 0;

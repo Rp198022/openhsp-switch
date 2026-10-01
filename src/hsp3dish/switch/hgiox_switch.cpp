@@ -312,6 +312,11 @@ static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
+/*	Elona's second screen (`screen 20`, 800x190).  The classic runtime gives it
+	a window of its own; this port gives it an offscreen framebuffer instead, and
+	sw_main_overlay() draws it back along the bottom of the main screen.  NULL
+	until the script asks for such a screen.									*/
+static BMSCR	*sw_helpbm = NULL;
 
 static void sw_fbo_log( const char *fmt, ... )
 {
@@ -887,6 +892,64 @@ static void sw_dump_all( void )
 }
 
 
+/*	Draw the second screen back over the main one, along the bottom.  Its own
+	framebuffer is left alone by the main screen's draw commands, so the help
+	panel no longer burns into the world map; here it is composited on top of
+	the finished frame, once, so both screens are visible where the classic
+	runtime put them.
+
+	An offscreen target keeps screen row 0 at texture v=0 - the opposite of the
+	window texture, whose row 0 sits at v=1 - so the v range runs the other way
+	round from the pass above.												*/
+static void sw_main_overlay( void )
+{
+	SWTARGET *t;
+	TEXINF *tex;
+	GLfloat vert[8];
+	GLfloat uv[8];
+	float ox = (float)_bgsx;
+	float oy = (float)_bgsy;
+	float hy, u1, v1;
+
+	if ( sw_helpbm == NULL ) return;
+	if ( sw_helpbm->flag == BMSCR_FLAG_NOUSE ) return;
+	t = sw_find( sw_helpbm );
+	if ( t == NULL ) return;
+	tex = GetTex( sw_helpbm->texid );
+	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
+
+	hy = (float)sw_helpbm->sy;
+	if ( ( hy <= 0.0f ) || ( hy > oy ) ) hy = oy;
+	u1 = (float)sw_helpbm->sx * tex->ratex;
+	v1 = (float)sw_helpbm->sy * tex->ratey;
+	if ( u1 <= 0.0f ) u1 = 1.0f;
+	if ( v1 <= 0.0f ) v1 = 1.0f;
+
+	vert[0] = 0.0f;	vert[1] = -( oy - hy );
+	vert[2] = ox;	vert[3] = -( oy - hy );
+	vert[4] = 0.0f;	vert[5] = -oy;
+	vert[6] = ox;	vert[7] = -oy;
+
+	uv[0] = 0.0f;	uv[1] = 0.0f;
+	uv[2] = u1;		uv[3] = 0.0f;
+	uv[4] = 0.0f;	uv[5] = v1;
+	uv[6] = u1;		uv[7] = v1;
+
+	glDisableClientState( GL_COLOR_ARRAY );
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
+
+	sw_glColorKey( 0, 0 );
+	glEnable( GL_BLEND );
+	glBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+	sw_bind_tex( (int)tex->texid );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	ChangeTex( -1 );
+}
+
+
 static void sw_main_present( void )
 {
 	GLfloat vert[8];
@@ -948,6 +1011,11 @@ static void sw_main_present( void )
 	sw_bind_tex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
+
+	/*	The frame is on the window; the second screen, if the script asked for
+		one, is composited over it.  The backbuffer is not swapped yet, so both
+		passes land in the same presented frame.							*/
+	sw_main_overlay();
 }
 static int sw_bind_target( BMSCR *bm )
 {
@@ -1277,6 +1345,20 @@ void hgio_setback( BMSCR *bm )
 	//		(NULL=なし)
 	//
 	backbm = bm;
+}
+
+
+/*	Name the screen that sw_main_overlay() draws back over the main screen.
+	Handed over as soon as `screen` creates the second screen, so its framebuffer
+	is built here rather than on the first present that has to show it.			*/
+void hgio_set_help( BMSCR *bm )
+{
+	sw_helpbm = bm;
+	if ( bm == NULL ) return;
+	sw_bind_target( bm );
+	if ( mainbm != NULL ) {
+		sw_bind_target( mainbm );		// 呼び出し元はこの後 gsel する
+	}
 }
 
 
@@ -3199,6 +3281,7 @@ void hgio_delscreen( BMSCR *bm )
 		then took a garbage multiply color, and on the runs where that memory
 		held zeros every one of them was painted opaque black over the page.	*/
 	if ( sw_colorbm == bm ) sw_colorbm = NULL;
+	if ( sw_helpbm == bm ) sw_helpbm = NULL;
 	if ( bm->texid != -1 ) {
 		DeleteTex( bm->texid );
 		//gb_delimage( bm->texid );
