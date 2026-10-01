@@ -762,6 +762,19 @@ static int cmdfunc_extcmd( int cmd )
 		break;
 	case 0x13:								// cls
 		p1 = code_getdi( 0 );
+		{
+			/*	t23 probe: Elona clears its screens by painting over them, not
+				with `cls` (the whole script has two of them).  If this counter
+				stays at zero, the clear has to come from the composition.  */
+			static int sw_cls_n = 0;
+			if ( sw_cls_n < 300 ) {
+				sw_cls_n++;
+				printf( "t23: cls #%d mode=%d bm=%p type=%d texid=%d tick=%d\n",
+					sw_cls_n, p1, (void *)bmscr, bmscr->type, bmscr->texid,
+					(int)hgio_gettick() );
+				fflush( stdout );
+			}
+		}
 		bmscr->Cls( p1 );
 		break;
 	case 0x14:								// font
@@ -1811,6 +1824,17 @@ static int cmdfunc_extcmd( int cmd )
 		p1 = code_getdi( 0 );
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( -1 );
+		{
+			/*	t23 probe: `setcls` steers how the next `cls` clears.  The
+				engine sets it once at start-up, so anything here is the script.*/
+			static int sw_setcls_n = 0;
+			if ( sw_setcls_n < 200 ) {
+				sw_setcls_n++;
+				printf( "t23: setcls #%d mode=%d color=%06x tex=%d tick=%d\n",
+					sw_setcls_n, p1, p2 & 0xffffff, p3, (int)hgio_gettick() );
+				fflush( stdout );
+			}
+		}
 		hgio_clsmode( p1, p2, p3 );
 		break;
 

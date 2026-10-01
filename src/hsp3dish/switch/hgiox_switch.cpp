@@ -312,6 +312,8 @@ static int		sw_attach_report = 0;	// P3 diagnostic
 static int		sw_buffer_report = 0;	// P3 diagnostic
 static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
+static int		sw_copy_skip_report = 0;	// t23 probe: copies dropped for a missing source
+static int		sw_copy_big_report = 0;	// t23 probe: picture-buffer restores seen
 /*	Elona's second screen (`screen 20`, 800x190).  The classic runtime gives it
 	a window of its own; this port gives it an offscreen framebuffer instead, and
 	sw_main_overlay() draws it back along the bottom of the main screen.  NULL
@@ -712,6 +714,11 @@ static void sw_bind_tex( int id )
 static TEXINF *sw_tex_src( BMSCR *bmsrc, TEXINF *scratch )
 {
 	if ( bmsrc == NULL ) return NULL;
+	/*	t23: only the window may sit at texid -1.  A screen that has been
+		deleted keeps -1 as well, and GetTex() does not range-check: GetTex(-1)
+		reads the slot before the table and hands back a random mode, size and
+		GL name, which the copy then drew as a garbage tile over the screen.	*/
+	if ( ( bmsrc->texid < 0 ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) ) return NULL;
 	if ( ( bmsrc->texid < 0 ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
 		if ( sw_main_ok != 1 ) return NULL;
 		memset( scratch, 0, sizeof( TEXINF ) );
@@ -2357,10 +2364,36 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 	TEXINF mtex;
 	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
-	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
+	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) {
+		/*	t23 probe: Elona restores whole regions of a screen from picture
+			buffers it keeps around (`gcopy BUFFER_MAP, ...`).  A source without
+			a texture drops the copy in silence and the region then keeps
+			whatever the last composition left on it.							*/
+		if ( sw_copy_skip_report < 300 ) {
+			sw_copy_skip_report++;
+			sw_fbo_log( "hgio: copy SKIP src bmsrc=%p texid=%d type=%d xy=%d,%d %dx%d -> dst tx=%d at %g,%g tick=%d\n",
+				(void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -99,
+				( bmsrc != NULL ) ? bmsrc->type : -1,
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				bm->texid, (double)bm->cx, (double)bm->cy, hgio_gettick() );
+		}
+		return;
+	}
 
 	sw_trc_ex( "copy", bm, (float)bm->cx, (float)bm->cy, s_psx, s_psy,
 		bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy );
+	/*	t23 probe: remember every copy big enough to be a picture-buffer
+		restore, and where it landed - the diag log fills up long before
+		the trace does.														*/
+	{
+		long sw_copy_px = (long)srcsx * (long)srcsy;
+		if ( ( sw_copy_big_report < 300 ) && ( sw_copy_px >= 40000L ) ) {
+			sw_copy_big_report++;
+			sw_fbo_log( "hgio: copy BIG %dx%d src tx=%d %d,%d -> dst tx=%d at %g,%g gm=%d tick=%d\n",
+				(int)srcsx, (int)srcsy, bmsrc->texid, (int)xx, (int)yy,
+				bm->texid, (double)bm->cx, (double)bm->cy, bm->gmode, hgio_gettick() );
+		}
+	}
 
     GLfloat *flp;
     GLfloat x1,y1,x2,y2,tx0,tx1,ty0,ty1;
