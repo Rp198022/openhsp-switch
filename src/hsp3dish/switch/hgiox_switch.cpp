@@ -1906,6 +1906,31 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 
 	if ( sw_bind_target( bm ) != 0 ) return -1;
 
+	/*	t23 probe: read the picture itself back before the blit.  The blit
+		lands as opaque black - which is what a sampler gives back for a
+		texture with no usable level - so first find out whether the picture
+		RegistTex() just decoded has pixels at all.						*/
+	{
+		static int sw_srctex_probe = 0;
+		if ( sw_srctex_probe < 24 ) {
+			unsigned char sp[4] = { 7, 7, 7, 7 };
+			if ( sw_scratch_ensure( 64, 64 ) == 0 ) {
+				sw_srctex_probe++;
+				sw_bfb(  sw_scratch_fbo );
+				glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+					(GLuint)t->texid, 0 );
+				glReadPixels( (GLint)( t->width / 2 ), (GLint)( t->height / 2 ), 1, 1,
+					GL_RGBA, GL_UNSIGNED_BYTE, sp );
+				glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+					sw_scratch_tex, 0 );
+				sw_fbo_log( "hgio: srctex '%s' gl=%u pic=%dx%d pot=%dx%d px=%d,%d,%d,%d err=0x%x\n",
+					fname, (unsigned)t->texid, (int)t->width, (int)t->height, (int)t->sx, (int)t->sy,
+					sp[0], sp[1], sp[2], sp[3], (unsigned)sw_glGetError() );
+			}
+			sw_bind_target( bm );
+		}
+	}
+
 	vert[0] = 0.0f;	vert[1] = 0.0f;
 	vert[2] = w;		vert[3] = 0.0f;
 	vert[4] = 0.0f;	vert[5] = -h;
