@@ -1904,6 +1904,7 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	GLfloat vert[8];
 	GLfloat uv[8];
 	float w, h;
+	float px, py;
 
 	if ( bm == NULL ) return -1;
 	if ( bm->type == HSPWND_TYPE_MAIN ) return -1;
@@ -1944,10 +1945,20 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		}
 	}
 
-	vert[0] = 0.0f;	vert[1] = 0.0f;
-	vert[2] = w;		vert[3] = 0.0f;
-	vert[4] = 0.0f;	vert[5] = -h;
-	vert[6] = w;		vert[7] = -h;
+	/*	the classic overwrite lands at the current position, not at the
+		origin: hspwnd_win.cpp Picload() takes `x = bm->cx; y = bm->cy`
+		and renders the picture there (mode 1 never re-makes the screen).
+		Elona relies on that everywhere - `pos 960, 96; picload
+		graphic\deco_cm.bmp, 1` keeps its decorations clear of the
+		interface art sharing BUFFER_INF, and stamping them at (0,0)
+		overwrote the window-frame tiles `window` reads back from
+		(0..264, 48..264) - so the panel body disappeared.				*/
+	px = (float)bm->cx;
+	py = (float)-bm->cy;
+	vert[0] = px;		vert[1] = py;
+	vert[2] = px + w;	vert[3] = py;
+	vert[4] = px;		vert[5] = py - h;
+	vert[6] = px + w;	vert[7] = py - h;
 
 	uv[0] = 0.0f;		uv[1] = 0.0f;
 	uv[2] = w * t->ratex;	uv[3] = 0.0f;
@@ -1995,8 +2006,9 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 
 	if ( sw_texload_report < 64 ) {
 		sw_texload_report++;
-		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d\n",
-			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy );
+		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
+			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
+			(int)bm->cx, (int)bm->cy );
 	}
 
 	return 0;
