@@ -450,6 +450,7 @@ static int	sw_key_len = 0;
 static int	sw_key_pos = 0;
 static int	sw_key_wait = 0;
 static int	sw_key_target = 0;
+static int	sw_keyobj_report = 0;	/* t23 probe: why the object check said no */
 
 static void sw_key_read( void )
 {
@@ -491,15 +492,35 @@ static void sw_key_read( void )
 static HSPOBJINFO *sw_key_object( Bmscr *bm )
 {
 	HSPOBJINFO *p;
+	int why;
 
-	if ( bm == NULL || bm->mem_obj == NULL ) return NULL;
-	if ( sw_key_target < 0 || sw_key_target >= bm->objmax ) return NULL;
-	p = bm->GetHSPObject( sw_key_target );
-	if ( p == NULL ) return NULL;
-	if ( p->owmode == HSPOBJ_NONE ) return NULL;
-	if ( p->bm != (void *)bm ) return NULL;
-	if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) return NULL;
-	return p;
+	why = 0;
+	p = NULL;
+	if ( bm == NULL ) why = 1;
+	else if ( bm->mem_obj == NULL ) why = 2;
+	else if ( sw_key_target < 0 || sw_key_target >= bm->objmax ) why = 3;
+	else {
+		p = bm->GetHSPObject( sw_key_target );
+		if ( p == NULL ) why = 4;
+		else if ( p->owmode == HSPOBJ_NONE ) why = 5;
+		else if ( p->bm != (void *)bm ) why = 6;
+		else if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) why = 7;
+		else return p;
+	}
+	/*	t23 probe: every injected key came back found=0; name the
+		condition that refused it, and where the object really lives
+		when the window disagrees.									*/
+	if ( sw_keyobj_report < 300 ) {
+		sw_keyobj_report++;
+		printf( "t23: keyobj reject why=%d bm=%p wid=%d type=%d objmax=%d target=%d"
+			" obj=%p pbm=%p owmode=%d tick=%d\n",
+			why, (void *)bm, ( bm != NULL ) ? bm->wid : -1,
+			( bm != NULL ) ? bm->type : -1, ( bm != NULL ) ? bm->objmax : -1,
+			sw_key_target, (void *)p, ( p != NULL ) ? p->bm : NULL,
+			( p != NULL ) ? (int)p->owmode : -1, (int)hgio_gettick() );
+		fflush( stdout );
+	}
+	return NULL;
 }
 
 static void sw_key_tick( void )
@@ -959,12 +980,24 @@ static int cmdfunc_extcmd( int cmd )
 	case 0x1e:								// gcopy
 		{
 		Bmscr *src;
+		static int sw_gcopy_report = 0;	/* t23 probe: the command layer's view */
 		p1 = code_getdi( 0 );
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( 0 );
 		p4 = code_getdi( bmscr->gx );
 		p5 = code_getdi( bmscr->gy );
 		src = wnd->GetBmscrSafe( p1 );
+		/*	t23 probe: is the picture-buffer restore (`gcopy BUFFER_MAP, 0, 0,
+			800, 500` before the name prompt) reaching the command at all?
+			Big copies only, with the resolved source.					*/
+		if ( ( p4 >= 256 ) && ( p5 >= 256 ) && ( sw_gcopy_report < 400 ) ) {
+			sw_gcopy_report++;
+			printf( "t23: gcopy #%d srcid=%d src=%p dst=%p type=%d at %d,%d %dx%d"
+				" gmode=%d tick=%d\n",
+				sw_gcopy_report, p1, (void *)src, (void *)bmscr, bmscr->type,
+				p2, p3, p4, p5, bmscr->gmode, (int)hgio_gettick() );
+			fflush( stdout );
+		}
 		if ( bmscr->Copy( src, p2, p3, p4, p5 ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
 		break;
 		}
