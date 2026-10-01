@@ -394,7 +394,12 @@ int changedir( char *name )
 int delfile( char *name )
 {
 	char buf[_MAX_PATH+1];
-	return unlink( supio_slash( name, buf, sizeof( buf ) ) );
+	/*	The interpreter reads this the Windows way: hsp3code.cpp throws
+		unless the call answers non-zero, because DeleteFile() reports
+		success that way round.  unlink() is the exact opposite, so passing
+		its result through unchanged made every *successful* delete raise
+		"File I/O error".  Answer in the Windows convention.     			*/
+	return ( unlink( supio_slash( name, buf, sizeof( buf ) ) ) == 0 );
 	//return remove( name );		// ディレクトリにもファイルにも対応
 }
 
