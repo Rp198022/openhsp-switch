@@ -2485,6 +2485,17 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty0 = ((GLfloat)yy);
         ty1 = ((GLfloat)(yy+srcsy));
     }
+    /*	t23: the window texture keeps screen row 0 at v=1 while an
+    	offscreen screen keeps it at v=0 (see sw_apply_target), so a copy
+    	that reads the window has to flip the source rows - otherwise the
+    	character sheet stored into the picture buffer at chara.hsp:4183
+    	comes back upside down when 4209 restores it.  Same story for
+    	every other read-back from the window.                              */
+    if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
+        float fh = (float)tex->sy;
+        ty0 = fh - ty0;
+        ty1 = fh - ty1;
+    }
     
     flp = vertf2D;
     x1 = (GLfloat)bm->cx;
