@@ -1947,9 +1947,16 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
 
-	sw_glColorKey( 0, 0 );
-	glDisable( GL_BLEND );			/* overwrite writes pixels, it does not blend */
 	sw_bind_tex( (int)t->texid );
+	/*	The picture was created by RegistTex() a moment ago and nothing has
+		touched its filters yet.  ES2 defaults GL_TEXTURE_MIN_FILTER to
+		GL_NEAREST_MIPMAP_LINEAR, so a texture with only level 0 is
+		incomplete and samples as opaque black - which is what the screen
+		was getting.  Every other draw path sets the filters through
+		hgio_setTexBlendMode(); this one has to as well.  gmode 0 = no
+		blend, which is what an overwrite wants, and it also turns the
+		colour key off and drops the colour array.						*/
+	hgio_setTexBlendMode( bm, 0, 0 );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	{
 		/*	t23 probe: read the blit back while the screen's own framebuffer is
