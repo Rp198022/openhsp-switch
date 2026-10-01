@@ -482,9 +482,30 @@ static void sw_key_read( void )
 	if ( fp != NULL ) fclose( fp );
 }
 
+/*	Only an entry that says it lives in the very window we looked it up in
+	is believed.  GetHSPObject() indexes the raw per-window table, and that
+	table grows through sbExpand() - which does not zero - so an id the
+	window never created holds whatever the allocation held.  A call
+	through such an entry took the guest down once (see the crash note in
+	the port log), so the notice goes only to a verified object.			*/
+static HSPOBJINFO *sw_key_object( Bmscr *bm )
+{
+	HSPOBJINFO *p;
+
+	if ( bm == NULL || bm->mem_obj == NULL ) return NULL;
+	if ( sw_key_target < 0 || sw_key_target >= bm->objmax ) return NULL;
+	p = bm->GetHSPObject( sw_key_target );
+	if ( p == NULL ) return NULL;
+	if ( p->owmode == HSPOBJ_NONE ) return NULL;
+	if ( p->bm != (void *)bm ) return NULL;
+	if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) return NULL;
+	return p;
+}
+
 static void sw_key_tick( void )
 {
 	HSPOBJINFO *info;
+	Bmscr *dst;
 	int n;
 	unsigned char c;
 
@@ -506,23 +527,35 @@ static void sw_key_tick( void )
 	else if ( ( c & 0xf0 ) == 0xe0 ) n = 3;
 	else if ( ( c & 0xf8 ) == 0xf0 ) n = 4;
 	if ( sw_key_pos + n > sw_key_len ) n = 1;
-	memcpy( bmscr->keybuf, sw_key_buf + sw_key_pos, n );
-	bmscr->keybuf[n] = 0;
-	bmscr->keybuf_index = 0;
+	/*	Pick the window whose object should take the character.  The current
+		one is tried first; the satisfied-prompt screen switches between two
+		windows every frame, so a character that lands while the message
+		window is current would otherwise go nowhere - fall back to scanning
+		the other windows for one that does have the object.				*/
+	dst = bmscr;
+	info = sw_key_object( dst );
+	if ( info == NULL ) {
+		int wi;
+		for ( wi = 0; wi < wnd->GetBmscrMax(); wi++ ) {
+			Bmscr *wb = (Bmscr *)wnd->GetBmscr( wi );
+			if ( wb == NULL || wb == dst ) continue;
+			info = sw_key_object( wb );
+			if ( info != NULL ) { dst = wb; break; }
+		}
+	}
+	memcpy( dst->keybuf, sw_key_buf + sw_key_pos, n );
+	dst->keybuf[n] = 0;
+	dst->keybuf_index = 0;
 
 	/*	Straight to the named object, so the game's own selection - and the
 		highlight the player sees - is left where the script put it.		*/
-	info = bmscr->GetHSPObject( sw_key_target );
-	if ( info != NULL && info->owmode != HSPOBJ_NONE &&
-			( info->owmode & HSPOBJ_OPTION_LAYEROBJ ) == 0 ) {
-		if ( info->func_notice != NULL ) {
-			info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
-		}
+	if ( info != NULL && info->func_notice != NULL ) {
+		info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
 	}
 
 	printf( "hsp3switch: ## key '%c' (0x%02x) -> obj %d bm=%p wid=%d cur=%d found=%d om=%d\n",
 			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c, sw_key_target,
-			(void *)bmscr, bmscr->wid, cur_window,
+			(void *)dst, dst->wid, cur_window,
 			( info != NULL ) ? 1 : 0,
 			( info != NULL ) ? (int)info->owmode : -1 );
 	fflush( stdout );
