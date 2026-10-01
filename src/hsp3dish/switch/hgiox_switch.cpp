@@ -832,7 +832,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 }
 
 
-#define SW_DUMP_MAX_PIXELS 1500000L
+#define SW_DUMP_MAX_PIXELS 3000000L
 
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
@@ -894,14 +894,15 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 }
 
 
-static void sw_dump_all( void )
+static void sw_dump_all( const char *pfx )
 {
 	int i;
-	sw_dump_fbo( "smp_main.bmp", ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+	char nm[40];
+	snprintf( nm, sizeof( nm ), "%s_main.bmp", pfx );
+	sw_dump_fbo( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
 		(int)_sizex, (int)_sizey );
 	for ( i = 0; i < sw_target_used; i++ ) {
-		char nm[40];
-		snprintf( nm, sizeof( nm ), "smp_t%02d.bmp", (int)sw_targets[i].bm->texid );
+		snprintf( nm, sizeof( nm ), "%s_t%02d.bmp", pfx, (int)sw_targets[i].bm->texid );
 		sw_dump_fbo( nm, sw_targets[i].fbo, sw_targets[i].bm->sx, sw_targets[i].bm->sy );
 	}
 }
@@ -977,7 +978,13 @@ static void sw_main_present( void )
 
 	if ( !sw_dumped && ( hgio_gettick() > 15000 ) ) {
 		sw_dumped = 1;
-		sw_dump_all();
+		sw_dump_all( "smp" );
+	}
+	/*	t23: the world stage needs its own snapshot - the first dump always
+		lands on the title screen.											*/
+	if ( ( sw_dumped == 1 ) && ( hgio_gettick() > 240000 ) ) {
+		sw_dumped = 2;
+		sw_dump_all( "sw" );
 	}
 
 	u0 = ( _sizex > 0 ) ? (float)_originX / (float)_sizex : 0.0f;
@@ -1919,6 +1926,26 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	glDisable( GL_BLEND );			/* overwrite writes pixels, it does not blend */
 	sw_bind_tex( (int)t->texid );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	{
+		/*	t23 probe: read the blit back while the screen's own framebuffer is
+			still bound.  If the picture is here and the dumped screen is black
+			later, something painted over it; if it is black here, the blit itself
+			did not land.														*/
+		static int sw_picload_probe = 0;
+		if ( sw_picload_probe < 48 ) {
+			unsigned char mid[4] = { 9, 9, 9, 9 };
+			unsigned char cor[4] = { 8, 8, 8, 8 };
+			SWTARGET *pr = sw_find( bm );
+			glReadPixels( (GLint)( bm->sx / 2 ), (GLint)( bm->sy / 2 ), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, mid );
+			glReadPixels( 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, cor );
+			sw_picload_probe++;
+			sw_fbo_log( "hgio: picload verify bm=%p txtid=%d sx=%d sy=%d pic=%dx%d gl=%u fbo=%u cur=%p mid=%d,%d,%d,%d cor=%d,%d,%d,%d err=0x%x\n",
+				(void *)bm, bm->texid, bm->sx, bm->sy, (int)t->width, (int)t->height,
+				(unsigned)t->texid, pr ? (unsigned)pr->fbo : 0u, (void *)sw_cur,
+				mid[0], mid[1], mid[2], mid[3], cor[0], cor[1], cor[2], cor[3],
+				(unsigned)sw_glGetError() );
+		}
+	}
 	ChangeTex( -1 );
 
 	if ( sw_texload_report < 64 ) {
