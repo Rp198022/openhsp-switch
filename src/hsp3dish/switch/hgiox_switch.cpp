@@ -2216,7 +2216,17 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 	glEnable(GL_TEXTURE_2D);
 #endif
 
-	sw_bind_tex( texid );
+	/*	texid here is an index into texinf[], not a GL name: the caller takes it
+		from texmes::_texture, which hgio_fontsystem_setup() filled in with the
+		value MakeEmptyTexBuffer() returned.  Binding it raw put an arbitrary GL
+		name in the sampler - whichever texture happened to own that integer - so
+		every string sampled a foreign image and was painted as opaque black bars
+		even though its quad and UVs were right.  Resolve it the way the picture
+		paths do.															*/
+	{
+		TEXINF *ftex = GetTex( texid );
+		sw_bind_tex( ( ftex != NULL ) ? (int)ftex->texid : 0 );
+	}
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
