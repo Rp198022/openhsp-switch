@@ -948,22 +948,6 @@ static void sw_main_present( void )
 	sw_bind_tex( (int)sw_main_tex );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	ChangeTex( -1 );
-
-	/*	[P3 R23 / 2026-10-01] Clear the main screen FBO after present.  Elona
-		never calls cls and never sets CLSMODE_SOLID, so without this the
-		offscreen framebuffer keeps the previous frame's contents and every
-		new frame is drawn on top of the last one - the "screen overlay"
-		symptom.  Clearing here makes each frame start from black, matching
-		what the Windows version gets from InvalidateRect on a GDI window.
-		Risk: title-menu idiom draws the background once then repaints only
-		the cursor region each frame - this patch wipes that background, so
-		the title menu may go black between redraws.  See handover R23. */
-	if ( sw_main_ok == 1 ) {
-		sw_bfb( sw_main_fbo );
-		glClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
-		glClear( GL_COLOR_BUFFER_BIT );
-		sw_bfb( 0 );
-	}
 }
 static int sw_bind_target( BMSCR *bm )
 {
