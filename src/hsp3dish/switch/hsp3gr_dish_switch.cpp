@@ -453,6 +453,18 @@ static void cmdfunc_dialog( void )
 #define SW_KEY_MAX		64
 #define SW_KEY_GAP		6			/* frames between two injected keys */
 
+/*	keys.txt lives on the SD card and sw_key_tick() runs on every extended
+	command - hundreds of times a second.  Probing the file that often is a real
+	cost on hardware, where each probe is an fopen() on the card, and Eden logs
+	the very same probe as ~900 GetFileTimeStampRaw per second - i.e. the port
+	was asking the filesystem about keys.txt far more often than it was drawing
+	frames.  Once a probe comes back empty the next one is therefore deferred by
+	SW_KEY_PROBE_GAP calls, and the deferral is dropped as soon as a probe does
+	find something, so an automation run still gets its characters promptly.
+	The pad is asked every call regardless: it is pure memory.				*/
+#define SW_KEY_PROBE_GAP	64
+static int	sw_key_probe_skip = 0;
+
 static char	sw_key_buf[SW_KEY_MAX];
 static int	sw_key_len = 0;
 static int	sw_key_pos = 0;
@@ -567,7 +579,15 @@ static void sw_key_tick( void )
 	if ( sw_key_pos >= sw_key_len ) {
 		sw_key_len = 0;
 		sw_key_pos = 0;
-		if ( !sw_key_from_pad() ) sw_key_read();
+		if ( !sw_key_from_pad() ) {
+			if ( sw_key_probe_skip > 0 ) sw_key_probe_skip--;
+			else {
+				sw_key_read();
+				/*	nothing there: back off, unless the read did produce
+					characters (an automation run may have more to say).	*/
+				sw_key_probe_skip = ( sw_key_len > 0 ) ? 0 : SW_KEY_PROBE_GAP;
+			}
+		}
 		if ( sw_key_pos >= sw_key_len ) return;
 	}
 
