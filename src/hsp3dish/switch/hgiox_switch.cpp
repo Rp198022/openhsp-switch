@@ -1006,9 +1006,13 @@ static void sw_main_present( void )
 	}
 	/*	t23: the world stage needs its own snapshot - the first dump always
 		lands on the title screen.											*/
-	if ( ( sw_dumped == 1 ) && ( hgio_gettick() > 240000 ) ) {
+	if ( ( sw_dumped == 1 ) && ( hgio_gettick() > 120000 ) ) {
 		sw_dumped = 2;
 		sw_dump_all( "sw" );
+	}
+	if ( ( sw_dumped == 2 ) && ( hgio_gettick() > 200000 ) ) {
+		sw_dumped = 3;
+		sw_dump_all( "sw2" );
 	}
 
 	u0 = ( _sizex > 0 ) ? (float)_originX / (float)_sizex : 0.0f;
@@ -2601,6 +2605,7 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	GLfloat cols[16];
 	BMSCR *bm = sw_fc_lock_bm;
 	int i, w, h;
+	{ FILE *_fp = fopen( "fcsub_probe.log", "ab" ); if ( _fp != NULL ) { fprintf( _fp, "FCSUB rgb=%d,%d,%d lockbm=%p cur=%p pos=%d,%d size=%dx%d\n", r, g, b, (void *)sw_fc_lock_bm, (void *)sw_cur, sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y ); fclose( _fp ); } }
 	if ( SWITCH_DIAG && sw_fcsub_trace < 40 ) {
 		sw_fcsub_trace++;
 		if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
@@ -2655,6 +2660,11 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
 	glBlendFunc( GL_ONE, GL_ONE );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	/*	Restored: the gcopy that follows samples the very texture this quad
+		just wrote, so the subtraction has to be out of the pipeline before
+		the sample lands - the failure shows up as un-subtracted or missing
+		PCC parts.  Eden renders on the host GPU too, so it needs the stall. */
+	glFinish();
 	glBlendEquation( GL_FUNC_ADD );
 	if ( tex2d_was ) glEnable( GL_TEXTURE_2D );
 
