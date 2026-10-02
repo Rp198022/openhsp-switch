@@ -986,8 +986,10 @@ static void sw_main_overlay( void )
 }
 
 
+unsigned int sw_last_render_tick = 0;	/* tick of the last presented frame	*/
 static void sw_main_present( void )
 {
+	sw_last_render_tick = (unsigned int)hgio_gettick();
 	GLfloat vert[8];
 	GLfloat uv[8];
 	float ox = (float)_bgsx;
