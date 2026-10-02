@@ -470,14 +470,6 @@ int TexFontInit( char *path, int size )
 	if (*path != 0) {
 		strcpy ( fontpath, path );
 	}
-	{
-		/*	t23 probe: how often the file is really opened now.			*/
-		static int open_rep = 0;
-		if ( open_rep < 30 ) {
-			open_rep++;
-			Alertf( "t23: TTF_OpenFont [%s] size=%d n=%d", fontpath, size, open_rep );
-		}
-	}
 	font = TTF_OpenFont( fontpath, size );
 	font_defsize = size;
 
