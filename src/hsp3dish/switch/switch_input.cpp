@@ -71,12 +71,13 @@ typedef struct {
 #define SW_TRIGGER_ON	8000
 
 /*	ONLY THE KEYS ELONA READS AS A SCANCODE ARE LISTED HERE: the four
-	directions (movement, and the lock-on cursor on the right stick) and the
-	two values key_check() tests with `stick p,15` - Escape (128) and Tab
-	(1024).  Everything Elona has to receive as a *letter*, or as Return, is
+	directions (movement, and the lock-on cursor on the right stick), the two
+	values key_check() tests with `stick p,15` - Escape (128) and Tab (1024) -
+	and Return, which a few routines read with `getkey p,13` instead of going
+	through key_check().  Everything Elona has to receive as a *letter* is
 	typed as a character instead by switch_input_take_keys() below, because
-	key_check() (elona232src/init.hsp:7325) takes those from its hidden keylog
-	box and never from a scancode.										*/
+	key_check() (elona232src/init.hsp:7325) takes letters from its hidden
+	keylog box and never from a scancode.								*/
 static const SW_KEYMAP_ENTRY sw_keymap[] = {
 	{ SDL_CONTROLLER_BUTTON_DPAD_LEFT,		SW_NO_AXIS,		SDL_SCANCODE_LEFT },
 	{ SDL_CONTROLLER_BUTTON_DPAD_UP,		SW_NO_AXIS,		SDL_SCANCODE_UP },
@@ -85,13 +86,19 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 
 	/*	SDL names the face buttons the Xbox way - its logical A is the bottom
 		button and its logical B the right-hand one - while Nintendo labels
-		the Switch the other way round, so the two entries below are named by
+		the Switch the other way round, so the entries below are named by
 		POSITION: SDL B is the top-right button (Nintendo's A), SDL A the
-		bottom one (Nintendo's B), SDL X the top one (Nintendo's Y the left).
+		bottom one (Nintendo's B), SDL X the top one, SDL Y the left one.
 		That is what this port's own startup line prints: a:b1,b:b0,x:b3,y:b2.
-		Of the four, only Nintendo's B has a scancode key_check() reads, and
-		only while it is not on the second layer - on that layer the bottom
-		button drinks instead.  The other three are typed as characters.	*/
+
+		Return stays here even though the pad's A also *types* a CR: the two
+		serve different readers.  key_check() wants the character, but a few
+		routines take Enter straight from the key with `getkey p,13` - the
+		item marker in command.hsp, the help viewer - and those need the
+		scancode.  Only Nintendo's B has a scancode key_check() reads, and
+		only while it is not on the second layer; on that layer the bottom
+		button drinks instead.  X and Y are typed, not scancoded.			*/
+	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm: pad A, right	*/
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
 	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad R			*/
 };
