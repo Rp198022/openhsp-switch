@@ -2750,8 +2750,20 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty1 -= 0.5f;
 	}
 	sw_scratch_used = 0;
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
+	/*	A gcopy whose source and destination are the *same* offscreen screen
+		must be staged through the scratch texture.  Without it the source is
+		sampled from the very texture being rendered into, which GL leaves
+		undefined - the classic runtime does it row by row on the CPU and gets
+		it right.
+
+		This used to be limited to 64x64, which silently excluded Elona's PCC
+		composition: create_pcpic copies a 128x198 part strip from 128,0 to
+		256,0, tints it, and copies it back to 0,0 (chips.hsp:111-118) - all
+		inside one buffer.  Those two copies are exactly the ones that have to
+		be right, and they were the two that were left undefined, so the
+		composed character came out with grey hair and a missing eye while
+		everything drawn from a picture atlas (every NPC) stayed correct.	*/
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
