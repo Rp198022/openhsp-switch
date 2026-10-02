@@ -158,6 +158,13 @@ static int watch_stuck_total = 0;		/* log budget for the whole run */
 //	finds one by name and hspctx->mem_var holds its PVal: the same two calls
 //	the reference debugger is built on (hsp3code.cpp:3976-3989).
 //
+/*	Switch diagnostics.  0 = shipping build: probes, traces and the
+	watchdog thread are compiled out.  Build with -DSWITCH_DIAG=1
+	(makefile.switch) when a run needs them back.					*/
+#ifndef SWITCH_DIAG
+#define SWITCH_DIAG 0
+#endif
+
 static int watch_var_lines = 0;
 
 static void glue_watch_i( char *out, int len, const char *name )
@@ -323,6 +330,7 @@ int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 	//	in hand; before this the pointer would be the wrong one on the heap.
 	//
 	watch_ctx = info->hspctx;
+#if SWITCH_DIAG
 	{
 		/*	A second Hsp3ExtLibInit (a script restart calls the init again)
 			must not start a second watchdog: two threads double every probe
@@ -338,6 +346,7 @@ int Hsp3ExtLibInit( HSP3TYPEINFO *info )
 			watch_started = 1;
 		}
 	}
+#endif
 #endif
 	return 0;
 }

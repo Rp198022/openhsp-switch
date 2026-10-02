@@ -42,6 +42,13 @@ static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
 //	The reference caps parameter lists at 16 as well (ExitFunc(),
 //	hsp3extlib_ffi.cpp:242).  No dependency declared by Elona exceeds 6.
 //
+/*	Switch diagnostics.  0 = shipping build: probes, traces and the
+	watchdog thread are compiled out.  Build with -DSWITCH_DIAG=1
+	(makefile.switch) when a run needs them back.					*/
+#ifndef SWITCH_DIAG
+#define SWITCH_DIAG 0
+#endif
+
 #define DLLSHIM_MAX_ARGS 16
 
 /*----------------------------------------------------------------*/
@@ -1405,16 +1412,20 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	//	its numlock and water calls within seconds, so the windowed trace cannot
 	//	answer "is the script reading the pad at all?".
 	//
-	if ( dllshim_joy_trace < 40 && strstr( desc, "JOY" ) != NULL ) {
+	#if SWITCH_DIAG
+if ( dllshim_joy_trace < 40 && strstr( desc, "JOY" ) != NULL ) {
 		printf( "hsp3switch: ### padtrace %s result=%d\n", desc, result );
 		fflush( stdout );
 		dllshim_joy_trace++;
 	}
-	if ( dllshim_bit_trace < 40 && strstr( desc, "BIT" ) != NULL ) {
+#endif
+	#if SWITCH_DIAG
+if ( dllshim_bit_trace < 40 && strstr( desc, "BIT" ) != NULL ) {
 		printf( "hsp3switch: ### padtrace %s result=%d\n", desc, result );
 		fflush( stdout );
 		dllshim_bit_trace++;
 	}
+#endif
 
 	//	P3 DIAGNOSTIC - how far the bytecode stream moved across this command.
 	//
@@ -1434,7 +1445,8 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	//	long before the interesting part is reached, and the last lines are the
 	//	ones that matter.
 	//
-	if ( pc_in - hspctx->mem_mcs >= DLLSHIM_TRACE_LO &&
+	#if SWITCH_DIAG
+if ( pc_in - hspctx->mem_mcs >= DLLSHIM_TRACE_LO &&
 		 pc_in - hspctx->mem_mcs <= DLLSHIM_TRACE_HI &&
 		 dllshim_trace_count < 400 ) {
 		printf( "hsp3switch: ### dll %s cmd=%d pc=%ld->%ld result=%d\n",
@@ -1445,6 +1457,7 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 		fflush( stdout );
 		dllshim_trace_count++;
 	}
+#endif
 
 	return RUNMODE_RUN;
 }

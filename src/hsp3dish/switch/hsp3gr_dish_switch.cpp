@@ -46,6 +46,13 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 #include "../win32/bmscr_exc.h"
 #endif
 
+/*	Switch diagnostics.  0 = shipping build: probes, traces and the
+	watchdog thread are compiled out.  Build with -DSWITCH_DIAG=1
+	(makefile.switch) when a run needs them back.					*/
+#ifndef SWITCH_DIAG
+#define SWITCH_DIAG 0
+#endif
+
 #define USE_WEBTASK
 #define USE_MMAN
 #define USE_ESSPRITE
@@ -864,7 +871,8 @@ static int cmdfunc_extcmd( int cmd )
 		/*	fork: temporary - which screen does the game present, and how
 			often?  One line a second is enough to tell a live window from
 			a stale one.												*/
-		{
+		#if SWITCH_DIAG
+{
 			static int sw_t23_rd = -1000;
 			int sw_t23_now = hgio_gettick();
 			if ( sw_t23_now - sw_t23_rd >= 1000 ) {
@@ -875,6 +883,7 @@ static int cmdfunc_extcmd( int cmd )
 				fflush( stdout );
 			}
 		}
+#endif
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( 0 );
 		p4 = code_getdi( 0 );
@@ -968,7 +977,8 @@ static int cmdfunc_extcmd( int cmd )
 			fflush( stdout );
 			p1 = 0;
 		}
-		{
+		#if SWITCH_DIAG
+{
 			static int sw_t23_gs = -1000;
 			int sw_t23_now = hgio_gettick();
 			if ( sw_t23_now - sw_t23_gs >= 1000 ) {
@@ -977,6 +987,7 @@ static int cmdfunc_extcmd( int cmd )
 				fflush( stdout );
 			}
 		}
+#endif
 
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
@@ -1264,7 +1275,8 @@ static int cmdfunc_extcmd( int cmd )
 				screen (hgio_set_help / sw_main_overlay).  The main screen still
 				presents every frame, so the window cannot freeze the way it did
 				when id 20 was given a screen the presenter never showed.		*/
-			{
+			#if SWITCH_DIAG
+{
 				static int sw_t23_sc = -1000;
 				int sw_t23_now = hgio_gettick();
 				if ( sw_t23_now - sw_t23_sc >= 1000 ) {
@@ -1274,6 +1286,7 @@ static int cmdfunc_extcmd( int cmd )
 					fflush( stdout );
 				}
 			}
+#endif
 			if (p1 != 0) {
 				/*	GetBmscr() reads the screen table by index with no bound
 					check, and Elona's second screen is id 20 while the table
