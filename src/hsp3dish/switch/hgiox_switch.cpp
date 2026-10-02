@@ -1910,6 +1910,29 @@ int hgio_texload( BMSCR *bm, char *fname )
 	path.																*/
 /*	t23 p3s175 probe: keep the picture name of the character screen's current
 	layer, and dump a framebuffer without the SWITCH_DIAG gate.				*/
+/*	t23 p3s176 probe: is this screen the 384x198 character picture?		*/
+static int sw_pp_is_pic( BMSCR *bm )
+{
+	if ( bm == NULL ) return 0;
+	return ( ( bm->sx >= 380 ) && ( bm->sx <= 400 ) && ( bm->sy == 198 ) );
+}
+
+static void sw_pp_log( const char *fmt, ... )
+{
+	FILE *fp;
+	va_list ap;
+	char buf[256];
+
+	va_start( ap, fmt );
+	vsnprintf( buf, sizeof( buf ), fmt, ap );
+	va_end( ap );
+	fp = fopen( "pcpic_chain.log", "ab" );
+	if ( fp != NULL ) {
+		fputs( buf, fp );
+		fclose( fp );
+	}
+}
+
 static char sw_pp_name[96] = "";
 static int sw_pp_n = 0;
 static int sw_pp_dumped = 0;
@@ -2777,6 +2800,17 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		}
 	}
 
+	/*	t23 p3s176 probe: anything touching the character picture.			*/
+	if ( ( sw_pp_n < 200 ) && ( sw_pp_is_pic( bmsrc ) || sw_pp_is_pic( bm ) ||
+		 ( ( srcsx == 32 ) && ( srcsy == 48 ) ) ) ) {
+		sw_pp_n++;
+		sw_pp_log( "cpy #%03d src=%p/%d %dx%d %d,%d dst=%p/%d %dx%d %d,%d gm=%d tick=%d\n",
+			sw_pp_n, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -9,
+			( bmsrc != NULL ) ? (int)bmsrc->sx : -1, ( bmsrc != NULL ) ? (int)bmsrc->sy : -1,
+			(int)xx, (int)yy,
+			(void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
+			(int)bm->cx, (int)bm->cy, bm->gmode, hgio_gettick() );
+	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
@@ -2939,6 +2973,17 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
+	/*	t23 p3s176 probe: anything touching the character picture.			*/
+	if ( ( sw_pp_n < 200 ) && ( sw_pp_is_pic( bmsrc ) || sw_pp_is_pic( bm ) ||
+		 ( ( srcsx == 32 ) && ( srcsy == 48 ) ) ) ) {
+		sw_pp_n++;
+		sw_pp_log( "rot #%03d src=%p/%d %dx%d %d,%d dst=%p/%d %dx%d %d,%d gm=%d tick=%d\n",
+			sw_pp_n, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -9,
+			( bmsrc != NULL ) ? (int)bmsrc->sx : -1, ( bmsrc != NULL ) ? (int)bmsrc->sy : -1,
+			(int)xx, (int)yy,
+			(void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
+			(int)bm->cx, (int)bm->cy, bm->gmode, hgio_gettick() );
+	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
