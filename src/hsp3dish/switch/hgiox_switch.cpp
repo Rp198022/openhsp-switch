@@ -1908,59 +1908,6 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
-/*	t23 p3s167 probe: dump a framebuffer to a BMP without the SWITCH_DIAG
-	gate, so a plain run can be inspected.									*/
-static int sw_pp_n = 0;
-static int sw_pp_dumped = 0;
-
-static void sw_pp_dump( const char *name, int w, int h )
-{
-	unsigned char *p;
-	FILE *fp;
-	unsigned char hdr[54];
-	int i, x, y, rowsz, filesize;
-
-	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
-	p = (unsigned char *)mem_ini( w * h * 4 );
-	if ( p == NULL ) return;
-	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
-	rowsz = w * 4;
-	filesize = 54 + rowsz * h;
-	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
-	hdr[0] = 'B'; hdr[1] = 'M';
-	hdr[2] = (unsigned char)( filesize & 0xff );
-	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
-	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
-	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
-	hdr[10] = 54;
-	hdr[14] = 40;
-	hdr[18] = (unsigned char)( w & 0xff );
-	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
-	hdr[22] = (unsigned char)( h & 0xff );
-	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
-	hdr[26] = 1;
-	hdr[28] = 32;
-	fp = fopen( name, "wb" );
-	if ( fp == NULL ) {
-		mem_bye( p );
-		return;
-	}
-	fwrite( hdr, 1, 54, fp );
-	for ( y = 0; y < h; y++ ) {
-		unsigned char *src = p + (size_t)y * rowsz;
-		unsigned char px[4];
-		for ( x = 0; x < w; x++ ) {
-			px[0] = src[x*4+2];
-			px[1] = src[x*4+1];
-			px[2] = src[x*4+0];
-			px[3] = 255;
-			fwrite( px, 1, 4, fp );
-		}
-	}
-	fclose( fp );
-	mem_bye( p );
-}
-
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
@@ -2897,56 +2844,6 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-
-	/*	t23 p3s167 probe: the world map draws the player with copyrot out of the
-		character screen.  Read the texel the blend samples and the pixel it
-		lands on: grey texel + skin dest means the hair is blended or clipped
-		away, skin texel means the texture bound here is not the composed one.	*/
-	if ( ( srcsx == 32 ) && ( srcsy == 48 ) && ( tex != NULL ) &&
-		 ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_pp_n < 48 ) ) {
-		unsigned char sp[4] = { 9, 9, 9, 9 };
-		unsigned char dp[4] = { 8, 8, 8, 8 };
-		int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
-		FILE *fp;
-
-		sw_pp_n++;
-		if ( sw_scratch_ensure( 64, 64 ) == 0 ) {
-			sw_bfb( sw_scratch_fbo );
-			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-				(GLuint)tex->texid, 0 );
-			glReadPixels( (GLint)( xx + 16 ), (GLint)( yy + 8 ), 1, 1,
-				GL_RGBA, GL_UNSIGNED_BYTE, sp );
-			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-				sw_scratch_tex, 0 );
-			/*	sw_bind_target() returns early when sw_cur already names
-				this screen, which would leave the scratch bound and every
-				later draw going into it - bind the screen outright.		*/
-			{
-				SWTARGET *st2 = sw_find( bm );
-				if ( st2 != NULL ) {
-					sw_bfb( st2->fbo );
-					sw_apply_target( bm );
-				}
-			}
-		}
-		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mh - ( bm->cy + 8 ) ), 1, 1,
-			GL_RGBA, GL_UNSIGNED_BYTE, dp );
-
-		fp = fopen( "pcpic_copy.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "#%02d src tx=%d gl=%u %dx%d xy=%d,%d"
-				" texel=%d,%d,%d dest=%d,%d,%d bm=%d %dx%d gm=%d tick=%d\n",
-				sw_pp_n, ( bmsrc != NULL ) ? bmsrc->texid : -9, (unsigned)tex->texid,
-				(int)tex->sx, (int)tex->sy, (int)xx, (int)yy,
-				sp[0], sp[1], sp[2], dp[0], dp[1], dp[2],
-				bm->type, (int)bm->sx, (int)bm->sy, bm->gmode, hgio_gettick() );
-			fclose( fp );
-		}
-		if ( sw_pp_dumped < 2 ) {
-			sw_pp_dumped++;
-			sw_pp_dump( "copyrot_main.bmp", ( bm->sx > 0 ) ? (int)bm->sx : 800, mh );
-		}
-	}
 }
 
 
