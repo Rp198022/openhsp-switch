@@ -321,8 +321,6 @@ static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
 static int		sw_copy_skip_report = 0;	// t23 probe: copies dropped for a missing source
 static int		sw_copy_big_report = 0;	// t23 probe: picture-buffer restores seen
-static int sw_pp_rotn = 0;
-static int sw_pp_rot_report = 0;
 static int		sw_panel_a = 0;	// t23 probe: window caught right after the sheet copy
 static int		sw_panel_b = 0;	// t23 probe: ...and again when that frame is presented
 /*	Elona's second screen (`screen 20`, 800x190).  The classic runtime gives it
@@ -2739,62 +2737,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 }
 
 
-/*	t23 p3s183 probe: is this screen the 384x198 character picture?		*/
-static int sw_pp_is_pic( BMSCR *bm )
-{
-	if ( bm == NULL ) return 0;
-	return ( ( bm->sx >= 380 ) && ( bm->sx <= 400 ) && ( bm->sy == 198 ) );
-}
-
-/*	Read the currently bound framebuffer back as a 32-bit BMP.			*/
-static void sw_pp_dump( const char *name, int w, int h )
-{
-	unsigned char *p;
-	FILE *fp;
-	unsigned char hdr[54];
-	int i, x, y, rowsz, filesize;
-
-	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
-	p = (unsigned char *)mem_ini( w * h * 4 );
-	if ( p == NULL ) return;
-	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
-	rowsz = w * 4;
-	filesize = 54 + rowsz * h;
-	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
-	hdr[0] = 'B'; hdr[1] = 'M';
-	hdr[2] = (unsigned char)( filesize & 0xff );
-	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
-	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
-	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
-	hdr[10] = 54;
-	hdr[14] = 40;
-	hdr[18] = (unsigned char)( w & 0xff );
-	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
-	hdr[22] = (unsigned char)( h & 0xff );
-	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
-	hdr[26] = 1;
-	hdr[28] = 32;
-	fp = fopen( name, "wb" );
-	if ( fp == NULL ) {
-		mem_bye( p );
-		return;
-	}
-	fwrite( hdr, 1, 54, fp );
-	for ( y = 0; y < h; y++ ) {
-		unsigned char *src = p + (size_t)y * rowsz;
-		unsigned char px[4];
-		for ( x = 0; x < w; x++ ) {
-			px[0] = src[x*4+2];
-			px[1] = src[x*4+1];
-			px[2] = src[x*4+0];
-			px[3] = 255;
-			fwrite( px, 1, 4, fp );
-		}
-	}
-	fclose( fp );
-	mem_bye( p );
-}
-
 void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, float s_ofsx, float s_ofsy, BMSCR *bmsrc, float psx, float psy, float ang )
 {
 	//		画像コピー
@@ -2902,43 +2844,6 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-
-	/*	t23 p3s183 probe: the world map is sampling the character screen with
-		copyrot.  Dump that screen (twice) and read the head/eye spots of it
-		through its own framebuffer, then the cell it lands on in the main
-		screen.  This runs about once every two seconds, never per copy.	*/
-	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 40 ) ) {
-		unsigned char mhp[4], mep[4];
-		SWTARGET *mdt = sw_find( bm );
-		SWTARGET *sdt = sw_find( bmsrc );
-		GLuint keep = sw_real_fbo;
-		int mhh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
-		FILE *fp;
-
-		sw_pp_rotn++;
-		if ( ( sw_pp_rotn <= 2 ) && ( sdt != NULL ) ) {
-			sw_bfb( sdt->fbo );
-			sw_pp_dump( "pcpic_rot_src.bmp", (int)bmsrc->sx, (int)bmsrc->sy );
-			sw_bfb( keep );
-		}
-		sw_bfb( ( mdt != NULL ) ? mdt->fbo : ( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u ) );
-		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 5 ) ), 1, 1,
-			GL_RGBA, GL_UNSIGNED_BYTE, mhp );
-		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 16 ) ), 1, 1,
-			GL_RGBA, GL_UNSIGNED_BYTE, mep );
-		sw_bfb( keep );
-		fp = fopen( "pcpic_rot.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "rotsrc #%03d src=%p tx=%d at %d,%d %dx%d dst=%p %d,%d gm=%d"
-				" mainhead=%d,%d,%d,%d maineye=%d,%d,%d,%d tick=%d\n",
-				sw_pp_rotn, (void *)bmsrc, bmsrc->texid, (int)xx, (int)yy,
-				(int)srcsx, (int)srcsy,
-				(void *)bm, (int)bm->cx, (int)bm->cy, (int)bm->gmode,
-				mhp[0], mhp[1], mhp[2], mhp[3], mep[0], mep[1], mep[2], mep[3],
-				(int)hgio_gettick() );
-			fclose( fp );
-		}
-	}
 }
 
 
