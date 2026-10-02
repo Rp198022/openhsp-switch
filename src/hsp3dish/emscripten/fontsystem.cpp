@@ -436,6 +436,19 @@ void TexFontTerm( void )
 
 int TexFontInit( char *path, int size )
 {
+	/*	Reuse the font that is already open when the request is the same one.
+		TTF_OpenFont() re-opens the file every time it is called, and this
+		reaches here from hgio_fontsystem_init(), which the script's font setup
+		hits for every run of text it draws - on hardware that made every line
+		of text cost a fresh open of the font on the SD card (Eden logged
+		~140 opens per second, all of the same file).  Asking for the font
+		that is already open changes nothing, so only a real change of size or
+		path pays for a reload.											*/
+	if ( font != NULL && size == font_defsize &&
+		 ( *path == 0 || strcmp( fontpath, path ) == 0 ) ) {
+		return 0;
+	}
+
 	if ( font != NULL ) TexFontTerm();
 
 	if (*path != 0) {

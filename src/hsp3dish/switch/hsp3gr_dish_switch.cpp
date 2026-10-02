@@ -461,8 +461,14 @@ static void cmdfunc_dialog( void )
 	frames.  Once a probe comes back empty the next one is therefore deferred by
 	SW_KEY_PROBE_GAP calls, and the deferral is dropped as soon as a probe does
 	find something, so an automation run still gets its characters promptly.
-	The pad is asked every call regardless: it is pure memory.				*/
-#define SW_KEY_PROBE_GAP	64
+	The pad is asked every call regardless: it is pure memory.
+
+	The gap counts calls, not frames, and sw_key_tick() runs several dozen
+	times per frame, so it is set large enough that an idle probe costs nothing
+	at all.  The price is latency: a harness that writes keys.txt waits up to
+	~4096 calls for it to be noticed, under a second at the observed rate.
+	Nothing a player does goes through this path.							*/
+#define SW_KEY_PROBE_GAP	4096
 static int	sw_key_probe_skip = 0;
 
 static char	sw_key_buf[SW_KEY_MAX];
