@@ -339,6 +339,12 @@ static unsigned sw_frame_end = 0;
 static int      sw_frame_open = 0;
 static unsigned sw_draw_ms = 0;
 static unsigned sw_script_ms = 0;
+/*	t23 p3s172: the three parts of one hgio_copy() call, accumulated over the
+	once-a-second window.													*/
+static unsigned sw_ms_bind = 0;
+static unsigned sw_ms_blend = 0;
+static unsigned sw_ms_submit = 0;
+
 static unsigned sw_ncopy = 0;
 static unsigned sw_nrot = 0;
 static unsigned sw_nbox = 0;
@@ -2694,12 +2700,23 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     *flp++ = tx1;
     *flp++ = ty1;
 
-	sw_bind_tex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
-    glVertexPointer( 2, GL_FLOAT,0,vertf2D );
-    glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
-
-	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
-    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+	{
+		unsigned t0 = (unsigned)hgio_gettick();
+		sw_bind_tex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
+		glVertexPointer( 2, GL_FLOAT,0,vertf2D );
+		glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
+		{
+			unsigned t1 = (unsigned)hgio_gettick();
+			hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+			{
+				unsigned t2 = (unsigned)hgio_gettick();
+				glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+				sw_ms_bind += t1 - t0;
+				sw_ms_blend += t2 - t1;
+				sw_ms_submit += (unsigned)hgio_gettick() - t2;
+			}
+		}
+	}
 
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
@@ -3517,6 +3534,11 @@ int hgio_render_end( void )
  " calls copy=%u rot=%u box=%u font=%u mes=%u\n",
 				sw_main_ok, sw_render_ms, sw_draw_ms, sw_script_ms, sw_render_frames,
 				sw_ncopy, sw_nrot, sw_nbox, sw_nfont, sw_nmes );
+			printf( "t23: split bind=%u ms blend=%u ms submit=%u ms\n",
+				sw_ms_bind, sw_ms_blend, sw_ms_submit );
+			sw_ms_bind = 0;
+			sw_ms_blend = 0;
+			sw_ms_submit = 0;
 			sw_render_ms = 0;
 			sw_render_frames = 0;
 			sw_draw_ms = 0;
