@@ -1908,26 +1908,10 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
-/*	t23 p3s166 probe: `create_pcpic` (chips.hsp) builds the 384x198 character
-	picture out of one gcopy layer per body part, and the world map draws 32x48
-	cells out of it - where the player turned up bald.  Keep the picture each
-	layer just loaded plus a read-back of the head so the layers can be told
-	apart, and dump the whole screen right after the hair layer.			*/
-static char sw_pp_name[96] = "";
-static int  sw_pp_n = 0;
-
-static void sw_pp_take_name( const char *fname )
-{
-	const char *b = fname;
-	const char *q;
-
-	if ( fname == NULL ) return;
-	for ( q = fname; *q != 0; q++ ) {
-		if ( ( *q == '\\' ) || ( *q == '/' ) ) b = q + 1;
-	}
-	strncpy( sw_pp_name, b, sizeof( sw_pp_name ) - 1 );
-	sw_pp_name[ sizeof( sw_pp_name ) - 1 ] = 0;
-}
+/*	t23 p3s167 probe: dump a framebuffer to a BMP without the SWITCH_DIAG
+	gate, so a plain run can be inspected.									*/
+static int sw_pp_n = 0;
+static int sw_pp_dumped = 0;
 
 static void sw_pp_dump( const char *name, int w, int h )
 {
@@ -2089,12 +2073,6 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
 			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
 			(int)bm->cx, (int)bm->cy );
-	}
-
-	/*	t23 p3s166 probe: remember the picture of the character screen's layer
-		that is about to be composited.											*/
-	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) ) {
-		sw_pp_take_name( fname );
 	}
 
 	return 0;
@@ -2757,39 +2735,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s166 probe: a write-back layer of the 384x198 character screen.
-		Log which picture it was and what the top of the head holds now.		*/
-	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) &&
-		 ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
-		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_n < 240 ) ) {
-		unsigned char ph[4] = { 7, 7, 7, 7 };
-		unsigned char pm[4] = { 7, 7, 7, 7 };
-		unsigned char pf[4] = { 7, 7, 7, 7 };
-		FILE *fp;
-
-		sw_pp_n++;
-		glReadPixels( 16, 198 - 8,  1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ph );
-		glReadPixels( 16, 198 - 20, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pm );
-		glReadPixels( 48, 198 - 8,  1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pf );
-		fp = fopen( "pcpic_probe.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "#%03d '%s' gm=%d col=%06x head=%d,%d,%d"
-				" mid=%d,%d,%d f2=%d,%d,%d fbo=%u tick=%d\n",
-				sw_pp_n, sw_pp_name, bm->gmode,
-				(unsigned)( bm->color & 0xffffff ),
-				ph[0], ph[1], ph[2], pm[0], pm[1], pm[2], pf[0], pf[1], pf[2],
-				(unsigned)sw_real_fbo, hgio_gettick() );
-			fclose( fp );
-		}
-		if ( strstr( sw_pp_name, "hair_" ) != NULL ) {
-			static int sw_pp_dumped = 0;
-			if ( sw_pp_dumped < 4 ) {
-				sw_pp_dumped++;
-				sw_pp_dump( "pcpic_hair.bmp", bm->sx, bm->sy );
-			}
-		}
-	}
-
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
 		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
@@ -2952,6 +2897,47 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	t23 p3s167 probe: the world map draws the player with copyrot out of the
+		character screen.  Read the texel the blend samples and the pixel it
+		lands on: grey texel + skin dest means the hair is blended or clipped
+		away, skin texel means the texture bound here is not the composed one.	*/
+	if ( ( srcsx == 32 ) && ( srcsy == 48 ) && ( tex != NULL ) &&
+		 ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_pp_n < 48 ) ) {
+		unsigned char sp[4] = { 9, 9, 9, 9 };
+		unsigned char dp[4] = { 8, 8, 8, 8 };
+		int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
+		FILE *fp;
+
+		sw_pp_n++;
+		if ( sw_scratch_ensure( 64, 64 ) == 0 ) {
+			sw_bfb( sw_scratch_fbo );
+			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+				(GLuint)tex->texid, 0 );
+			glReadPixels( (GLint)( xx + 16 ), (GLint)( yy + 8 ), 1, 1,
+				GL_RGBA, GL_UNSIGNED_BYTE, sp );
+			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+				sw_scratch_tex, 0 );
+			sw_bind_target( bm );
+		}
+		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mh - ( bm->cy + 8 ) ), 1, 1,
+			GL_RGBA, GL_UNSIGNED_BYTE, dp );
+
+		fp = fopen( "pcpic_copy.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "#%02d src tx=%d gl=%u %dx%d xy=%d,%d"
+				" texel=%d,%d,%d dest=%d,%d,%d bm=%d %dx%d gm=%d tick=%d\n",
+				sw_pp_n, ( bmsrc != NULL ) ? bmsrc->texid : -9, (unsigned)tex->texid,
+				(int)tex->sx, (int)tex->sy, (int)xx, (int)yy,
+				sp[0], sp[1], sp[2], dp[0], dp[1], dp[2],
+				bm->type, (int)bm->sx, (int)bm->sy, bm->gmode, hgio_gettick() );
+			fclose( fp );
+		}
+		if ( sw_pp_dumped < 2 ) {
+			sw_pp_dumped++;
+			sw_pp_dump( "copyrot_main.bmp", ( bm->sx > 0 ) ? (int)bm->sx : 800, mh );
+		}
+	}
 }
 
 
