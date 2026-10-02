@@ -166,9 +166,9 @@ static GLboolean	sw_tex_client_enabled;	/* glEnableClientState(GL_TEXTURE_COORD_
 static GLboolean	sw_texture2d;			/* glEnable(GL_TEXTURE_2D)				*/
 static GLuint		sw_bound_tex;
 
-/*	Switch diagnostics.  0 = shipping build: probes, traces and the
-	watchdog thread are compiled out.  Build with -DSWITCH_DIAG=1
-	(makefile.switch) when a run needs them back.					*/
+/*	Switch diagnostics.  0 = shipping build: the probes, the traces and
+	the 1 ms watchdog thread are compiled out.  Build with
+	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
 #define SWITCH_DIAG 0
 #endif
@@ -226,11 +226,9 @@ static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
 	time inside glBindTexture (the error drains removed below used to be
 	counted here as well), sw_gpu_ms the glDrawArrays submit.  Both are
 	cumulative and printed on the existing frame line.					*/
-#if SWITCH_DIAG
 static unsigned	sw_bind_ms = 0;
 static unsigned	sw_gpu_ms = 0;
 static unsigned	sw_func_ms = 0;			/* whole sw_glDrawArrays()		*/
-#endif
 
 /*----------------------------------------------------------------*/
 /*	Helpers														  */
@@ -764,9 +762,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 			return;
 		}
 	}
-#if SWITCH_DIAG
-	unsigned t_fn = SDL_GetTicks();
-#endif
+	unsigned t_fn = SWITCH_DIAG ? SDL_GetTicks() : 0;
 	sw_draw_no++;
 	gl_useprogram( sw_prog );
 
@@ -799,17 +795,11 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	}
 
 	{
-#if SWITCH_DIAG
-		unsigned t0 = SDL_GetTicks();
-#endif
+		unsigned t0 = SWITCH_DIAG ? SDL_GetTicks() : 0;
 		gl_drawarrays( mode, first, count );
-#if SWITCH_DIAG
-		sw_gpu_ms += (unsigned)( SDL_GetTicks() - t0 );
-#endif
+		sw_gpu_ms += (unsigned)( ( SWITCH_DIAG ? SDL_GetTicks() : 0 ) - t0 );
 	}
-#if SWITCH_DIAG
-	sw_func_ms += (unsigned)( SDL_GetTicks() - t_fn );
-#endif
+	sw_func_ms += (unsigned)( ( SWITCH_DIAG ? SDL_GetTicks() : 0 ) - t_fn );
 }
 
 /*----------------------------------------------------------------*/
@@ -958,9 +948,7 @@ void sw_glDeleteTextures( GLsizei n, const GLuint *textures )
 
 void sw_glBindTexture( GLenum target, GLuint texture )
 {
-#if SWITCH_DIAG
 	unsigned t0;
-#endif
 
 	sw_init();
 	if ( !sw_ready ) return;
@@ -971,13 +959,9 @@ void sw_glBindTexture( GLenum target, GLuint texture )
 		answers glGetError() with a GPU sync.  The drain was added to
 		attribute FBO-attach errors while chasing the OOM crash; a bind
 		cannot fail for a valid 2D name, so it is dropped.				*/
-#if SWITCH_DIAG
-	t0 = SDL_GetTicks();
-#endif
+	t0 = SWITCH_DIAG ? SDL_GetTicks() : 0;
 	gl_bindtexture( target, texture );
-#if SWITCH_DIAG
-	sw_bind_ms += (unsigned)( SDL_GetTicks() - t0 );
-#endif
+	sw_bind_ms += (unsigned)( ( SWITCH_DIAG ? SDL_GetTicks() : 0 ) - t0 );
 	if ( target == GL_TEXTURE_2D ) sw_bound_tex = texture;
 }
 

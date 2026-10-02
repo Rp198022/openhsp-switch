@@ -264,9 +264,9 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 */
 /*-------------------------------------------------------------------------------*/
 
-/*	Switch diagnostics.  0 = shipping build: probes, traces and the
-	watchdog thread are compiled out.  Build with -DSWITCH_DIAG=1
-	(makefile.switch) when a run needs them back.					*/
+/*	Switch diagnostics.  0 = shipping build: the probes, the traces and
+	the 1 ms watchdog thread are compiled out.  Build with
+	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
 #define SWITCH_DIAG 0
 #endif
@@ -380,10 +380,10 @@ static unsigned sw_exp_fbo( const BMSCR *bm )
 	return ( t != NULL ) ? (unsigned)t->fbo : 0u;
 }
 
-#if SWITCH_DIAG
 static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float w, float h,
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
+	if ( !SWITCH_DIAG ) return;
 	char buf[224];
 	/*	5x5 message-board tiles are rebuilt every frame and ate the whole
 		budget before the world stage; drop anything that small. */
@@ -404,7 +404,6 @@ static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float
 	fputs( buf, sw_trc_fp );
 	if ( ( sw_trc_total % 200 ) == 0 ) fflush( sw_trc_fp );
 }
-#endif
 
 static void sw_trc( const char *tag, const BMSCR *bm, float x, float y, float w, float h )
 {
@@ -848,9 +847,9 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 #define SW_DUMP_MAX_PIXELS 3000000L
 
 
-#if SWITCH_DIAG
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
+	if ( !SWITCH_DIAG ) return;
 	unsigned char *p;
 	FILE *fp;
 	unsigned char hdr[54];
@@ -906,7 +905,6 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 	mem_bye( p );
 	sw_fbo_log( "hgio: dumped %s %dx%d fbo=%u\n", name, w, h, (unsigned)fbo );
 }
-#endif
 
 
 static void sw_dump_all( const char *pfx )
@@ -1937,10 +1935,9 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		lands as opaque black - which is what a sampler gives back for a
 		texture with no usable level - so first find out whether the picture
 		RegistTex() just decoded has pixels at all.						*/
-	#if SWITCH_DIAG
-{
+	{
 		static int sw_srctex_probe = 0;
-		if ( sw_srctex_probe < 24 ) {
+		if ( SWITCH_DIAG && sw_srctex_probe < 24 ) {
 			unsigned char sp[4] = { 7, 7, 7, 7 };
 			if ( sw_scratch_ensure( 64, 64 ) == 0 ) {
 				sw_srctex_probe++;
@@ -1957,7 +1954,6 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 			}
 			sw_bind_target( bm );
 		}
-#endif
 	}
 
 	/*	the classic overwrite lands at the current position, not at the
@@ -1997,14 +1993,13 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		colour key off and drops the colour array.						*/
 	hgio_setTexBlendMode( bm, 0, 0 );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
-#if SWITCH_DIAG
 	{
 		/*	t23 probe: read the blit back while the screen's own framebuffer is
 			still bound.  If the picture is here and the dumped screen is black
 			later, something painted over it; if it is black here, the blit itself
 			did not land.														*/
 		static int sw_picload_probe = 0;
-		if ( sw_picload_probe < 48 ) {
+		if ( SWITCH_DIAG && sw_picload_probe < 48 ) {
 			unsigned char mid[4] = { 9, 9, 9, 9 };
 			unsigned char cor[4] = { 8, 8, 8, 8 };
 			SWTARGET *pr = sw_find( bm );
@@ -2018,7 +2013,6 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 				(unsigned)sw_glGetError() );
 		}
 	}
-#endif
 	ChangeTex( -1 );
 
 	if ( sw_texload_report < 64 ) {
@@ -2701,8 +2695,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		sheet's rectangle (50..750 x 86..486).  Four copies are kept, which
 		covers the single gmode 6 pass at the panel origin and the repeating
 		gmode 2 pass beside it.												*/
-	#if SWITCH_DIAG
-if ( ( sw_panel_a < 4 ) && ( srcsx == 700 ) && ( srcsy == 400 ) ) {
+	if ( SWITCH_DIAG && ( sw_panel_a < 4 ) && ( srcsx == 700 ) && ( srcsy == 400 ) ) {
 		unsigned char pt[3][4];
 		int k;
 		SWTARGET *ptgt = sw_find( bm );
@@ -2741,7 +2734,6 @@ if ( ( sw_panel_a < 4 ) && ( srcsx == 700 ) && ( srcsy == 400 ) ) {
 			sw_bfb(  dfo );
 		}
 	}
-#endif
 }
 
 
