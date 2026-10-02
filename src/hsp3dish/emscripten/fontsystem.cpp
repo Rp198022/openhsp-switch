@@ -393,6 +393,19 @@ static	int fontsystem_flag = 0;
 static	char fontpath[HSP_MAX_PATH+1];
 static	TTF_Font *font = NULL;
 static	int font_defsize;
+
+/*	The script issues its font setup around the text it draws, so TexFontInit()
+	is reached many times a second with the same few requests.  Opening the font
+	file every time was the cost (on hardware, an SD card open per line of
+	text), so the fonts that have been opened are kept here, one per size, and
+	a request for a size already present is answered from the table.  A script
+	uses a handful of sizes, hence the small table; the path is not part of the
+	key because this runtime only ever loads the one font file it was started
+	with (hgio_screen()'s hsp3ext_getdir(1) + TTF_FONTFILE).					*/
+#define TTF_FONT_CACHE_MAX	8
+static	TTF_Font *font_cache[TTF_FONT_CACHE_MAX];
+static	int font_cache_size[TTF_FONT_CACHE_MAX];
+static	int font_cache_n = 0;
 static	SDL_Surface *sdlsurf;
 static	int fontsystem_sx;		// 横のサイズ
 static	int fontsystem_sy;		// 縦のサイズ
@@ -428,31 +441,42 @@ int GetMultibyteCharacter(unsigned char *text)
 
 void TexFontTerm( void )
 {
-	if ( font != NULL ) {
-	    TTF_CloseFont(font);
-	    font = NULL;
-	}
+	/*	Unbind only.  The font objects are kept in the cache below and are
+		reused by the next request; closing the file here is exactly what made
+		every line of text open it again.  There are at most TTF_FONT_CACHE_MAX
+		of them and the process owns them for its lifetime.					*/
+	font = NULL;
 }
 
 int TexFontInit( char *path, int size )
 {
-	/*	Reuse the font that is already open when the request is the same one.
-		TTF_OpenFont() re-opens the file every time it is called, and this
-		reaches here from hgio_fontsystem_init(), which the script's font setup
-		hits for every run of text it draws - on hardware that made every line
-		of text cost a fresh open of the font on the SD card (Eden logged
-		~140 opens per second, all of the same file).  Asking for the font
-		that is already open changes nothing, so only a real change of size or
-		path pays for a reload.											*/
+	int i;
+
+	/*	The request is already satisfied by the font in hand.				*/
 	if ( font != NULL && size == font_defsize &&
 		 ( *path == 0 || strcmp( fontpath, path ) == 0 ) ) {
 		return 0;
 	}
 
-	if ( font != NULL ) TexFontTerm();
+	/*	A font of this size has been opened before: bind it, touch no file.	*/
+	for ( i = 0; i < font_cache_n; i++ ) {
+		if ( font_cache_size[i] == size ) {
+			font = font_cache[i];
+			font_defsize = size;
+			return 0;
+		}
+	}
 
 	if (*path != 0) {
 		strcpy ( fontpath, path );
+	}
+	{
+		/*	t23 probe: how often the file is really opened now.			*/
+		static int open_rep = 0;
+		if ( open_rep < 30 ) {
+			open_rep++;
+			Alertf( "t23: TTF_OpenFont [%s] size=%d n=%d", fontpath, size, open_rep );
+		}
 	}
 	font = TTF_OpenFont( fontpath, size );
 	font_defsize = size;
@@ -460,6 +484,11 @@ int TexFontInit( char *path, int size )
 	if (font == NULL){
 		Alertf( "Init:TTF_OpenFont error" );
 		return -2;
+	}
+	if ( font_cache_n < TTF_FONT_CACHE_MAX ) {
+		font_cache[font_cache_n] = font;
+		font_cache_size[font_cache_n] = size;
+		font_cache_n++;
 	}
 	//Alertf( "Init:TTF_Init:%s (%x)",fontpath,font );
 	return 0;
