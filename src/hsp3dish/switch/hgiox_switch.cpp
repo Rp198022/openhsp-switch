@@ -329,33 +329,6 @@ static int		sw_panel_b = 0;	// t23 probe: ...and again when that frame is presen
 	until the script asks for such a screen.									*/
 static BMSCR	*sw_helpbm = NULL;
 
-/*	t23 p3s171: where a frame goes.  Elona brackets its drawing with
-	`redraw 0` / `redraw 1` (hgio_render_start / hgio_render_end), so the gap
-	between one render_end and the next render_start is the script and the span
-	between render_start and render_end is the draw phase.  The counters give the
-	number of draw calls per second.										*/
-static unsigned sw_frame_mark = 0;
-static unsigned sw_frame_end = 0;
-static int      sw_frame_open = 0;
-static unsigned sw_draw_ms = 0;
-static unsigned sw_script_ms = 0;
-/*	t23 p3s172: the three parts of one hgio_copy() call, accumulated over the
-	once-a-second window.													*/
-/*	t23 p3s173: whole-call timings for the remaining draw entry points.	*/
-static unsigned sw_ms_mes = 0;
-static unsigned sw_ms_font = 0;
-static unsigned sw_ms_pic = 0;
-
-static unsigned sw_ms_bind = 0;
-static unsigned sw_ms_blend = 0;
-static unsigned sw_ms_submit = 0;
-
-static unsigned sw_ncopy = 0;
-static unsigned sw_nrot = 0;
-static unsigned sw_nbox = 0;
-static unsigned sw_nfont = 0;
-static unsigned sw_nmes = 0;
-
 static void sw_fbo_log( const char *fmt, ... )
 {
 	va_list ap;
@@ -1935,17 +1908,60 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
-static int sw_pic_impl( BMSCR *bm, char *fname );
-int hgio_picload_overwrite( BMSCR *bm, char *fname )
+/*	t23 p3s174 probe: dump a framebuffer to a BMP without the SWITCH_DIAG gate
+	so a plain run can be looked at.										*/
+static int sw_pp_n = 0;
+static int sw_pp_dumped = 0;
+
+static void sw_pp_dump( const char *name, int w, int h )
 {
-	unsigned t = (unsigned)hgio_gettick();
-	int r = sw_pic_impl( bm, fname );
-	sw_ms_pic += (unsigned)hgio_gettick() - t;
-	return r;
+	unsigned char *p;
+	FILE *fp;
+	unsigned char hdr[54];
+	int i, x, y, rowsz, filesize;
+
+	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
+	p = (unsigned char *)mem_ini( w * h * 4 );
+	if ( p == NULL ) return;
+	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+	fp = fopen( name, "wb" );
+	if ( fp == NULL ) {
+		mem_bye( p );
+		return;
+	}
+	fwrite( hdr, 1, 54, fp );
+	for ( y = 0; y < h; y++ ) {
+		unsigned char *src = p + (size_t)y * rowsz;
+		unsigned char px[4];
+		for ( x = 0; x < w; x++ ) {
+			px[0] = src[x*4+2];
+			px[1] = src[x*4+1];
+			px[2] = src[x*4+0];
+			px[3] = 255;
+			fwrite( px, 1, 4, fp );
+		}
+	}
+	fclose( fp );
+	mem_bye( p );
 }
 
-
-static int sw_pic_impl( BMSCR *bm, char *fname )
+int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
 	int texid;
@@ -2302,7 +2318,6 @@ void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alpha
 
 void hgio_boxf( BMSCR *bm, float x1, float y1, float x2, float y2 )
 {
-	sw_nbox++;
 	hgio_boxfAlpha(bm, x1, y1, x2, y2, 0);
 }
 
@@ -2465,18 +2480,8 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 #endif
 
 
-static void sw_font_impl( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey );
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
-	unsigned t = (unsigned)hgio_gettick();
-	sw_font_impl( bm, distx, disty, ratex, ratey, srcsx, srcsy, texid, basex, basey );
-	sw_ms_font += (unsigned)hgio_gettick() - t;
-}
-
-
-static void sw_font_impl( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
-{
-	sw_nfont++;
 	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
@@ -2574,7 +2579,6 @@ static void sw_font_impl( BMSCR *bm, float distx, float disty, float ratex, floa
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
-	sw_ncopy++;
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -2724,23 +2728,12 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     *flp++ = tx1;
     *flp++ = ty1;
 
-	{
-		unsigned t0 = (unsigned)hgio_gettick();
-		sw_bind_tex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
-		glVertexPointer( 2, GL_FLOAT,0,vertf2D );
-		glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
-		{
-			unsigned t1 = (unsigned)hgio_gettick();
-			hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
-			{
-				unsigned t2 = (unsigned)hgio_gettick();
-				glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-				sw_ms_bind += t1 - t0;
-				sw_ms_blend += t2 - t1;
-				sw_ms_submit += (unsigned)hgio_gettick() - t2;
-			}
-		}
-	}
+	sw_bind_tex( sw_scratch_used ? (int)sw_scratch_tex : tex->texid );
+    glVertexPointer( 2, GL_FLOAT,0,vertf2D );
+    glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
+
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
@@ -2799,7 +2792,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, float s_ofsx, float s_ofsy, BMSCR *bmsrc, float psx, float psy, float ang )
 {
-	sw_nrot++;
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -2905,6 +2897,56 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	t23 p3s174 probe: the world map draws the player with copyrot out of the
+		character screen.  Read the texel the blend samples and the pixel it
+		lands on: grey texel + skin dest means the hair is blended or clipped
+		away, skin texel means the texture bound here is not the composed one.	*/
+	if ( ( srcsx == 32 ) && ( srcsy == 48 ) && ( tex != NULL ) &&
+		 ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_pp_n < 48 ) ) {
+		unsigned char sp[4] = { 9, 9, 9, 9 };
+		unsigned char dp[4] = { 8, 8, 8, 8 };
+		int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
+		FILE *fp;
+
+		sw_pp_n++;
+		if ( sw_scratch_ensure( 64, 64 ) == 0 ) {
+			sw_bfb( sw_scratch_fbo );
+			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+				(GLuint)tex->texid, 0 );
+			glReadPixels( (GLint)( xx + 16 ), (GLint)( yy + 8 ), 1, 1,
+				GL_RGBA, GL_UNSIGNED_BYTE, sp );
+			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+				sw_scratch_tex, 0 );
+			{
+				/*	sw_bind_target() returns early when sw_cur already names this
+					screen, which would leave the scratch bound and every later
+					draw going into it - bind the screen outright.				*/
+				SWTARGET *st2 = sw_find( bm );
+				if ( st2 != NULL ) {
+					sw_bfb( st2->fbo );
+					sw_apply_target( bm );
+				}
+			}
+		}
+		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mh - ( bm->cy + 8 ) ), 1, 1,
+			GL_RGBA, GL_UNSIGNED_BYTE, dp );
+
+		fp = fopen( "pcpic_copy.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "#%02d src tx=%d gl=%u %dx%d xy=%d,%d"
+				" texel=%d,%d,%d dest=%d,%d,%d bm=%d %dx%d gm=%d tick=%d\n",
+				sw_pp_n, ( bmsrc != NULL ) ? bmsrc->texid : -9, (unsigned)tex->texid,
+				(int)tex->sx, (int)tex->sy, (int)xx, (int)yy,
+				sp[0], sp[1], sp[2], dp[0], dp[1], dp[2],
+				bm->type, (int)bm->sx, (int)bm->sy, bm->gmode, hgio_gettick() );
+			fclose( fp );
+		}
+		if ( sw_pp_dumped < 2 ) {
+			sw_pp_dumped++;
+			sw_pp_dump( "copyrot_main.bmp", ( bm->sx > 0 ) ? (int)bm->sx : 800, mh );
+		}
+	}
 }
 
 
@@ -3259,19 +3301,8 @@ int hgio_font(char *fontname, int size, int style)
 	return 0;
 }
 
-static int sw_mes_impl( BMSCR *bm, char *msg );
-int hgio_mes( BMSCR *bm, char *msg )
+int hgio_mes(BMSCR* bm, char* msg)
 {
-	unsigned t = (unsigned)hgio_gettick();
-	int r = sw_mes_impl( bm, msg );
-	sw_ms_mes += (unsigned)hgio_gettick() - t;
-	return r;
-}
-
-
-static int sw_mes_impl( BMSCR *bm, char *msg )
-{
-	sw_nmes++;
 	//		mes,print 文字表示
 	//
 	int xsize, ysize;
@@ -3504,13 +3535,6 @@ int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
 
-	/*	t23 p3s171: the script ran between the last present and now.	*/
-	{
-		unsigned now = (unsigned)hgio_gettick();
-		if ( sw_frame_open ) sw_script_ms += now - sw_frame_end;
-		sw_frame_mark = now;
-	}
-
 	/*	This really is entered once per frame - the counters showed ~1080 calls
 		in one run - which is what a pad read needs.  sw_glClear() used to be
 		the sampling point, but the CLSMODE fix turned the frame clear into a
@@ -3552,41 +3576,16 @@ int hgio_render_end( void )
 	res = 0;
 	unsigned t_re = (unsigned)hgio_gettick();
 	if ( drawflag == 0 ) return 0;
-	/*	t23 p3s171: the draw phase ran from the last render_start.		*/
-	{
-		unsigned now = (unsigned)hgio_gettick();
-		sw_draw_ms += now - sw_frame_mark;
-		sw_frame_end = now;
-		sw_frame_open = 1;
-	}
 	{
 		static int sw_t23_pr = -1000;
 		int sw_t23_now = hgio_gettick();
 		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
 			sw_t23_pr = sw_t23_now;
-			printf( "t23: present ok=%d render=%u ms draw=%u ms script=%u ms over %u frames"
- " calls copy=%u rot=%u box=%u font=%u mes=%u\n",
-				sw_main_ok, sw_render_ms, sw_draw_ms, sw_script_ms, sw_render_frames,
-				sw_ncopy, sw_nrot, sw_nbox, sw_nfont, sw_nmes );
-			printf( "t23: split bind=%u ms blend=%u ms submit=%u ms"
- " mes=%u font=%u pic=%u ms\n",
-				sw_ms_bind, sw_ms_blend, sw_ms_submit,
-				sw_ms_mes, sw_ms_font, sw_ms_pic );
-			sw_ms_mes = 0;
-			sw_ms_font = 0;
-			sw_ms_pic = 0;
-			sw_ms_bind = 0;
-			sw_ms_blend = 0;
-			sw_ms_submit = 0;
+			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames\n",
+				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
+				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames );
 			sw_render_ms = 0;
 			sw_render_frames = 0;
-			sw_draw_ms = 0;
-			sw_script_ms = 0;
-			sw_ncopy = 0;
-			sw_nrot = 0;
-			sw_nbox = 0;
-			sw_nfont = 0;
-			sw_nmes = 0;
 			fflush( stdout );
 		}
 	}
