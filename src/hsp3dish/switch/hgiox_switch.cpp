@@ -1432,6 +1432,18 @@ int hgio_buffer(BMSCR *bm)
 	//		buffer(描画用画面作成)
 	//		テクスチャを確保する。FBOは実際に描画する時に作る。
 	//
+	/*	t23 p3s170: create_pcpic re-creates this screen every frame.  A
+		screen kept by `buffer` starts with undefined contents anyway, so
+		re-use it while the size still fits instead of making another
+		texture and framebuffer that are never freed.					*/
+	{
+		TEXINF *cur = ( bm->texid >= 0 ) ? GetTex( bm->texid ) : NULL;
+		if ( ( cur != NULL ) && ( cur->mode == TEXMODE_BUFFER ) &&
+			 ( cur->sx >= bm->sx ) && ( cur->sy >= bm->sy ) &&
+			 ( sw_find( bm ) != NULL ) ) {
+			return 0;
+		}
+	}
 	sw_forget( bm );
 	int texid = MakeEmptyTexBuffer( bm->sx, bm->sy );
 	if (texid >= 0) {
@@ -1908,6 +1920,46 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
+/*	t23 p3s170: registrations kept across frames.
+	`RegistTex()` re-reads, re-decodes and re-uploads a picture on every call and
+	its TEXINF entry is never freed (GetNextTex only re-uses TEXMODE_NONE slots),
+	and `create_pcpic` (chips.hsp) picloads eight pictures once a frame on the
+	world map.  Nothing here mutates a picture after loading it, so the texture
+	is kept by file name.													*/
+#define SW_PIC_CACHE_MAX 512
+static char sw_pic_name[SW_PIC_CACHE_MAX][128];
+static int  sw_pic_id[SW_PIC_CACHE_MAX];
+static int  sw_pic_n = 0;
+static unsigned sw_pic_ms = 0;
+static unsigned sw_pic_calls = 0;
+
+static int sw_pic_cached( const char *fname )
+{
+	int i;
+	if ( fname == NULL ) return -1;
+	for ( i = 0; i < sw_pic_n; i++ ) {
+		if ( strcmp( sw_pic_name[i], fname ) == 0 ) return sw_pic_id[i];
+	}
+	return -1;
+}
+
+static void sw_pic_store( const char *fname, int texid )
+{
+	int i;
+	if ( ( fname == NULL ) || ( texid < 0 ) ) return;
+	for ( i = 0; i < sw_pic_n; i++ ) {
+		if ( strcmp( sw_pic_name[i], fname ) == 0 ) {
+			sw_pic_id[i] = texid;
+			return;
+		}
+	}
+	if ( sw_pic_n >= SW_PIC_CACHE_MAX ) return;
+	strncpy( sw_pic_name[sw_pic_n], fname, sizeof( sw_pic_name[0] ) - 1 );
+	sw_pic_name[sw_pic_n][ sizeof( sw_pic_name[0] ) - 1 ] = 0;
+	sw_pic_id[sw_pic_n] = texid;
+	sw_pic_n++;
+}
+
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
@@ -1921,7 +1973,16 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	if ( bm->type == HSPWND_TYPE_MAIN ) return -1;
 	if ( bm->type == HSPWND_TYPE_NONE ) return -1;
 
-	texid = RegistTex( fname );
+	{
+		unsigned t_p = (unsigned)hgio_gettick();
+		texid = sw_pic_cached( fname );
+		if ( texid < 0 ) {
+			texid = RegistTex( fname );
+			sw_pic_store( fname, texid );
+		}
+		sw_pic_ms += (unsigned)hgio_gettick() - t_p;
+		sw_pic_calls++;
+	}
 	if ( texid < 0 ) return -1;
 	t = GetTex( texid );
 	if ( ( t == NULL ) || ( t->mode == TEXMODE_NONE ) ) return -1;
@@ -3478,11 +3539,15 @@ int hgio_render_end( void )
 		int sw_t23_now = hgio_gettick();
 		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
 			sw_t23_pr = sw_t23_now;
-			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames\n",
+			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames"
+ " pic=%u ms x%u held=%d\n",
 				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
-				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames );
+				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames,
+				sw_pic_ms, sw_pic_calls, sw_pic_n );
 			sw_render_ms = 0;
 			sw_render_frames = 0;
+			sw_pic_ms = 0;
+			sw_pic_calls = 0;
 			fflush( stdout );
 		}
 	}
