@@ -1936,7 +1936,6 @@ static void sw_pp_log( const char *fmt, ... )
 static char sw_pp_name[96] = "";
 static int sw_pp_n = 0;
 static int sw_pp_dumped = 0;
-static int sw_pp_comp_n = 0;
 static int sw_pp_rotn = 0;
 
 static void sw_pp_take_name( const char *fname )
@@ -2816,41 +2815,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s178 probe: the (256,0)->(0,0) write-back of the layer
-		named by the last picload has just finished.  Read the head row
-		and the eye row of the 128x192 composite - if the hair layer had
-		painted, the head row would have changed to the hair colour. */
-	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) && ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
-		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_comp_n < 400 ) ) {
-		unsigned char px[8][4];
-		const int xs[4] = { 16, 48, 80, 112 };
-		FILE *fp;
-		int k;
-
-		sw_pp_comp_n++;
-		for ( k = 0; k < 4; k++ ) {
-			glReadPixels( xs[k], 192, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[k] );
-		}
-		for ( k = 0; k < 4; k++ ) {
-			glReadPixels( xs[k], 181, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[4 + k] );
-		}
-		fp = fopen( "pcpic_comp.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "comp #%03d pic='%s' head=%d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d"
-				" eye=%d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d tick=%d\n",
-				sw_pp_comp_n, sw_pp_name,
-				px[0][0], px[0][1], px[0][2], px[0][3],
-				px[1][0], px[1][1], px[1][2], px[1][3],
-				px[2][0], px[2][1], px[2][2], px[2][3],
-				px[3][0], px[3][1], px[3][2], px[3][3],
-				px[4][0], px[4][1], px[4][2], px[4][3],
-				px[5][0], px[5][1], px[5][2], px[5][3],
-				px[6][0], px[6][1], px[6][2], px[6][3],
-				px[7][0], px[7][1], px[7][2], px[7][3], hgio_gettick() );
-			fclose( fp );
-		}
-	}
-
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
 		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
@@ -3025,12 +2989,13 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s178 probe: the world map is sampling the character screen
-		with copyrot.  Read the same head/eye spots of the screen and of
-		the cell it writes into the main screen.                     */
+	/*	t23 p3s179 probe: the world map is sampling the character screen
+		with copyrot.  Dump that screen (twice) and read the head/eye spots
+		of it and of the main screen at the cell it lands on.       */
 	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 60 ) ) {
 		unsigned char sh[4], se[4], mhp[4], mep[4];
 		SWTARGET *mdt = sw_find( bm );
+		SWTARGET *sdt = sw_find( bmsrc );
 		GLuint keep = sw_real_fbo;
 		int mhh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
 		FILE *fp;
@@ -3038,6 +3003,10 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		sw_pp_rotn++;
 		glReadPixels( 80, 192, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sh );
 		glReadPixels( 80, 181, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, se );
+		if ( ( sw_pp_rotn <= 2 ) && ( sdt != NULL ) ) {
+			sw_bfb( sdt->fbo );
+			sw_pp_dump( "pcpic_rot_src.bmp", (int)bmsrc->sx, (int)bmsrc->sy );
+		}
 		sw_bfb( ( mdt != NULL ) ? mdt->fbo : ( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u ) );
 		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 5 ) ), 1, 1,
 			GL_RGBA, GL_UNSIGNED_BYTE, mhp );
