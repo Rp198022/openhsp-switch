@@ -2581,6 +2581,8 @@ static BMSCR	*sw_fc_lock_bm = NULL;		/* only meaningful on this screen	*/
 extern "C" int sw_glBlendEquationAvailable( void );
 extern "C" int sw_texture2d_on( void );
 
+static int sw_fcsub_trace = 0;
+
 extern "C" void sw_fcgraph_lock( int xs, int ys )
 {
 	/*	gfini: the lock is opened on the screen that is current right now,
@@ -2599,6 +2601,16 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	GLfloat cols[16];
 	BMSCR *bm = sw_fc_lock_bm;
 	int i, w, h;
+	if ( SWITCH_DIAG && sw_fcsub_trace < 40 ) {
+		sw_fcsub_trace++;
+		if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
+			sw_fbo_log( "hgio: fcsub #%d SKIP rgb<=0\n", sw_fcsub_trace );
+		} else if ( ( bm == NULL ) || ( bm != sw_cur ) ) {
+			sw_fbo_log( "hgio: fcsub #%d SKIP badbm lockbm=%p cur=%p\n", sw_fcsub_trace, (void *)bm, (void *)sw_cur );
+		} else {
+			sw_fbo_log( "hgio: fcsub #%d rgb=%d,%d,%d at %d,%d size=%dx%d\n", sw_fcsub_trace, r, g, b, sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y );
+		}
+	}
 	float x1, y1, x2, y2, cr, cg, cb;
 
 	if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) return;
