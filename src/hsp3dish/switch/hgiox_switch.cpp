@@ -1908,6 +1908,75 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
+/*	t23 p3s166 probe: `create_pcpic` (chips.hsp) builds the 384x198 character
+	picture out of one gcopy layer per body part, and the world map draws 32x48
+	cells out of it - where the player turned up bald.  Keep the picture each
+	layer just loaded plus a read-back of the head so the layers can be told
+	apart, and dump the whole screen right after the hair layer.			*/
+static char sw_pp_name[96] = "";
+static int  sw_pp_n = 0;
+
+static void sw_pp_take_name( const char *fname )
+{
+	const char *b = fname;
+	const char *q;
+
+	if ( fname == NULL ) return;
+	for ( q = fname; *q != 0; q++ ) {
+		if ( ( *q == '\\' ) || ( *q == '/' ) ) b = q + 1;
+	}
+	strncpy( sw_pp_name, b, sizeof( sw_pp_name ) - 1 );
+	sw_pp_name[ sizeof( sw_pp_name ) - 1 ] = 0;
+}
+
+static void sw_pp_dump( const char *name, int w, int h )
+{
+	unsigned char *p;
+	FILE *fp;
+	unsigned char hdr[54];
+	int i, x, y, rowsz, filesize;
+
+	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
+	p = (unsigned char *)mem_ini( w * h * 4 );
+	if ( p == NULL ) return;
+	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+	fp = fopen( name, "wb" );
+	if ( fp == NULL ) {
+		mem_bye( p );
+		return;
+	}
+	fwrite( hdr, 1, 54, fp );
+	for ( y = 0; y < h; y++ ) {
+		unsigned char *src = p + (size_t)y * rowsz;
+		unsigned char px[4];
+		for ( x = 0; x < w; x++ ) {
+			px[0] = src[x*4+2];
+			px[1] = src[x*4+1];
+			px[2] = src[x*4+0];
+			px[3] = 255;
+			fwrite( px, 1, 4, fp );
+		}
+	}
+	fclose( fp );
+	mem_bye( p );
+}
+
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
@@ -2021,6 +2090,15 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
 			(int)bm->cx, (int)bm->cy );
 	}
+
+	/*	t23 p3s166 probe: remember the picture of the character screen's layer
+		that is about to be composited.											*/
+	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) ) {
+		sw_pp_take_name( fname );
+	}
+
+	return 0;
+}
 
 	return 0;
 }
@@ -2681,6 +2759,39 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	t23 p3s166 probe: a write-back layer of the 384x198 character screen.
+		Log which picture it was and what the top of the head holds now.		*/
+	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) &&
+		 ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
+		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_n < 240 ) ) {
+		unsigned char ph[4] = { 7, 7, 7, 7 };
+		unsigned char pm[4] = { 7, 7, 7, 7 };
+		unsigned char pf[4] = { 7, 7, 7, 7 };
+		FILE *fp;
+
+		sw_pp_n++;
+		glReadPixels( 16, 198 - 8,  1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ph );
+		glReadPixels( 16, 198 - 20, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pm );
+		glReadPixels( 48, 198 - 8,  1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pf );
+		fp = fopen( "pcpic_probe.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "#%03d '%s' gm=%d col=%06x head=%d,%d,%d"
+				" mid=%d,%d,%d f2=%d,%d,%d fbo=%u tick=%d\n",
+				sw_pp_n, sw_pp_name, bm->gmode,
+				(unsigned)( bm->color & 0xffffff ),
+				ph[0], ph[1], ph[2], pm[0], pm[1], pm[2], pf[0], pf[1], pf[2],
+				(unsigned)sw_real_fbo, hgio_gettick() );
+			fclose( fp );
+		}
+		if ( strstr( sw_pp_name, "hair_" ) != NULL ) {
+			static int sw_pp_dumped = 0;
+			if ( sw_pp_dumped < 4 ) {
+				sw_pp_dumped++;
+				sw_pp_dump( "pcpic_hair.bmp", bm->sx, bm->sy );
+			}
+		}
+	}
 
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
