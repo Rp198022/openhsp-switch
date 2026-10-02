@@ -46,7 +46,7 @@ static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 0
+#define SWITCH_DIAG 1			/* P3: on while the fcgraph colour pass is traced */
 #endif
 
 #define DLLSHIM_MAX_ARGS 16
@@ -756,6 +756,14 @@ extern "C" {
 extern int		sw_fc_tint_on;
 extern float	sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
 }
+
+//	P3 DIAGNOSTIC counters - "is the colour pass reached at all?"  Elona calls
+//	gfini/gfdec2 once per PCC part, so a live run shows both climbing together;
+//	if gfini climbs and gfdec2 stands still, the symbol or the declaration is
+//	wrong (see main.hsp:14-17, which declares all four with four int words).
+//
+static int	sw_gfini_trace = 0;
+static int	sw_gfdec_trace = 0;
 #endif
 
 //	gfini xsize,ysize - open the colour pass.  Nothing to allocate here (the
@@ -764,10 +772,17 @@ extern float	sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
 //
 static int impl_hspext_gfini( const DllArgValue *args, int argc )
 {
+#ifdef HSPDISH
+	if ( SWITCH_DIAG && sw_gfini_trace < 24 ) {
+		sw_gfini_trace++;
+		printf( "hsp3switch: ### gfini argc=%d x=%d y=%d\n",
+			argc, ( argc > 1 ) ? (int)args[1].ival : -1, ( argc > 2 ) ? (int)args[2].ival : -1 );
+		fflush( stdout );
+	}
+	sw_fc_tint_on = 0;
+#else
 	(void)args;
 	(void)argc;
-#ifdef HSPDISH
-	sw_fc_tint_on = 0;
 #endif
 	return 0;
 }
@@ -786,6 +801,13 @@ static int impl_hspext_gfdec( const DllArgValue *args, int argc )
 		sw_fc_tint_g = (float)args[1].ival * ( 1.0f / 255.0f );
 		sw_fc_tint_b = (float)args[2].ival * ( 1.0f / 255.0f );
 		sw_fc_tint_on = ( sw_fc_tint_r > 0.f || sw_fc_tint_g > 0.f || sw_fc_tint_b > 0.f ) ? 1 : 0;
+		if ( SWITCH_DIAG && sw_gfdec_trace < 24 ) {
+			sw_gfdec_trace++;
+			printf( "hsp3switch: ### gfdec argc=%d arg=%d,%d,%d,%d on=%d\n",
+				argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
+				( argc > 3 ) ? (int)args[3].ival : -1, sw_fc_tint_on );
+			fflush( stdout );
+		}
 	}
 #else
 	(void)args;

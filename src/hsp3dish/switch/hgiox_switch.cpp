@@ -268,7 +268,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 0
+#define SWITCH_DIAG 1			/* P3: on while the fcgraph colour pass is traced */
 #endif
 
 #define SWTARGET_MAX 64
@@ -2529,7 +2529,13 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 	src/hsp3dish/switch/gles1_shim.cpp.										*/
 extern "C" {
 extern int sw_fc_tint_on;
+extern float sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
 }
+
+/*	P3 DIAGNOSTIC - how many copies actually consumed an armed colour pass.
+	Armed by gfdec/gfdec2, dropped unconditionally after every copy below, so
+	a colour pass that reaches no copy at all is invisible without this.		*/
+static int sw_tint_consume_trace = 0;
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
@@ -2687,6 +2693,13 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+	if ( SWITCH_DIAG && ( sw_fc_tint_on != 0 ) && ( sw_tint_consume_trace < 24 ) ) {
+		sw_tint_consume_trace++;
+		sw_fbo_log( "hgio: TINT consumed rgb=%g,%g,%g src tx=%d %d,%d %dx%d dst tx=%d at %g,%g\n",
+			(double)sw_fc_tint_r, (double)sw_fc_tint_g, (double)sw_fc_tint_b,
+			( bmsrc != NULL ) ? bmsrc->texid : -99, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+			bm->texid, (double)bm->cx, (double)bm->cy );
+	}
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
 	/*	An fcgraph colour pass armed by gfdec/gfdec2 is consumed by exactly
