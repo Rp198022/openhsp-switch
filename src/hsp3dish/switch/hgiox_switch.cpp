@@ -341,6 +341,11 @@ static unsigned sw_draw_ms = 0;
 static unsigned sw_script_ms = 0;
 /*	t23 p3s172: the three parts of one hgio_copy() call, accumulated over the
 	once-a-second window.													*/
+/*	t23 p3s173: whole-call timings for the remaining draw entry points.	*/
+static unsigned sw_ms_mes = 0;
+static unsigned sw_ms_font = 0;
+static unsigned sw_ms_pic = 0;
+
 static unsigned sw_ms_bind = 0;
 static unsigned sw_ms_blend = 0;
 static unsigned sw_ms_submit = 0;
@@ -1930,7 +1935,17 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
+static int sw_pic_impl( BMSCR *bm, char *fname );
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
+{
+	unsigned t = (unsigned)hgio_gettick();
+	int r = sw_pic_impl( bm, fname );
+	sw_ms_pic += (unsigned)hgio_gettick() - t;
+	return r;
+}
+
+
+static int sw_pic_impl( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
 	int texid;
@@ -2450,7 +2465,16 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 #endif
 
 
+static void sw_font_impl( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey );
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
+{
+	unsigned t = (unsigned)hgio_gettick();
+	sw_font_impl( bm, distx, disty, ratex, ratey, srcsx, srcsy, texid, basex, basey );
+	sw_ms_font += (unsigned)hgio_gettick() - t;
+}
+
+
+static void sw_font_impl( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
 	sw_nfont++;
 	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
@@ -3235,7 +3259,17 @@ int hgio_font(char *fontname, int size, int style)
 	return 0;
 }
 
-int hgio_mes(BMSCR* bm, char* msg)
+static int sw_mes_impl( BMSCR *bm, char *msg );
+int hgio_mes( BMSCR *bm, char *msg )
+{
+	unsigned t = (unsigned)hgio_gettick();
+	int r = sw_mes_impl( bm, msg );
+	sw_ms_mes += (unsigned)hgio_gettick() - t;
+	return r;
+}
+
+
+static int sw_mes_impl( BMSCR *bm, char *msg )
 {
 	sw_nmes++;
 	//		mes,print 文字表示
@@ -3534,8 +3568,13 @@ int hgio_render_end( void )
  " calls copy=%u rot=%u box=%u font=%u mes=%u\n",
 				sw_main_ok, sw_render_ms, sw_draw_ms, sw_script_ms, sw_render_frames,
 				sw_ncopy, sw_nrot, sw_nbox, sw_nfont, sw_nmes );
-			printf( "t23: split bind=%u ms blend=%u ms submit=%u ms\n",
-				sw_ms_bind, sw_ms_blend, sw_ms_submit );
+			printf( "t23: split bind=%u ms blend=%u ms submit=%u ms"
+ " mes=%u font=%u pic=%u ms\n",
+				sw_ms_bind, sw_ms_blend, sw_ms_submit,
+				sw_ms_mes, sw_ms_font, sw_ms_pic );
+			sw_ms_mes = 0;
+			sw_ms_font = 0;
+			sw_ms_pic = 0;
 			sw_ms_bind = 0;
 			sw_ms_blend = 0;
 			sw_ms_submit = 0;
