@@ -3450,19 +3450,28 @@ int hgio_render_start( void )
 }
 
 
+/*	t23 perf: the whole of hgio_render_end() - texmesProc, the main-screen
+	blit and the frame swap, which is where the emulator runs the draws the
+	frame queued.  Printed on the once-per-second diagnostic line.		*/
+static unsigned			sw_render_ms = 0;
+static unsigned			sw_render_frames = 0;
+
 int hgio_render_end( void )
 {
 	int res;
 	res = 0;
+	unsigned t_re = (unsigned)hgio_gettick();
 	if ( drawflag == 0 ) return 0;
 	{
 		static int sw_t23_pr = -1000;
 		int sw_t23_now = hgio_gettick();
 		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
 			sw_t23_pr = sw_t23_now;
-			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d\n",
+			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames\n",
 				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
-				(void *)mainbm, sw_main_ok );
+				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames );
+			sw_render_ms = 0;
+			sw_render_frames = 0;
 			fflush( stdout );
 		}
 	}
@@ -3509,6 +3518,9 @@ int hgio_render_end( void )
 	//SDL_GL_SwapBuffers();
 #endif
 #endif
+
+	sw_render_ms += (unsigned)hgio_gettick() - t_re;
+	sw_render_frames++;
 
 	drawflag = 0;
 	return res;

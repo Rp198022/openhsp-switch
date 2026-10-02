@@ -221,6 +221,7 @@ static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
 	cumulative and printed on the existing frame line.					*/
 static unsigned	sw_bind_ms = 0;
 static unsigned	sw_gpu_ms = 0;
+static unsigned	sw_func_ms = 0;			/* whole sw_glDrawArrays()		*/
 
 /*----------------------------------------------------------------*/
 /*	Helpers														  */
@@ -752,6 +753,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 			return;
 		}
 	}
+	unsigned t_fn = SDL_GetTicks();
 	sw_draw_no++;
 	gl_useprogram( sw_prog );
 
@@ -788,6 +790,7 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 		gl_drawarrays( mode, first, count );
 		sw_gpu_ms += (unsigned)( SDL_GetTicks() - t0 );
 	}
+	sw_func_ms += (unsigned)( SDL_GetTicks() - t_fn );
 }
 
 /*----------------------------------------------------------------*/
@@ -829,8 +832,8 @@ void sw_frame_tick( void )
 
 	sw_frame_no++;
 	if ( sw_frame_no <= 5 || ( sw_frame_no % 30 ) == 0 ) {
-		sw_say( "gles1shim: frame %d, %d draws, bind=%u ms, gpu=%u ms, t=%u ms\n",
-			sw_frame_no, sw_draw_no, sw_bind_ms, sw_gpu_ms, (unsigned)SDL_GetTicks() );
+		sw_say( "gles1shim: frame %d, %d draws, func=%u ms, bind=%u ms, gpu=%u ms, t=%u ms\n",
+			sw_frame_no, sw_draw_no, sw_func_ms, sw_bind_ms, sw_gpu_ms, (unsigned)SDL_GetTicks() );
 	}
 }
 
