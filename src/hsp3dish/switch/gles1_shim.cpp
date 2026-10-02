@@ -928,6 +928,18 @@ extern "C" int sw_glBlendEquationAvailable( void )
 	return ( gl_blendequation != NULL ) ? 1 : 0;
 }
 
+/*	Whether 2D texturing is on right now.  sw_glDrawArrays() derives u_usetex
+	from this flag, and Elona's copies only ever call glTexCoordPointer() -
+	they never re-enable the array or GL_TEXTURE_2D - so anything that turns
+	either off has to ask first and put it back.  The in-place fcgraph quad
+	(hgiox_switch.cpp, sw_fcgraph_sub) is that caller; leaving the flag clear
+	made every later gcopy sample no texture at all and paint flat white.	*/
+extern "C" int sw_texture2d_on( void )
+{
+	sw_init();
+	return sw_texture2d ? 1 : 0;
+}
+
 void sw_glPointSize( GLfloat size )
 {
 	sw_init();

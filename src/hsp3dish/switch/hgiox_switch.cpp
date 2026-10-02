@@ -2573,6 +2573,7 @@ static int		sw_fc_lock_py = 0;
 static BMSCR	*sw_fc_lock_bm = NULL;		/* only meaningful on this screen	*/
 
 extern "C" int sw_glBlendEquationAvailable( void );
+extern "C" int sw_texture2d_on( void );
 
 extern "C" void sw_fcgraph_lock( int xs, int ys )
 {
@@ -2620,8 +2621,13 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 		cols[i*4+2] = cb;	cols[i*4+3] = 0.0f;	/* alpha 0 keeps dst alpha	*/
 	}
 
+	/*	The texture unit has to be off for this one draw - the shim decides
+		u_usetex from GL_TEXTURE_2D plus the client arrays, and nothing in
+		Elona's copy path ever turns the array back on.  Leaving either off
+		sent every later gcopy through with no texture at all, which painted
+		the map solid white.  Save the flag, draw, put it back.			*/
+	int tex2d_was = sw_texture2d_on();
 	glDisable( GL_TEXTURE_2D );
-	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 	glEnableClientState( GL_VERTEX_ARRAY );
 	glVertexPointer( 2, GL_FLOAT, 0, vert );
 	glEnableClientState( GL_COLOR_ARRAY );
@@ -2631,10 +2637,11 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
 	glBlendFunc( GL_ONE, GL_ONE );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	glBlendEquation( GL_FUNC_ADD );
+	if ( tex2d_was ) glEnable( GL_TEXTURE_2D );
 
 	/*	Put the equation back; the blend function itself is restored by the
 		next hgio_setTexBlendMode(), exactly like hgio_copy() does.			*/
-	glBlendEquation( GL_FUNC_ADD );
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 }
 
