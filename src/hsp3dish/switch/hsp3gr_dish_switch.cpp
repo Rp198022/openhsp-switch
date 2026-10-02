@@ -41,6 +41,7 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 #include "../sysreq.h"
 #include "../webtask.h"
 #include "../hsp3ext.h"
+#include "switch_input.h"		/* switch_input_take_keys(): the pad's characters */
 
 #ifdef HSPWIN
 #include "../win32/bmscr_exc.h"
@@ -490,6 +491,23 @@ static void sw_key_read( void )
 	if ( fp != NULL ) fclose( fp );
 }
 
+/*	The pad is this port's keyboard now: switch_input_take_keys() translates a
+	button into the character Elona's key_check() reads out of its hidden
+	keylog box, and this hands that character to the same place keys.txt ends
+	up.  The pad is asked first so a real press is not queued behind a file the
+	harness is not using; keys.txt stays as the automation / debug route.	*/
+static int sw_key_from_pad( void )
+{
+	int n = switch_input_take_keys( sw_key_buf, SW_KEY_MAX - 1 );
+
+	if ( n <= 0 ) return 0;
+	sw_key_buf[n] = 0;
+	sw_key_len = n;
+	sw_key_pos = 0;
+	sw_key_target = 0;		/* character keys always go to keylog (obj 0)	*/
+	return 1;
+}
+
 /*	Only an entry that says it lives in the very window we looked it up in
 	is believed.  GetHSPObject() indexes the raw per-window table, and that
 	table grows through sbExpand() - which does not zero - so an id the
@@ -549,7 +567,7 @@ static void sw_key_tick( void )
 	if ( sw_key_pos >= sw_key_len ) {
 		sw_key_len = 0;
 		sw_key_pos = 0;
-		sw_key_read();
+		if ( !sw_key_from_pad() ) sw_key_read();
 		if ( sw_key_pos >= sw_key_len ) return;
 	}
 
