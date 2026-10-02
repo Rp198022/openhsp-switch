@@ -1290,6 +1290,22 @@ void dllshim_report_exit( void )
 	//	even an error the script swallowed with ONERROR is still here.
 	//
 	if ( hspctx == NULL ) return;
+	/*	t23 p3s180 probe: Eden never hands the guest stdout back, so
+		the one line that says why the script ended also goes to a
+		file.  A missing file means teardown never ran.            */
+	{
+		FILE *fp = fopen( "hsp3exit.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "script end: err=%d (%s) runmode=%d endcode=%d\n",
+				(int)hspctx->err, hspd_geterror( hspctx->err ),
+				hspctx->runmode, hspctx->endcode );
+#ifdef HSPDISH
+			fprintf( fp, "z.hpi alloc=%d read=%d write=%d close=%d fail=%d\n",
+				zlib_open_n, zlib_read_n, zlib_write_n, zlib_close_n, zlib_fail_n );
+#endif
+			fclose( fp );
+		}
+	}
 	printf( "hsp3switch: script end: err=%d (%s) runmode=%d endcode=%d\n",
 		(int)hspctx->err, hspd_geterror( hspctx->err ),
 		hspctx->runmode, hspctx->endcode );
