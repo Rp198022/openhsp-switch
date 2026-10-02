@@ -2816,27 +2816,37 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s177 probe: the (256,0)->(0,0) write-back has just run,
-		so the character screen now holds the running composite.  Keep the
-		newest picture and name the layer it ended with.            */
+	/*	t23 p3s178 probe: the (256,0)->(0,0) write-back of the layer
+		named by the last picload has just finished.  Read the head row
+		and the eye row of the 128x192 composite - if the hair layer had
+		painted, the head row would have changed to the hair colour. */
 	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) && ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
 		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_comp_n < 400 ) ) {
-		SWTARGET *me = sw_find( bm );
-		GLuint keep = sw_real_fbo;
+		unsigned char px[8][4];
+		const int xs[4] = { 16, 48, 80, 112 };
 		FILE *fp;
+		int k;
 
 		sw_pp_comp_n++;
-		if ( me != NULL ) {
-			sw_bfb( me->fbo );
-			sw_pp_dump( "pcpic_comp.bmp", (int)bm->sx, (int)bm->sy );
-			sw_bfb( keep );
+		for ( k = 0; k < 4; k++ ) {
+			glReadPixels( xs[k], 192, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[k] );
+		}
+		for ( k = 0; k < 4; k++ ) {
+			glReadPixels( xs[k], 181, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px[4 + k] );
 		}
 		fp = fopen( "pcpic_comp.log", "ab" );
 		if ( fp != NULL ) {
-			fprintf( fp, "comp #%03d bm=%p tx=%d fbo=%u pic='%s' tick=%d\n",
-				sw_pp_comp_n, (void *)bm, bm->texid,
-				( me != NULL ) ? (unsigned)me->fbo : 0u,
-				sw_pp_name, hgio_gettick() );
+			fprintf( fp, "comp #%03d pic='%s' head=%d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d"
+				" eye=%d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d / %d,%d,%d,%d tick=%d\n",
+				sw_pp_comp_n, sw_pp_name,
+				px[0][0], px[0][1], px[0][2], px[0][3],
+				px[1][0], px[1][1], px[1][2], px[1][3],
+				px[2][0], px[2][1], px[2][2], px[2][3],
+				px[3][0], px[3][1], px[3][2], px[3][3],
+				px[4][0], px[4][1], px[4][2], px[4][3],
+				px[5][0], px[5][1], px[5][2], px[5][3],
+				px[6][0], px[6][1], px[6][2], px[6][3],
+				px[7][0], px[7][1], px[7][2], px[7][3], hgio_gettick() );
 			fclose( fp );
 		}
 	}
@@ -3015,36 +3025,33 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s177 probe: the world map is sampling the character screen
-		for the player sprite.  Dump that screen at the instant of the
-		copy, and the main screen the cell lands on.                */
-	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 40 ) ) {
-		SWTARGET *ss = sw_find( bmsrc );
+	/*	t23 p3s178 probe: the world map is sampling the character screen
+		with copyrot.  Read the same head/eye spots of the screen and of
+		the cell it writes into the main screen.                     */
+	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 60 ) ) {
+		unsigned char sh[4], se[4], mhp[4], mep[4];
+		SWTARGET *mdt = sw_find( bm );
 		GLuint keep = sw_real_fbo;
+		int mhh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
 		FILE *fp;
 
 		sw_pp_rotn++;
-		if ( ss != NULL ) {
-			sw_bfb( ss->fbo );
-			sw_pp_dump( "pcpic_rot_src.bmp", (int)bmsrc->sx, (int)bmsrc->sy );
-			sw_bfb( keep );
-		}
-		if ( sw_pp_rotn <= 4 ) {
-			SWTARGET *md = sw_find( bm );
-			GLuint mf = ( md != NULL ) ? md->fbo :
-				( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u );
-			int mw = ( bm->sx > 0 ) ? (int)bm->sx : 800;
-			int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
-			sw_bfb( mf );
-			sw_pp_dump( "pcpic_rot_main.bmp", mw, mh );
-			sw_bfb( keep );
-		}
+		glReadPixels( 80, 192, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sh );
+		glReadPixels( 80, 181, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, se );
+		sw_bfb( ( mdt != NULL ) ? mdt->fbo : ( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u ) );
+		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 5 ) ), 1, 1,
+			GL_RGBA, GL_UNSIGNED_BYTE, mhp );
+		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 16 ) ), 1, 1,
+			GL_RGBA, GL_UNSIGNED_BYTE, mep );
+		sw_bfb( keep );
 		fp = fopen( "pcpic_rot.log", "ab" );
 		if ( fp != NULL ) {
-			fprintf( fp, "rotsrc #%03d src=%p tx=%d %dx%d at %d,%d dst=%p tx=%d %dx%d %d,%d ang=%g tick=%d\n",
-				sw_pp_rotn, (void *)bmsrc, bmsrc->texid, (int)bmsrc->sx, (int)bmsrc->sy,
-				(int)xx, (int)yy, (void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
-				(int)bm->cx, (int)bm->cy, (double)ang, hgio_gettick() );
+			fprintf( fp, "rotsrc #%03d src=%p tx=%d at %d,%d dst=%p %d,%d"
+				" srchead=%d,%d,%d,%d srceye=%d,%d,%d,%d mainhead=%d,%d,%d,%d maineye=%d,%d,%d,%d tick=%d\n",
+				sw_pp_rotn, (void *)bmsrc, bmsrc->texid, (int)xx, (int)yy,
+				(void *)bm, (int)bm->cx, (int)bm->cy,
+				sh[0], sh[1], sh[2], sh[3], se[0], se[1], se[2], se[3],
+				mhp[0], mhp[1], mhp[2], mhp[3], mep[0], mep[1], mep[2], mep[3], hgio_gettick() );
 			fclose( fp );
 		}
 	}
