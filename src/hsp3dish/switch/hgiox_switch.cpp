@@ -2537,6 +2537,12 @@ extern float sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
 	a colour pass that reaches no copy at all is invisible without this.		*/
 static int sw_tint_consume_trace = 0;
 
+/*	P3 DIAGNOSTIC - create_pcpic lifts every tinted part back with a single
+	128x198 copy (chips.hsp:118); no other copy in Elona is that shape.  Its
+	presence, its tint state and whether it was skipped answer the whole
+	question on their own.													*/
+static int sw_pcc_copy_trace = 0;
+
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
 	//		画像コピー
@@ -2548,6 +2554,20 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 	TEXINF mtex;
 	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
+	if ( SWITCH_DIAG && ( sw_fc_tint_on != 0 ) && ( sw_tint_consume_trace < 64 ) ) {
+		sw_tint_consume_trace++;
+		sw_fbo_log( "hgio: TINT armed -> src tx=%d %d,%d %dx%d dst tx=%d at %g,%g nostex=%d\n",
+			( bmsrc != NULL ) ? bmsrc->texid : -99, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+			bm->texid, (double)bm->cx, (double)bm->cy,
+			( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) ? 1 : 0 );
+	}
+	if ( SWITCH_DIAG && ( sw_pcc_copy_trace < 48 ) && ( srcsx == 128 ) && ( srcsy == 198 ) ) {
+		sw_pcc_copy_trace++;
+		sw_fbo_log( "hgio: PCCCOPY src tx=%d %d,%d -> dst tx=%d at %g,%g tint=%d gmode=%d nostex=%d\n",
+			( bmsrc != NULL ) ? bmsrc->texid : -99, (int)xx, (int)yy,
+			bm->texid, (double)bm->cx, (double)bm->cy, sw_fc_tint_on, bm->gmode,
+			( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) ? 1 : 0 );
+	}
 	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) {
 		/*	t23 probe: Elona restores whole regions of a screen from picture
 			buffers it keeps around (`gcopy BUFFER_MAP, ...`).  A source without
@@ -2693,13 +2713,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
-	if ( SWITCH_DIAG && ( sw_fc_tint_on != 0 ) && ( sw_tint_consume_trace < 24 ) ) {
-		sw_tint_consume_trace++;
-		sw_fbo_log( "hgio: TINT consumed rgb=%g,%g,%g src tx=%d %d,%d %dx%d dst tx=%d at %g,%g\n",
-			(double)sw_fc_tint_r, (double)sw_fc_tint_g, (double)sw_fc_tint_b,
-			( bmsrc != NULL ) ? bmsrc->texid : -99, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
-			bm->texid, (double)bm->cx, (double)bm->cy );
-	}
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
 	/*	An fcgraph colour pass armed by gfdec/gfdec2 is consumed by exactly

@@ -773,10 +773,11 @@ static int	sw_gfdec_trace = 0;
 static int impl_hspext_gfini( const DllArgValue *args, int argc )
 {
 #ifdef HSPDISH
-	if ( SWITCH_DIAG && sw_gfini_trace < 24 ) {
+	if ( SWITCH_DIAG && sw_gfini_trace < 48 && ( argc > 2 ) &&
+		 ( args[1].ival >= 100 ) && ( args[2].ival >= 100 ) ) {
 		sw_gfini_trace++;
 		printf( "hsp3switch: ### gfini argc=%d x=%d y=%d\n",
-			argc, ( argc > 1 ) ? (int)args[1].ival : -1, ( argc > 2 ) ? (int)args[2].ival : -1 );
+			argc, (int)args[1].ival, (int)args[2].ival );
 		fflush( stdout );
 	}
 	sw_fc_tint_on = 0;
@@ -801,10 +802,10 @@ static int impl_hspext_gfdec( const DllArgValue *args, int argc )
 		sw_fc_tint_g = (float)args[1].ival * ( 1.0f / 255.0f );
 		sw_fc_tint_b = (float)args[2].ival * ( 1.0f / 255.0f );
 		sw_fc_tint_on = ( sw_fc_tint_r > 0.f || sw_fc_tint_g > 0.f || sw_fc_tint_b > 0.f ) ? 1 : 0;
-		if ( SWITCH_DIAG && sw_gfdec_trace < 24 ) {
+		if ( SWITCH_DIAG && sw_gfdec_trace < 64 ) {
 			sw_gfdec_trace++;
-			printf( "hsp3switch: ### gfdec argc=%d arg=%d,%d,%d,%d on=%d\n",
-				argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
+			printf( "hsp3switch: ### gfdec #%d argc=%d arg=%d,%d,%d,%d on=%d\n",
+				sw_gfdec_trace, argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
 				( argc > 3 ) ? (int)args[3].ival : -1, sw_fc_tint_on );
 			fflush( stdout );
 		}
