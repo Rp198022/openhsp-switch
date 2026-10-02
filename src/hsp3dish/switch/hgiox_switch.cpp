@@ -1771,9 +1771,28 @@ int hgio_title( char *str1 )
 	return 0;
 }
 
+/*	switch_input_poll() fills the pad tables, and until now the only caller was
+	the once-per-frame tick (gles1_shim's sw_frame_tick).  A script can sit in a
+	wait loop that never redraws - Elona's text box does exactly that (the stall
+	dump shows objsel + getkey repeating) - and then no frame means no poll, so
+	getkey and stick answer from a frozen table forever and the guest hangs with
+	the box still waiting for a key.  Refresh on demand instead, at most every
+	few milliseconds so a tight polling loop stays cheap. */
+static void sw_input_refresh( void )
+{
+	static unsigned int last = 0;
+	unsigned int now = (unsigned int)hgio_gettick();
+
+	if ( ( now - last ) < 4 ) return;
+	last = now;
+	switch_input_poll();
+}
+
 int hgio_stick( int actsw )
 {
 	int ckey = 0;
+
+	sw_input_refresh();
 #if defined(HSPLINUX) || defined(HSPEMSCRIPTEN)
 #ifndef HSPRASPBIAN
 	if ( sw_input_key(SDL_SCANCODE_LEFT) )  ckey|=1;		// [left]
@@ -1857,6 +1876,8 @@ static const unsigned int key_map[256]={
 bool hgio_getkey( int kcode )
 {
 	bool res = false;
+
+	sw_input_refresh();
 	switch( kcode ){
 		case 1: res = (mouse_btn & SDL_BUTTON_LMASK) > 0; break;
 		case 2: res = (mouse_btn & SDL_BUTTON_RMASK) > 0; break;
