@@ -2917,8 +2917,16 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 			glReadPixels( (GLint)( xx + 16 ), (GLint)( yy + 8 ), 1, 1,
 				GL_RGBA, GL_UNSIGNED_BYTE, sp );
 			glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-				sw_scratch_tex, 0 );
-			sw_bind_target( bm );
+			/*	sw_bind_target() returns early when sw_cur already names
+				this screen, which would leave the scratch bound and every
+				later draw going into it - bind the screen outright.		*/
+			{
+				SWTARGET *st2 = sw_find( bm );
+				if ( st2 != NULL ) {
+					sw_bfb( st2->fbo );
+					sw_apply_target( bm );
+				}
+			}
 		}
 		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mh - ( bm->cy + 8 ) ), 1, 1,
 			GL_RGBA, GL_UNSIGNED_BYTE, dp );
