@@ -2543,6 +2543,101 @@ static int sw_tint_consume_trace = 0;
 	question on their own.													*/
 static int sw_pcc_copy_trace = 0;
 
+/*	fcgraph colour pass, done in place.
+
+	Hspext's gfini/gfdec/gfdec2 (src/plugins/win32/Hspext/fcgraph.cpp:41-122) do
+	not draw anything: gfini locks an xsize x ysize rectangle whose top-left is
+	the current screen position, and gfdec/gfdec2 walk that rectangle's pixels
+	subtracting a per-channel amount, saturating at 0.  Elona leans on that for
+	every PCC part - create_pcpic draws a greyscale template into a scratch
+	strip, locks it, subtracts c_col and copies the strip back, which is what
+	turns grey hair brown (chips.hsp:101-179) - and blend.hsp:1293-1295 calls
+	gfdec2 with no copy afterwards at all.
+
+	The earlier implementation recorded the colour and let the *next*
+	hgio_copy apply it in the fragment shader.  That is wrong on both counts:
+	a call site with no following copy lost the colour entirely, and an
+	unrelated 16x16 tile copy often consumed the pending colour first - which
+	is exactly how the strip came back grey and the eye disappeared.
+
+	The subtraction now happens the moment gfdec is called: a solid quad over
+	the locked rectangle, blended with GL_FUNC_REVERSE_SUBTRACT
+	(dst = dst*1 - src*1), which the fixed-point colour buffer clamps to
+	max(0, dst-src) on its own.  The vertex colour's alpha is 0, so the same
+	equation leaves the destination's alpha untouched.						*/
+
+static int		sw_fc_lock_x = 0;			/* gfini xsize (0 = whole width)	*/
+static int		sw_fc_lock_y = 0;			/* gfini ysize (0 = whole height)	*/
+static int		sw_fc_lock_px = 0;			/* lock top-left = pos at gfini		*/
+static int		sw_fc_lock_py = 0;
+static BMSCR	*sw_fc_lock_bm = NULL;		/* only meaningful on this screen	*/
+
+extern "C" int sw_glBlendEquationAvailable( void );
+
+extern "C" void sw_fcgraph_lock( int xs, int ys )
+{
+	/*	gfini: the lock is opened on the screen that is current right now,
+		at the position the script set with `pos`.							*/
+	BMSCR *bm = sw_cur;
+	sw_fc_lock_bm = bm;
+	sw_fc_lock_x = xs;
+	sw_fc_lock_y = ys;
+	sw_fc_lock_px = ( bm != NULL ) ? (int)bm->cx : 0;
+	sw_fc_lock_py = ( bm != NULL ) ? (int)bm->cy : 0;
+}
+
+extern "C" void sw_fcgraph_sub( int r, int g, int b )
+{
+	GLfloat vert[8];
+	GLfloat cols[16];
+	BMSCR *bm = sw_fc_lock_bm;
+	int i, w, h;
+	float x1, y1, x2, y2, cr, cg, cb;
+
+	if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) return;
+	if ( ( bm == NULL ) || ( bm != sw_cur ) ) return;		/* the lock died with its screen	*/
+	if ( sw_glBlendEquationAvailable() == 0 ) return;		/* an add would brighten instead	*/
+
+	w = sw_fc_lock_x; h = sw_fc_lock_y;
+	if ( w <= 0 ) w = bm->sx;								/* gfini 0 = whole width	*/
+	if ( h <= 0 ) h = bm->sy;
+	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
+
+	cr = (float)r * ( 1.0f / 255.0f );
+	cg = (float)g * ( 1.0f / 255.0f );
+	cb = (float)b * ( 1.0f / 255.0f );
+	x1 = (float)sw_fc_lock_px;
+	y1 = (float)-sw_fc_lock_py;
+	x2 = x1 + (float)w;
+	y2 = y1 - (float)h;
+
+	vert[0] = x1;	vert[1] = y1;
+	vert[2] = x1;	vert[3] = y2;
+	vert[4] = x2;	vert[5] = y1;
+	vert[6] = x2;	vert[7] = y2;
+	for ( i = 0; i < 4; i++ ) {
+		cols[i*4+0] = cr;	cols[i*4+1] = cg;
+		cols[i*4+2] = cb;	cols[i*4+3] = 0.0f;	/* alpha 0 keeps dst alpha	*/
+	}
+
+	glDisable( GL_TEXTURE_2D );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_COLOR_ARRAY );
+	glColorPointer( 4, GL_FLOAT, 0, cols );
+	sw_glColorKey( 0, 0 );
+	glEnable( GL_BLEND );
+	glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
+	glBlendFunc( GL_ONE, GL_ONE );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+
+	/*	Put the equation back; the blend function itself is restored by the
+		next hgio_setTexBlendMode(), exactly like hgio_copy() does.			*/
+	glBlendEquation( GL_FUNC_ADD );
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+}
+
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
 	//		画像コピー

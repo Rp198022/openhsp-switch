@@ -918,6 +918,16 @@ void sw_glBlendEquation( GLenum mode )
 	if ( sw_ready && gl_blendequation != NULL ) gl_blendequation( mode );
 }
 
+/*	Whether the driver really provided glBlendEquation.  The in-place fcgraph
+	subtract (hgiox_switch.cpp, sw_fcgraph_sub) is the only caller that cannot
+	be emulated any other way - it asks first and does nothing when the answer
+	is no, rather than subtracting as an add.								*/
+extern "C" int sw_glBlendEquationAvailable( void )
+{
+	sw_init();
+	return ( gl_blendequation != NULL ) ? 1 : 0;
+}
+
 void sw_glPointSize( GLfloat size )
 {
 	sw_init();

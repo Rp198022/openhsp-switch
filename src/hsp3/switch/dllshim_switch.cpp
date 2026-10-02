@@ -740,21 +740,24 @@ static int impl_hspext_fcgraph_zero( const DllArgValue *args, int argc )
 	return 0;
 }
 
-//	Elona's create_pcpic needs the colour pass even though there is no pBit to
-//	write: every PCC part is drawn from a greyscale template into a scratch
-//	strip, gfini locks that strip, gfdec2 subtracts a per-channel amount taken
-//	from c_col, and the result is copied back (chips.hsp:101-179).  That
-//	subtraction is what turns a greyscale part brown, red or blue, so dropping
-//	it leaves the hair grey - the reported "bald" character.
+//	fcgraph.cpp:41-122 is the authority: gfini( bm, p1, p2, p3 ) locks p1 x p2
+//	pixels at the screen's current position, and gfdec/gfdec2 subtract p1,p2,p3
+//	from that rectangle's R,G,B, saturating at 0 - in place, with no drawing
+//	and no copy of any kind.  Elona's create_pcpic draws each PCC part from a
+//	greyscale template into a scratch strip, locks it, subtracts c_col and
+//	copies the strip back (chips.hsp:101-179), which is what turns grey hair
+//	brown; blend.hsp:1293-1295 calls gfdec2 with no copy afterwards at all.
 //
-//	The subtraction is done on the GPU instead: gfdec/gfdec2 record the colour
-//	and the next hgio_copy (the one that lifts the strip back into place)
-//	applies it in the fragment shader.  See gles1_shim.cpp.
+//	Both entry points forward to the backend, which does the subtraction the
+//	moment gfdec is called (hgiox_switch.cpp: sw_fcgraph_lock/sw_fcgraph_sub).
+//	The first attempt (p3s191-p3s193) instead recorded the colour and let the
+//	next hgio_copy apply it - which lost it wherever no copy followed and let
+//	an unrelated 16x16 tile copy steal it, leaving the hair grey.
 //
 #ifdef HSPDISH
 extern "C" {
-extern int		sw_fc_tint_on;
-extern float	sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
+extern void sw_fcgraph_lock( int xs, int ys );
+extern void sw_fcgraph_sub( int r, int g, int b );
 }
 
 //	P3 DIAGNOSTIC counters - "is the colour pass reached at all?"  Elona calls
@@ -766,21 +769,23 @@ static int	sw_gfini_trace = 0;
 static int	sw_gfdec_trace = 0;
 #endif
 
-//	gfini xsize,ysize - open the colour pass.  Nothing to allocate here (the
-//	scratch strip already lives in the screen texture), so it only drops a
-//	stale request from a previous part.
+//	gfini xsize,ysize - lock the rectangle the colour pass applies to.  The
+//	backend remembers it (and the position it was opened at); 0 means "whole
+//	width/height", exactly as fcgraph.cpp:49-50 does it.
 //
 static int impl_hspext_gfini( const DllArgValue *args, int argc )
 {
 #ifdef HSPDISH
-	if ( SWITCH_DIAG && sw_gfini_trace < 48 && ( argc > 2 ) &&
-		 ( args[1].ival >= 100 ) && ( args[2].ival >= 100 ) ) {
-		sw_gfini_trace++;
-		printf( "hsp3switch: ### gfini argc=%d x=%d y=%d\n",
-			argc, (int)args[1].ival, (int)args[2].ival );
-		fflush( stdout );
+	if ( argc > 2 ) {
+		sw_fcgraph_lock( (int)args[1].ival, (int)args[2].ival );
+		if ( SWITCH_DIAG && sw_gfini_trace < 48 &&
+			 ( args[1].ival >= 100 ) && ( args[2].ival >= 100 ) ) {
+			sw_gfini_trace++;
+			printf( "hsp3switch: ### gfini argc=%d x=%d y=%d\n",
+				argc, (int)args[1].ival, (int)args[2].ival );
+			fflush( stdout );
+		}
 	}
-	sw_fc_tint_on = 0;
 #else
 	(void)args;
 	(void)argc;
@@ -798,15 +803,12 @@ static int impl_hspext_gfdec( const DllArgValue *args, int argc )
 {
 #ifdef HSPDISH
 	if ( argc >= 3 ) {
-		sw_fc_tint_r = (float)args[0].ival * ( 1.0f / 255.0f );
-		sw_fc_tint_g = (float)args[1].ival * ( 1.0f / 255.0f );
-		sw_fc_tint_b = (float)args[2].ival * ( 1.0f / 255.0f );
-		sw_fc_tint_on = ( sw_fc_tint_r > 0.f || sw_fc_tint_g > 0.f || sw_fc_tint_b > 0.f ) ? 1 : 0;
+		sw_fcgraph_sub( (int)args[0].ival, (int)args[1].ival, (int)args[2].ival );
 		if ( SWITCH_DIAG && sw_gfdec_trace < 64 ) {
 			sw_gfdec_trace++;
-			printf( "hsp3switch: ### gfdec #%d argc=%d arg=%d,%d,%d,%d on=%d\n",
+			printf( "hsp3switch: ### gfdec #%d argc=%d arg=%d,%d,%d,%d\n",
 				sw_gfdec_trace, argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
-				( argc > 3 ) ? (int)args[3].ival : -1, sw_fc_tint_on );
+				( argc > 3 ) ? (int)args[3].ival : -1 );
 			fflush( stdout );
 		}
 	}
