@@ -883,7 +883,14 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 	hdr[26] = 1;
 	hdr[28] = 32;
 
-	fp = fopen( name, "wb" );
+	{
+		/*	Keep the snapshots out of the game directory: Eden watches it and
+			reloads its game list on every file that appears, and the burst of
+			readbacks was taking the emulator down. */
+		char full[96];
+		snprintf( full, sizeof( full ), "sdmc:/dump/%s", name );
+		fp = fopen( full, "wb" );
+	}
 	if ( fp == NULL ) {
 		sw_fbo_log( "hgio: dump %s could not be opened\n", name );
 		mem_bye( p );
