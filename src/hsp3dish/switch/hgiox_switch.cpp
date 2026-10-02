@@ -2718,8 +2718,11 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty1 -= 0.5f;
 	}
 	sw_scratch_used = 0;
+	/*	t23 p3s181: the limit used to be 64x64, which let the 128x198
+		self-copies of create_pcpic() (the character composite) through
+		to the undefined path.  Take the picture-size ones too.     */
 	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
+		 ( srcsx <= SW_SCRATCH_MAX ) && ( srcsy <= SW_SCRATCH_MAX ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
