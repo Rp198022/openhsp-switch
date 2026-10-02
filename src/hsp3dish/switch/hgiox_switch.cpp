@@ -321,6 +321,8 @@ static int		sw_del_report = 0;		// P3 diagnostic
 static int		sw_clear_report = 0;		// P3 diagnostic
 static int		sw_copy_skip_report = 0;	// t23 probe: copies dropped for a missing source
 static int		sw_copy_big_report = 0;	// t23 probe: picture-buffer restores seen
+static int sw_pp_rotn = 0;
+static int sw_pp_rot_report = 0;
 static int		sw_panel_a = 0;	// t23 probe: window caught right after the sheet copy
 static int		sw_panel_b = 0;	// t23 probe: ...and again when that frame is presented
 /*	Elona's second screen (`screen 20`, 800x190).  The classic runtime gives it
@@ -1908,97 +1910,6 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
-/*	t23 p3s175 probe: keep the picture name of the character screen's current
-	layer, and dump a framebuffer without the SWITCH_DIAG gate.				*/
-/*	t23 p3s176 probe: is this screen the 384x198 character picture?		*/
-static int sw_pp_is_pic( BMSCR *bm )
-{
-	if ( bm == NULL ) return 0;
-	return ( ( bm->sx >= 380 ) && ( bm->sx <= 400 ) && ( bm->sy == 198 ) );
-}
-
-static void sw_pp_log( const char *fmt, ... )
-{
-	FILE *fp;
-	va_list ap;
-	char buf[256];
-
-	va_start( ap, fmt );
-	vsnprintf( buf, sizeof( buf ), fmt, ap );
-	va_end( ap );
-	fp = fopen( "pcpic_chain.log", "ab" );
-	if ( fp != NULL ) {
-		fputs( buf, fp );
-		fclose( fp );
-	}
-}
-
-static char sw_pp_name[96] = "";
-static int sw_pp_n = 0;
-static int sw_pp_dumped = 0;
-static int sw_pp_rotn = 0;
-
-static void sw_pp_take_name( const char *fname )
-{
-	const char *b = fname;
-	const char *q;
-
-	if ( fname == NULL ) return;
-	for ( q = fname; *q != 0; q++ ) {
-		if ( ( *q == '\\' ) || ( *q == '/' ) ) b = q + 1;
-	}
-	strncpy( sw_pp_name, b, sizeof( sw_pp_name ) - 1 );
-	sw_pp_name[ sizeof( sw_pp_name ) - 1 ] = 0;
-}
-
-static void sw_pp_dump( const char *name, int w, int h )
-{
-	unsigned char *p;
-	FILE *fp;
-	unsigned char hdr[54];
-	int i, x, y, rowsz, filesize;
-
-	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
-	p = (unsigned char *)mem_ini( w * h * 4 );
-	if ( p == NULL ) return;
-	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
-	rowsz = w * 4;
-	filesize = 54 + rowsz * h;
-	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
-	hdr[0] = 'B'; hdr[1] = 'M';
-	hdr[2] = (unsigned char)( filesize & 0xff );
-	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
-	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
-	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
-	hdr[10] = 54;
-	hdr[14] = 40;
-	hdr[18] = (unsigned char)( w & 0xff );
-	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
-	hdr[22] = (unsigned char)( h & 0xff );
-	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
-	hdr[26] = 1;
-	hdr[28] = 32;
-	fp = fopen( name, "wb" );
-	if ( fp == NULL ) {
-		mem_bye( p );
-		return;
-	}
-	fwrite( hdr, 1, 54, fp );
-	for ( y = 0; y < h; y++ ) {
-		unsigned char *src = p + (size_t)y * rowsz;
-		unsigned char px[4];
-		for ( x = 0; x < w; x++ ) {
-			px[0] = src[x*4+2];
-			px[1] = src[x*4+1];
-			px[2] = src[x*4+0];
-			px[3] = 255;
-			fwrite( px, 1, 4, fp );
-		}
-	}
-	fclose( fp );
-	mem_bye( p );
-}
-
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
@@ -2111,11 +2022,6 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
 			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
 			(int)bm->cx, (int)bm->cy );
-	}
-
-	/*	t23 p3s175 probe: remember which picture this screen's layer is.		*/
-	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) ) {
-		sw_pp_take_name( fname );
 	}
 
 	return 0;
@@ -2775,43 +2681,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
-	/*	t23 p3s175 probe: a write-back layer of the 384x198 character screen.
-		Record the screen's texture and framebuffer and the picture of the layer,
-		and dump the screen once after the hair layer.						*/
-	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) &&
-		 ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
-		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_n < 240 ) ) {
-		unsigned char ph[4] = { 7, 7, 7, 7 };
-		SWTARGET *me = sw_find( bm );
-		FILE *fp;
-
-		sw_pp_n++;
-		glReadPixels( 16, 198 - 8, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ph );
-		fp = fopen( "pcpic_ids.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "wb #%03d bm=%p tx=%d gl=%u fbo=%u/%u pic='%s' head=%d,%d,%d tick=%d\n",
-				sw_pp_n, (void *)bm, bm->texid, (unsigned)sw_real_fbo,
-				(unsigned)sw_real_fbo, ( me != NULL ) ? (unsigned)me->fbo : 0u,
-				sw_pp_name, ph[0], ph[1], ph[2], hgio_gettick() );
-			fclose( fp );
-		}
-		if ( ( strstr( sw_pp_name, "hair_" ) != NULL ) && ( sw_pp_dumped < 2 ) ) {
-			sw_pp_dumped++;
-			sw_pp_dump( "pcpic_hair.bmp", bm->sx, bm->sy );
-		}
-	}
-
-	/*	t23 p3s176 probe: anything touching the character picture.			*/
-	if ( ( sw_pp_n < 200 ) && ( sw_pp_is_pic( bmsrc ) || sw_pp_is_pic( bm ) ||
-		 ( ( srcsx == 32 ) && ( srcsy == 48 ) ) ) ) {
-		sw_pp_n++;
-		sw_pp_log( "cpy #%03d src=%p/%d %dx%d %d,%d dst=%p/%d %dx%d %d,%d gm=%d tick=%d\n",
-			sw_pp_n, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -9,
-			( bmsrc != NULL ) ? (int)bmsrc->sx : -1, ( bmsrc != NULL ) ? (int)bmsrc->sy : -1,
-			(int)xx, (int)yy,
-			(void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
-			(int)bm->cx, (int)bm->cy, bm->gmode, hgio_gettick() );
-	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
@@ -2869,6 +2738,62 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	}
 }
 
+
+/*	t23 p3s183 probe: is this screen the 384x198 character picture?		*/
+static int sw_pp_is_pic( BMSCR *bm )
+{
+	if ( bm == NULL ) return 0;
+	return ( ( bm->sx >= 380 ) && ( bm->sx <= 400 ) && ( bm->sy == 198 ) );
+}
+
+/*	Read the currently bound framebuffer back as a 32-bit BMP.			*/
+static void sw_pp_dump( const char *name, int w, int h )
+{
+	unsigned char *p;
+	FILE *fp;
+	unsigned char hdr[54];
+	int i, x, y, rowsz, filesize;
+
+	if ( ( w <= 0 ) || ( h <= 0 ) ) return;
+	p = (unsigned char *)mem_ini( w * h * 4 );
+	if ( p == NULL ) return;
+	glReadPixels( 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+	fp = fopen( name, "wb" );
+	if ( fp == NULL ) {
+		mem_bye( p );
+		return;
+	}
+	fwrite( hdr, 1, 54, fp );
+	for ( y = 0; y < h; y++ ) {
+		unsigned char *src = p + (size_t)y * rowsz;
+		unsigned char px[4];
+		for ( x = 0; x < w; x++ ) {
+			px[0] = src[x*4+2];
+			px[1] = src[x*4+1];
+			px[2] = src[x*4+0];
+			px[3] = 255;
+			fwrite( px, 1, 4, fp );
+		}
+	}
+	fclose( fp );
+	mem_bye( p );
+}
 
 void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, float s_ofsx, float s_ofsy, BMSCR *bmsrc, float psx, float psy, float ang )
 {
@@ -2974,26 +2899,16 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-	/*	t23 p3s176 probe: anything touching the character picture.			*/
-	if ( ( sw_pp_n < 200 ) && ( sw_pp_is_pic( bmsrc ) || sw_pp_is_pic( bm ) ||
-		 ( ( srcsx == 32 ) && ( srcsy == 48 ) ) ) ) {
-		sw_pp_n++;
-		sw_pp_log( "rot #%03d src=%p/%d %dx%d %d,%d dst=%p/%d %dx%d %d,%d gm=%d tick=%d\n",
-			sw_pp_n, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -9,
-			( bmsrc != NULL ) ? (int)bmsrc->sx : -1, ( bmsrc != NULL ) ? (int)bmsrc->sy : -1,
-			(int)xx, (int)yy,
-			(void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
-			(int)bm->cx, (int)bm->cy, bm->gmode, hgio_gettick() );
-	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
-	/*	t23 p3s179 probe: the world map is sampling the character screen
-		with copyrot.  Dump that screen (twice) and read the head/eye spots
-		of it and of the main screen at the cell it lands on.       */
-	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 60 ) ) {
-		unsigned char sh[4], se[4], mhp[4], mep[4];
+	/*	t23 p3s183 probe: the world map is sampling the character screen with
+		copyrot.  Dump that screen (twice) and read the head/eye spots of it
+		through its own framebuffer, then the cell it lands on in the main
+		screen.  This runs about once every two seconds, never per copy.	*/
+	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 40 ) ) {
+		unsigned char mhp[4], mep[4];
 		SWTARGET *mdt = sw_find( bm );
 		SWTARGET *sdt = sw_find( bmsrc );
 		GLuint keep = sw_real_fbo;
@@ -3001,11 +2916,10 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		FILE *fp;
 
 		sw_pp_rotn++;
-		glReadPixels( 80, 192, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sh );
-		glReadPixels( 80, 181, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, se );
 		if ( ( sw_pp_rotn <= 2 ) && ( sdt != NULL ) ) {
 			sw_bfb( sdt->fbo );
 			sw_pp_dump( "pcpic_rot_src.bmp", (int)bmsrc->sx, (int)bmsrc->sy );
+			sw_bfb( keep );
 		}
 		sw_bfb( ( mdt != NULL ) ? mdt->fbo : ( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u ) );
 		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mhh - ( bm->cy + 5 ) ), 1, 1,
@@ -3015,36 +2929,13 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		sw_bfb( keep );
 		fp = fopen( "pcpic_rot.log", "ab" );
 		if ( fp != NULL ) {
-			fprintf( fp, "rotsrc #%03d src=%p tx=%d at %d,%d dst=%p %d,%d"
-				" srchead=%d,%d,%d,%d srceye=%d,%d,%d,%d mainhead=%d,%d,%d,%d maineye=%d,%d,%d,%d tick=%d\n",
+			fprintf( fp, "rotsrc #%03d src=%p tx=%d at %d,%d %dx%d dst=%p %d,%d gm=%d"
+				" mainhead=%d,%d,%d,%d maineye=%d,%d,%d,%d tick=%d\n",
 				sw_pp_rotn, (void *)bmsrc, bmsrc->texid, (int)xx, (int)yy,
-				(void *)bm, (int)bm->cx, (int)bm->cy,
-				sh[0], sh[1], sh[2], sh[3], se[0], se[1], se[2], se[3],
-				mhp[0], mhp[1], mhp[2], mhp[3], mep[0], mep[1], mep[2], mep[3], hgio_gettick() );
-			fclose( fp );
-		}
-	}
-
-	/*	t23 p3s175 probe: the world map's 32x48 sprite copy.  Name the source
-		screen, the texture this draw samples and the framebuffer behind it.	*/
-	if ( ( srcsx == 32 ) && ( srcsy == 48 ) && ( tex != NULL ) &&
-		 ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_pp_n < 400 ) ) {
-		unsigned char dp[4] = { 8, 8, 8, 8 };
-		SWTARGET *ss = sw_find( bmsrc );
-		int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
-		FILE *fp;
-
-		sw_pp_n++;
-		glReadPixels( (GLint)( bm->cx + 16 ), (GLint)( mh - ( bm->cy + 8 ) ), 1, 1,
-			GL_RGBA, GL_UNSIGNED_BYTE, dp );
-		fp = fopen( "pcpic_ids.log", "ab" );
-		if ( fp != NULL ) {
-			fprintf( fp, "rot #%03d src=%p tx=%d gl=%u pot=%dx%d sbmtx=%d sfbo=%u dest=%d,%d,%d tick=%d\n",
-				sw_pp_n, (void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -9,
-				(unsigned)tex->texid, (int)tex->sx, (int)tex->sy,
-				( bmsrc != NULL ) ? bmsrc->texid : -9,
-				( ss != NULL ) ? (unsigned)ss->fbo : 0u,
-				dp[0], dp[1], dp[2], hgio_gettick() );
+				(int)srcsx, (int)srcsy,
+				(void *)bm, (int)bm->cx, (int)bm->cy, (int)bm->gmode,
+				mhp[0], mhp[1], mhp[2], mhp[3], mep[0], mep[1], mep[2], mep[3],
+				(int)hgio_gettick() );
 			fclose( fp );
 		}
 	}
