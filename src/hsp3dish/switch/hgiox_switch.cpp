@@ -2524,6 +2524,13 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 }
 
 
+/*	Set by gfdec/gfdec2 (src/hsp3/switch/dllshim_switch.cpp) for Elona's
+	create_pcpic colour pass; consumed by hgio_copy() below.  Defined in
+	src/hsp3dish/switch/gles1_shim.cpp.										*/
+extern "C" {
+extern int sw_fc_tint_on;
+}
+
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
 	//		画像コピー
@@ -2680,7 +2687,12 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
-    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	An fcgraph colour pass armed by gfdec/gfdec2 is consumed by exactly
+		this copy - the one that lifts the tinted scratch strip back into
+		place.  Drop it so the next draw comes out uncoloured.				*/
+	sw_fc_tint_on = 0;
 
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle

@@ -740,6 +740,60 @@ static int impl_hspext_fcgraph_zero( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	Elona's create_pcpic needs the colour pass even though there is no pBit to
+//	write: every PCC part is drawn from a greyscale template into a scratch
+//	strip, gfini locks that strip, gfdec2 subtracts a per-channel amount taken
+//	from c_col, and the result is copied back (chips.hsp:101-179).  That
+//	subtraction is what turns a greyscale part brown, red or blue, so dropping
+//	it leaves the hair grey - the reported "bald" character.
+//
+//	The subtraction is done on the GPU instead: gfdec/gfdec2 record the colour
+//	and the next hgio_copy (the one that lifts the strip back into place)
+//	applies it in the fragment shader.  See gles1_shim.cpp.
+//
+#ifdef HSPDISH
+extern "C" {
+extern int		sw_fc_tint_on;
+extern float	sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b;
+}
+#endif
+
+//	gfini xsize,ysize - open the colour pass.  Nothing to allocate here (the
+//	scratch strip already lives in the screen texture), so it only drops a
+//	stale request from a previous part.
+//
+static int impl_hspext_gfini( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+#ifdef HSPDISH
+	sw_fc_tint_on = 0;
+#endif
+	return 0;
+}
+
+//	gfdec r,g,b / gfdec2 r,g,b - saturated per-channel subtraction,
+//	dst = max(0, src - c) (fcgraph.cpp:98-122).  Both take (r,g,b) in that
+//	order and are served identically: Elona uses gfdec at blend.hsp:433 and
+//	gfdec2 on the PCC path, and the colour it passes is the amount to remove,
+//	not the colour to keep.
+//
+static int impl_hspext_gfdec( const DllArgValue *args, int argc )
+{
+#ifdef HSPDISH
+	if ( argc >= 3 ) {
+		sw_fc_tint_r = (float)args[0].ival * ( 1.0f / 255.0f );
+		sw_fc_tint_g = (float)args[1].ival * ( 1.0f / 255.0f );
+		sw_fc_tint_b = (float)args[2].ival * ( 1.0f / 255.0f );
+		sw_fc_tint_on = ( sw_fc_tint_r > 0.f || sw_fc_tint_g > 0.f || sw_fc_tint_b > 0.f ) ? 1 : 0;
+	}
+#else
+	(void)args;
+	(void)argc;
+#endif
+	return 0;
+}
+
 //	hspext_ext.dll - ematan( val, x, y ).  Copied from emath.cpp:110-119:
 //	a = atan2( -x, y ); a = ( a + pi ) * parg; *val = (int)a.  pi and parg are
 //	the module statics (3.1415926535 and emd_base/(pi*2)); the ez-math init that
@@ -1080,9 +1134,9 @@ static const DllImplEntry impl_table[] = {
 
 	//	hspext_ext.dll - Elona's Hspext imports: the 24-bit framebuffer writer
 	//	family, the ez-math atan, and the Win32 application-capture dialogs.
-	{ "hspext_ext.dll",	"_gfini@16",			impl_hspext_fcgraph_zero },
-	{ "hspext_ext.dll",	"_gfdec@16",			impl_hspext_fcgraph_zero },
-	{ "hspext_ext.dll",	"_gfdec2@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_gfini@16",			impl_hspext_gfini },
+	{ "hspext_ext.dll",	"_gfdec@16",			impl_hspext_gfdec },
+	{ "hspext_ext.dll",	"_gfdec2@16",			impl_hspext_gfdec },
 	{ "hspext_ext.dll",	"_gfinc@16",			impl_hspext_fcgraph_zero },
 	{ "hspext_ext.dll",	"_ematan@16",			impl_hspext_ematan },
 	{ "hspext_ext.dll",	"_aplsel@16",			impl_hspext_apl_zero },

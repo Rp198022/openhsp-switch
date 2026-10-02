@@ -213,8 +213,23 @@ static GLfloat		sw_mat_model[16];
 static GLuint		sw_prog;
 static GLint		sw_u_mvp, sw_u_tex, sw_u_usetex, sw_u_usecol, sw_u_color, sw_u_pointsize;
 static GLint		sw_u_colkey, sw_u_colkeycol;
+static GLint		sw_u_tint, sw_u_tintcol;
 static int		sw_colkey_on = 0;
 static GLfloat	sw_colkey_r = 0.f, sw_colkey_g = 0.f, sw_colkey_b = 0.f;
+
+/*	The fcgraph colour pass.  Elona's create_pcpic tints a greyscale part by
+	copying it to a scratch area, running gfini/gfdec2 over that area and
+	copying the result back.  The port has no CPU framebuffer, so gfdec2 only
+	records the per-channel amount to subtract and the next hgio_copy applies
+	it in the fragment shader - before the colour key test, which is the order
+	the software path used (subtract, then treat black as transparent).
+	dllshim_switch.cpp writes these, hgiox_switch.cpp clears them.			*/
+extern "C" {
+int		sw_fc_tint_on = 0;
+float	sw_fc_tint_r = 0.f;
+float	sw_fc_tint_g = 0.f;
+float	sw_fc_tint_b = 0.f;
+}
 
 static int			sw_ready;				/* entry points resolved			*/
 static int			sw_init_failed;
@@ -345,12 +360,17 @@ static const char *SW_FS =
 	"uniform vec4 u_color;\n"
 	"uniform int u_colkey;\n"
 	"uniform vec4 u_colkeycol;\n"
+	"uniform int u_tint;\n"
+	"uniform vec4 u_tintcol;\n"
 	"varying vec2 v_tex;\n"
 	"varying vec4 v_col;\n"
 	"void main() {\n"
 	"    vec4 tc = vec4( 1.0 );\n"
 	"    if ( u_usetex == 1 ) {\n"
 	"        tc = texture2D( u_tex, v_tex );\n"
+	"    }\n"
+	"    if ( u_tint == 1 ) {\n"
+	"        tc.rgb = max( vec3( 0.0 ), tc.rgb - u_tintcol.rgb );\n"
 	"    }\n"
 	"    if ( u_colkey == 1 ) {\n"
 	"        vec3 d = abs( tc.rgb - u_colkeycol.rgb );\n"
@@ -429,6 +449,8 @@ static int sw_build_program( void )
 	sw_u_pointsize = gl_getuniformlocation( sw_prog, "u_pointsize" );
 	sw_u_colkey = gl_getuniformlocation( sw_prog, "u_colkey" );
 	sw_u_colkeycol = gl_getuniformlocation( sw_prog, "u_colkeycol" );
+	sw_u_tint = gl_getuniformlocation( sw_prog, "u_tint" );
+	sw_u_tintcol = gl_getuniformlocation( sw_prog, "u_tintcol" );
 
 	sw_say( "gles1shim: program ok (mjvp=%d usetex=%d usecol=%d)\n",
 		(int)sw_u_mvp, (int)sw_u_usetex, (int)sw_u_usecol );
@@ -776,6 +798,8 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	gl_uniform1f( sw_u_pointsize, sw_point_size > 0.f ? sw_point_size : 1.f );
 	gl_uniform1i( sw_u_colkey, sw_colkey_on );
 	gl_uniform4f( sw_u_colkeycol, sw_colkey_r, sw_colkey_g, sw_colkey_b, 1.f );
+	gl_uniform1i( sw_u_tint, sw_fc_tint_on );
+	gl_uniform4f( sw_u_tintcol, sw_fc_tint_r, sw_fc_tint_g, sw_fc_tint_b, 1.f );
 
 	gl_enablevertexattribarray( SW_ATTR_POS );
 	gl_vertexattribpointer( SW_ATTR_POS, sw_vtx.size, GL_FLOAT, GL_FALSE, sw_vtx.stride, sw_vtx.ptr );
