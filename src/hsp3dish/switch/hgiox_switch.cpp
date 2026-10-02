@@ -1936,6 +1936,8 @@ static void sw_pp_log( const char *fmt, ... )
 static char sw_pp_name[96] = "";
 static int sw_pp_n = 0;
 static int sw_pp_dumped = 0;
+static int sw_pp_comp_n = 0;
+static int sw_pp_rotn = 0;
 
 static void sw_pp_take_name( const char *fname )
 {
@@ -2814,6 +2816,31 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
+	/*	t23 p3s177 probe: the (256,0)->(0,0) write-back has just run,
+		so the character screen now holds the running composite.  Keep the
+		newest picture and name the layer it ended with.            */
+	if ( ( bm->sx >= 380 ) && ( bm->sy == 198 ) && ( bm->cx == 0 ) && ( bm->cy == 0 ) &&
+		 ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_pp_comp_n < 400 ) ) {
+		SWTARGET *me = sw_find( bm );
+		GLuint keep = sw_real_fbo;
+		FILE *fp;
+
+		sw_pp_comp_n++;
+		if ( me != NULL ) {
+			sw_bfb( me->fbo );
+			sw_pp_dump( "pcpic_comp.bmp", (int)bm->sx, (int)bm->sy );
+			sw_bfb( keep );
+		}
+		fp = fopen( "pcpic_comp.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "comp #%03d bm=%p tx=%d fbo=%u pic='%s' tick=%d\n",
+				sw_pp_comp_n, (void *)bm, bm->texid,
+				( me != NULL ) ? (unsigned)me->fbo : 0u,
+				sw_pp_name, hgio_gettick() );
+			fclose( fp );
+		}
+	}
+
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
 		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
@@ -2987,6 +3014,40 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	t23 p3s177 probe: the world map is sampling the character screen
+		for the player sprite.  Dump that screen at the instant of the
+		copy, and the main screen the cell lands on.                */
+	if ( sw_pp_is_pic( bmsrc ) && ( sw_pp_rotn < 40 ) ) {
+		SWTARGET *ss = sw_find( bmsrc );
+		GLuint keep = sw_real_fbo;
+		FILE *fp;
+
+		sw_pp_rotn++;
+		if ( ss != NULL ) {
+			sw_bfb( ss->fbo );
+			sw_pp_dump( "pcpic_rot_src.bmp", (int)bmsrc->sx, (int)bmsrc->sy );
+			sw_bfb( keep );
+		}
+		if ( sw_pp_rotn <= 4 ) {
+			SWTARGET *md = sw_find( bm );
+			GLuint mf = ( md != NULL ) ? md->fbo :
+				( ( sw_main_ok == 1 ) ? sw_main_fbo : 0u );
+			int mw = ( bm->sx > 0 ) ? (int)bm->sx : 800;
+			int mh = ( bm->sy > 0 ) ? (int)bm->sy : 600;
+			sw_bfb( mf );
+			sw_pp_dump( "pcpic_rot_main.bmp", mw, mh );
+			sw_bfb( keep );
+		}
+		fp = fopen( "pcpic_rot.log", "ab" );
+		if ( fp != NULL ) {
+			fprintf( fp, "rotsrc #%03d src=%p tx=%d %dx%d at %d,%d dst=%p tx=%d %dx%d %d,%d ang=%g tick=%d\n",
+				sw_pp_rotn, (void *)bmsrc, bmsrc->texid, (int)bmsrc->sx, (int)bmsrc->sy,
+				(int)xx, (int)yy, (void *)bm, bm->texid, (int)bm->sx, (int)bm->sy,
+				(int)bm->cx, (int)bm->cy, (double)ang, hgio_gettick() );
+			fclose( fp );
+		}
+	}
 
 	/*	t23 p3s175 probe: the world map's 32x48 sprite copy.  Name the source
 		screen, the texture this draw samples and the framebuffer behind it.	*/
