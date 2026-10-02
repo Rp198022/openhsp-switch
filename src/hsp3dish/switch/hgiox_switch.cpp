@@ -329,6 +329,22 @@ static int		sw_panel_b = 0;	// t23 probe: ...and again when that frame is presen
 	until the script asks for such a screen.									*/
 static BMSCR	*sw_helpbm = NULL;
 
+/*	t23 p3s171: where a frame goes.  Elona brackets its drawing with
+	`redraw 0` / `redraw 1` (hgio_render_start / hgio_render_end), so the gap
+	between one render_end and the next render_start is the script and the span
+	between render_start and render_end is the draw phase.  The counters give the
+	number of draw calls per second.										*/
+static unsigned sw_frame_mark = 0;
+static unsigned sw_frame_end = 0;
+static int      sw_frame_open = 0;
+static unsigned sw_draw_ms = 0;
+static unsigned sw_script_ms = 0;
+static unsigned sw_ncopy = 0;
+static unsigned sw_nrot = 0;
+static unsigned sw_nbox = 0;
+static unsigned sw_nfont = 0;
+static unsigned sw_nmes = 0;
+
 static void sw_fbo_log( const char *fmt, ... )
 {
 	va_list ap;
@@ -1432,18 +1448,6 @@ int hgio_buffer(BMSCR *bm)
 	//		buffer(描画用画面作成)
 	//		テクスチャを確保する。FBOは実際に描画する時に作る。
 	//
-	/*	t23 p3s170: create_pcpic re-creates this screen every frame.  A
-		screen kept by `buffer` starts with undefined contents anyway, so
-		re-use it while the size still fits instead of making another
-		texture and framebuffer that are never freed.					*/
-	{
-		TEXINF *cur = ( bm->texid >= 0 ) ? GetTex( bm->texid ) : NULL;
-		if ( ( cur != NULL ) && ( cur->mode == TEXMODE_BUFFER ) &&
-			 ( cur->sx >= bm->sx ) && ( cur->sy >= bm->sy ) &&
-			 ( sw_find( bm ) != NULL ) ) {
-			return 0;
-		}
-	}
 	sw_forget( bm );
 	int texid = MakeEmptyTexBuffer( bm->sx, bm->sy );
 	if (texid >= 0) {
@@ -1920,46 +1924,6 @@ int hgio_texload( BMSCR *bm, char *fname )
 	framebuffer, so the screen keeps its size and its read-back works.
 	Returns 0 when it handled the load, -1 to fall back to the classic
 	path.																*/
-/*	t23 p3s170: registrations kept across frames.
-	`RegistTex()` re-reads, re-decodes and re-uploads a picture on every call and
-	its TEXINF entry is never freed (GetNextTex only re-uses TEXMODE_NONE slots),
-	and `create_pcpic` (chips.hsp) picloads eight pictures once a frame on the
-	world map.  Nothing here mutates a picture after loading it, so the texture
-	is kept by file name.													*/
-#define SW_PIC_CACHE_MAX 512
-static char sw_pic_name[SW_PIC_CACHE_MAX][128];
-static int  sw_pic_id[SW_PIC_CACHE_MAX];
-static int  sw_pic_n = 0;
-static unsigned sw_pic_ms = 0;
-static unsigned sw_pic_calls = 0;
-
-static int sw_pic_cached( const char *fname )
-{
-	int i;
-	if ( fname == NULL ) return -1;
-	for ( i = 0; i < sw_pic_n; i++ ) {
-		if ( strcmp( sw_pic_name[i], fname ) == 0 ) return sw_pic_id[i];
-	}
-	return -1;
-}
-
-static void sw_pic_store( const char *fname, int texid )
-{
-	int i;
-	if ( ( fname == NULL ) || ( texid < 0 ) ) return;
-	for ( i = 0; i < sw_pic_n; i++ ) {
-		if ( strcmp( sw_pic_name[i], fname ) == 0 ) {
-			sw_pic_id[i] = texid;
-			return;
-		}
-	}
-	if ( sw_pic_n >= SW_PIC_CACHE_MAX ) return;
-	strncpy( sw_pic_name[sw_pic_n], fname, sizeof( sw_pic_name[0] ) - 1 );
-	sw_pic_name[sw_pic_n][ sizeof( sw_pic_name[0] ) - 1 ] = 0;
-	sw_pic_id[sw_pic_n] = texid;
-	sw_pic_n++;
-}
-
 int hgio_picload_overwrite( BMSCR *bm, char *fname )
 {
 	TEXINF *t;
@@ -1973,16 +1937,7 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	if ( bm->type == HSPWND_TYPE_MAIN ) return -1;
 	if ( bm->type == HSPWND_TYPE_NONE ) return -1;
 
-	{
-		unsigned t_p = (unsigned)hgio_gettick();
-		texid = sw_pic_cached( fname );
-		if ( texid < 0 ) {
-			texid = RegistTex( fname );
-			sw_pic_store( fname, texid );
-		}
-		sw_pic_ms += (unsigned)hgio_gettick() - t_p;
-		sw_pic_calls++;
-	}
+	texid = RegistTex( fname );
 	if ( texid < 0 ) return -1;
 	t = GetTex( texid );
 	if ( ( t == NULL ) || ( t->mode == TEXMODE_NONE ) ) return -1;
@@ -2326,6 +2281,7 @@ void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alpha
 
 void hgio_boxf( BMSCR *bm, float x1, float y1, float x2, float y2 )
 {
+	sw_nbox++;
 	hgio_boxfAlpha(bm, x1, y1, x2, y2, 0);
 }
 
@@ -2490,6 +2446,7 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
+	sw_nfont++;
 	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
@@ -2587,6 +2544,7 @@ void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float rate
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
+	sw_ncopy++;
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -2800,6 +2758,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 
 void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, float s_ofsx, float s_ofsy, BMSCR *bmsrc, float psx, float psy, float ang )
 {
+	sw_nrot++;
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -3261,6 +3220,7 @@ int hgio_font(char *fontname, int size, int style)
 
 int hgio_mes(BMSCR* bm, char* msg)
 {
+	sw_nmes++;
 	//		mes,print 文字表示
 	//
 	int xsize, ysize;
@@ -3493,6 +3453,13 @@ int hgio_render_start( void )
 {
 	BMSCR *keep = sw_cur;
 
+	/*	t23 p3s171: the script ran between the last present and now.	*/
+	{
+		unsigned now = (unsigned)hgio_gettick();
+		if ( sw_frame_open ) sw_script_ms += now - sw_frame_end;
+		sw_frame_mark = now;
+	}
+
 	/*	This really is entered once per frame - the counters showed ~1080 calls
 		in one run - which is what a pad read needs.  sw_glClear() used to be
 		the sampling point, but the CLSMODE fix turned the frame clear into a
@@ -3534,20 +3501,31 @@ int hgio_render_end( void )
 	res = 0;
 	unsigned t_re = (unsigned)hgio_gettick();
 	if ( drawflag == 0 ) return 0;
+	/*	t23 p3s171: the draw phase ran from the last render_start.		*/
+	{
+		unsigned now = (unsigned)hgio_gettick();
+		sw_draw_ms += now - sw_frame_mark;
+		sw_frame_end = now;
+		sw_frame_open = 1;
+	}
 	{
 		static int sw_t23_pr = -1000;
 		int sw_t23_now = hgio_gettick();
 		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
 			sw_t23_pr = sw_t23_now;
-			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames"
- " pic=%u ms x%u held=%d\n",
-				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
-				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames,
-				sw_pic_ms, sw_pic_calls, sw_pic_n );
+			printf( "t23: present ok=%d render=%u ms draw=%u ms script=%u ms over %u frames"
+ " calls copy=%u rot=%u box=%u font=%u mes=%u\n",
+				sw_main_ok, sw_render_ms, sw_draw_ms, sw_script_ms, sw_render_frames,
+				sw_ncopy, sw_nrot, sw_nbox, sw_nfont, sw_nmes );
 			sw_render_ms = 0;
 			sw_render_frames = 0;
-			sw_pic_ms = 0;
-			sw_pic_calls = 0;
+			sw_draw_ms = 0;
+			sw_script_ms = 0;
+			sw_ncopy = 0;
+			sw_nrot = 0;
+			sw_nbox = 0;
+			sw_nfont = 0;
+			sw_nmes = 0;
 			fflush( stdout );
 		}
 	}
