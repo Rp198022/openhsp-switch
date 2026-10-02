@@ -844,7 +844,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 }
 
 
-#define SW_DUMP_MAX_PIXELS 3000000L
+#define SW_DUMP_MAX_PIXELS 500000L
 
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
