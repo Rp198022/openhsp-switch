@@ -2750,20 +2750,19 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
         ty1 -= 0.5f;
 	}
 	sw_scratch_used = 0;
-	/*	A gcopy whose source and destination are the *same* offscreen screen
-		must be staged through the scratch texture.  Without it the source is
-		sampled from the very texture being rendered into, which GL leaves
-		undefined - the classic runtime does it row by row on the CPU and gets
-		it right.
+	/*	A gcopy whose source and destination are the same offscreen screen must
+		be staged through the scratch texture - GL leaves a texture that is
+		both sampled and rendered into undefined, the classic runtime copies
+		row by row and has no such restriction.
 
-		This used to be limited to 64x64, which silently excluded Elona's PCC
-		composition: create_pcpic copies a 128x198 part strip from 128,0 to
-		256,0, tints it, and copies it back to 0,0 (chips.hsp:111-118) - all
-		inside one buffer.  Those two copies are exactly the ones that have to
-		be right, and they were the two that were left undefined, so the
-		composed character came out with grey hair and a missing eye while
-		everything drawn from a picture atlas (every NPC) stayed correct.	*/
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) ) {
+		The 64x64 limit is deliberate.  p3s195 lifted it to cover create_pcpic's
+		128x198 parts and the whole map went white: those two copies are
+		128,0->256,0 and 256,0->0,0, which do not overlap one another and so
+		never needed staging, while routing Elona's larger translucent
+		composites through a single shared scratch changed how many times each
+		layer landed on the screen.  Overlap only happens at tile sizes.	*/
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
