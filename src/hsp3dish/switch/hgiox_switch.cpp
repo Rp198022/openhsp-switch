@@ -1993,6 +1993,12 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 		colour key off and drops the colour array.						*/
 	hgio_setTexBlendMode( bm, 0, 0 );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	/*	Real-hardware GPU sync: the next gcopy samples from the same texture
+		we just rendered into.  On the Tegra X1 the draw can still be in
+		flight when the sample lands, so the copy reads back the uncoloured
+		template.  glFinish() stalls until the subtraction quad is out of the
+		GPU pipeline; Eden's software path does not need it.					*/
+	glFinish();
 	{
 		/*	t23 probe: read the blit back while the screen's own framebuffer is
 			still bound.  If the picture is here and the dumped screen is black
