@@ -208,6 +208,7 @@ typedef ptrdiff_t		GLsizeiptr;
 #define glClearColor				sw_glClearColor
 #define glBlendFunc					sw_glBlendFunc
 #define glBlendEquation				sw_glBlendEquation
+#define glFinish					sw_glFinish
 #define glPointSize					sw_glPointSize
 #define glLineWidth					sw_glLineWidth
 #define glShadeModel				sw_glShadeModel
@@ -252,6 +253,7 @@ void sw_glClear( GLbitfield mask );
 void sw_glClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha );
 void sw_glBlendFunc( GLenum sfactor, GLenum dfactor );
 void sw_glBlendEquation( GLenum mode );
+void sw_glFinish( void );
 void sw_glColorKey( int on, unsigned int rgb );
 void sw_glPointSize( GLfloat size );
 void sw_glLineWidth( GLfloat width );
