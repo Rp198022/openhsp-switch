@@ -2617,7 +2617,15 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	}
 	float x1, y1, x2, y2, cr, cg, cb;
 
-	if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) return;
+	if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
+		/*	Nothing to subtract, but the copy that follows still samples the
+			texture the copy before it wrote.  Without the stall the subtracting
+			path takes, the two parts whose tint is all zero - the eye and the
+			cloth - come out missing from the PCC sheet.  A zero tint is a real
+			case, not an error: the body uses it too. */
+		glFinish();
+		return;
+	}
 	if ( ( bm == NULL ) || ( bm != sw_cur ) ) return;		/* the lock died with its screen	*/
 	if ( sw_glBlendEquationAvailable() == 0 ) return;		/* an add would brighten instead	*/
 
