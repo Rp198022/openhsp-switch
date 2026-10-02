@@ -646,6 +646,41 @@ extern int sw_last_extcmd;
 extern int sw_extcmd_ring[8];		// fork: temporary error diagnostic
 extern int sw_extcmd_ring_pos;
 
+/*	STALL PROBE (t28).  The sleepy-event hang leaves the guest looping in a
+	place that never calls redraw, so no frame is presented and the per-frame
+	pad poll stops - yet the interpreter keeps running extended commands.
+	This rides that path: when no frame has been presented for four seconds,
+	print where the script is, what the pad reports, and the last commands. */
+extern unsigned int sw_last_render_tick;
+extern unsigned int switch_input_pad_bits( void );
+extern int sw_last_extcmd;
+extern int sw_extcmd_ring[8];
+extern int sw_extcmd_ring_pos;
+
+static void sw_stall_probe( void )
+{
+	static unsigned int last = 0;
+	static int n = 0;
+	unsigned int now = (unsigned int)hgio_gettick();
+	int k;
+
+	if ( n >= 40 ) return;
+	if ( sw_last_render_tick == 0 ) return;
+	if ( ( now - sw_last_render_tick ) < 4000 ) { last = now; return; }
+	if ( ( now - last ) < 4000 ) return;
+	last = now;
+	n++;
+	printf( "hsp3switch: ### STALL #%d t=%u lastframe=%u gap=%u line=%d %s padbits=%#x lastcmd=%#x ring=",
+		n, now, sw_last_render_tick, now - sw_last_render_tick,
+		code_getdebug_line(), code_getdebug_name(),
+		(unsigned)switch_input_pad_bits(), (unsigned)sw_last_extcmd );
+	for ( k = 0; k < 8; k++ ) {
+		printf( "%#x ", (unsigned)sw_extcmd_ring[( sw_extcmd_ring_pos + k ) & 7] );
+	}
+	printf( "\n" );
+	fflush( stdout );
+}
+
 static int cmdfunc_extcmd( int cmd )
 {
 	//		cmdfunc : TYPE_EXTCMD
@@ -657,6 +692,7 @@ static int cmdfunc_extcmd( int cmd )
 	sw_last_extcmd = cmd;					// fork: temporary error diagnostic
 	sw_extcmd_ring[sw_extcmd_ring_pos & 7] = cmd;	// fork: temporary error diagnostic
 	sw_extcmd_ring_pos++;
+	sw_stall_probe();
 	sw_key_tick();							// fork: type a key the harness asked for
 	switch( cmd ) {							// サブコマンドごとの分岐
 
