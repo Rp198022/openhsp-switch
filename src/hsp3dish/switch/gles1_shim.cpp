@@ -60,6 +60,7 @@ typedef void (*PFN_glTexParameteri)( GLenum, GLenum, GLint );
 typedef void (*PFN_glDrawArrays)( GLenum, GLint, GLsizei );
 typedef void (*PFN_glReadPixels)( GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void * );
 typedef void (*PFN_glLineWidth)( GLfloat );
+typedef void (*PFN_glFinish)( void );
 typedef GLenum (*PFN_glGetError)( void );
 typedef void (*PFN_glGenFramebuffers)( GLsizei, GLuint * );
 typedef void (*PFN_glDeleteFramebuffers)( GLsizei, const GLuint * );
@@ -109,6 +110,7 @@ static PFN_glTexParameteri				gl_texparameteri;
 static PFN_glDrawArrays					gl_drawarrays;
 static PFN_glReadPixels					gl_readpixels;
 static PFN_glLineWidth					gl_linewidth;
+static PFN_glFinish					gl_finish;
 static PFN_glGetError					gl_geterror;
 
 static PFN_glGenFramebuffers			gl_genframebuffers;
@@ -516,6 +518,11 @@ static void sw_init( void )
 		sw_blendeq_name = "glBlendEquationEXT";
 	}
 	if ( gl_blendequation == NULL ) sw_blendeq_name = "NONE";
+	/*	glFinish is not in GLES2 core; load it outside the missing
+		counter so a driver without it keeps rendering.  The in-place
+		fcgraph subtract quad needs it to keep the next gcopy from
+		sampling the texture before the subtraction landed. */
+	*(void **)( &gl_finish ) = SDL_GL_GetProcAddress( "glFinish" );
 	SW_LOAD( gl_createshader, "glCreateShader" );
 	SW_LOAD( gl_shadersource, "glShaderSource" );
 	SW_LOAD( gl_compileshader, "glCompileShader" );
@@ -926,6 +933,17 @@ extern "C" int sw_glBlendEquationAvailable( void )
 {
 	sw_init();
 	return ( gl_blendequation != NULL ) ? 1 : 0;
+}
+
+/*	Block until all previously issued GL commands have completed on the
+		GPU.  Used by sw_fcgraph_sub() so the subsequent gcopy cannot sample
+		the PCC buffer texture before the in-place subtract quad has landed.
+		On a driver without glFinish the call is a no-op and the race is
+		back; Eden never needs it because its renderer is synchronous. */
+void sw_glFinish( void )
+{
+	sw_init();
+	if ( sw_ready && gl_finish != NULL ) gl_finish();
 }
 
 /*	Whether 2D texturing is on right now.  sw_glDrawArrays() derives u_usetex
