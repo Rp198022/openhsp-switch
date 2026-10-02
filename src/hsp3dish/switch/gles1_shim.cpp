@@ -215,6 +215,12 @@ static int			sw_frames_reported;
 static int			sw_frame_no;			/* glClear calls = frames begun		*/
 static int			sw_draw_no;
 static unsigned	sw_skip_no = 0;				/* glDrawArrays calls				*/
+/*	t23 perf: where a frame actually goes.  sw_bind_ms accumulates the
+	time inside glBindTexture (the error drains removed below used to be
+	counted here as well), sw_gpu_ms the glDrawArrays submit.  Both are
+	cumulative and printed on the existing frame line.					*/
+static unsigned	sw_bind_ms = 0;
+static unsigned	sw_gpu_ms = 0;
 
 /*----------------------------------------------------------------*/
 /*	Helpers														  */
@@ -777,7 +783,11 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 		gl_disablevertexattribarray( SW_ATTR_COL );
 	}
 
-	gl_drawarrays( mode, first, count );
+	{
+		unsigned t0 = SDL_GetTicks();
+		gl_drawarrays( mode, first, count );
+		sw_gpu_ms += (unsigned)( SDL_GetTicks() - t0 );
+	}
 }
 
 /*----------------------------------------------------------------*/
@@ -819,8 +829,8 @@ void sw_frame_tick( void )
 
 	sw_frame_no++;
 	if ( sw_frame_no <= 5 || ( sw_frame_no % 30 ) == 0 ) {
-		sw_say( "gles1shim: frame %d, %d draws, t=%u ms\n",
-			sw_frame_no, sw_draw_no, (unsigned)SDL_GetTicks() );
+		sw_say( "gles1shim: frame %d, %d draws, bind=%u ms, gpu=%u ms, t=%u ms\n",
+			sw_frame_no, sw_draw_no, sw_bind_ms, sw_gpu_ms, (unsigned)SDL_GetTicks() );
 	}
 }
 
@@ -921,18 +931,46 @@ void sw_glDeleteTextures( GLsizei n, const GLuint *textures )
 
 void sw_glBindTexture( GLenum target, GLuint texture )
 {
+	unsigned t0;
+
 	sw_init();
 	if ( !sw_ready ) return;
-	sw_glDrainErrors( "bind-before", texture );
+	/*	t23 perf: this drained glGetError() on either side of every bind.
+		Elona re-binds once per primitive (sw_bind_tex() = TexReset() +
+		ChangeTex()), so the world map alone asked the driver for its error
+		state twice per draw - thousands of times a frame - and the emulator
+		answers glGetError() with a GPU sync.  The drain was added to
+		attribute FBO-attach errors while chasing the OOM crash; a bind
+		cannot fail for a valid 2D name, so it is dropped.				*/
+	t0 = SDL_GetTicks();
 	gl_bindtexture( target, texture );
-	GLenum error = sw_glDrainErrors( "bind-after", texture );
-	if ( target == GL_TEXTURE_2D ) sw_bound_tex = error == GL_NO_ERROR ? texture : 0;
+	sw_bind_ms += (unsigned)( SDL_GetTicks() - t0 );
+	if ( target == GL_TEXTURE_2D ) sw_bound_tex = texture;
 }
+
+/*	t23 perf: hgio_setTexBlendMode() re-applies the sampler filter on every
+	primitive.  Texture parameters are per-texture state that only changes
+	when the game asks for it, so a set that repeats the value already in
+	force for the bound texture is dropped.  Bindings are tracked through
+	sw_bound_tex, so a re-bound texture still gets the call.			*/
+static GLuint	sw_tp_tex = 0;
+static GLenum	sw_tp_pname = 0;
+static GLint	sw_tp_param = 0;
+static int		sw_tp_valid = 0;
 
 void sw_glTexParameteri( GLenum target, GLenum pname, GLint param )
 {
 	sw_init();
-	if ( sw_ready ) gl_texparameteri( target, pname, param );
+	if ( !sw_ready ) return;
+	if ( ( target == GL_TEXTURE_2D ) && sw_tp_valid && ( sw_tp_tex == sw_bound_tex ) &&
+		 ( sw_tp_pname == pname ) && ( sw_tp_param == param ) ) return;
+	gl_texparameteri( target, pname, param );
+	if ( target == GL_TEXTURE_2D ) {
+		sw_tp_tex = sw_bound_tex;
+		sw_tp_pname = pname;
+		sw_tp_param = param;
+		sw_tp_valid = 1;
+	}
 }
 
 /*----------------------------------------------------------------*/
