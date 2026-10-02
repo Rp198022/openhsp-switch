@@ -2605,8 +2605,7 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	GLfloat cols[16];
 	BMSCR *bm = sw_fc_lock_bm;
 	int i, w, h;
-	{ FILE *_fp = fopen( "fcsub_probe.log", "ab" ); if ( _fp != NULL ) { fprintf( _fp, "FCSUB rgb=%d,%d,%d lockbm=%p cur=%p pos=%d,%d size=%dx%d\n", r, g, b, (void *)sw_fc_lock_bm, (void *)sw_cur, sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y ); fclose( _fp ); } }
-	if ( SWITCH_DIAG && sw_fcsub_trace < 40 ) {
+	if ( SWITCH_DIAG && sw_fcsub_trace < 40 && ( sw_fc_lock_x >= 100 ) && ( sw_fc_lock_y >= 100 ) ) {
 		sw_fcsub_trace++;
 		if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
 			sw_fbo_log( "hgio: fcsub #%d SKIP rgb<=0\n", sw_fcsub_trace );
