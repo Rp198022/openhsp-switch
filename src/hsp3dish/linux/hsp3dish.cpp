@@ -445,6 +445,13 @@ static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale,
 	int hsp_fullscr = hsp_wstyle & 0x100;
 
 	flags = SDL_WINDOW_OPENGL;
+#if defined(__SWITCH__)
+	/*	The console has no windowed mode, and a windowed create honours the
+		script's 800x600: the panel then scales that to its own size, which
+		stretches the 4:3 picture across a 16:9 screen.  Asking for the full
+		screen gives the native drawable autoscale needs to letterbox in.	*/
+	hsp_fullscr = 1;
+#endif
 	if (hsp_fullscr) {
 		flags |= SDL_WINDOW_FULLSCREEN;
 		hsp_wposx = 0;

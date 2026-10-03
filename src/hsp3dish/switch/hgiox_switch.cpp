@@ -1011,17 +1011,20 @@ static void sw_main_present( void )
 		static int shown = 0;
 		if ( !shown && ( hgio_gettick() > 3000 ) ) {
 			int ww = 0, wh = 0, dw = 0, dh = 0;
+			int mw = 0, mh = 0;
+			SDL_DisplayMode dm;
 			SDL_Window *win = SDL_GL_GetCurrentWindow();
 			shown = 1;
+			if ( SDL_GetCurrentDisplayMode( 0, &dm ) == 0 ) { mw = dm.w; mh = dm.h; }
 			if ( win != NULL ) {
 				SDL_GetWindowSize( win, &ww, &wh );
 				SDL_GL_GetDrawableSize( win, &dw, &dh );
 			}
 			printf( "hsp3switch: SCREEN sizex=%d sizey=%d bgsx=%d bgsy=%d "
-				"scale=%.3f,%.3f origin=%d,%d win=%dx%d drawable=%dx%d\n",
+				"scale=%.3f,%.3f origin=%d,%d win=%dx%d drawable=%dx%d mode=%dx%d\n",
 				(int)_sizex, (int)_sizey, (int)_bgsx, (int)_bgsy,
 				(double)_scaleX, (double)_scaleY, _originX, _originY,
-				ww, wh, dw, dh );
+				ww, wh, dw, dh, mw, mh );
 			fflush( stdout );
 		}
 	}
