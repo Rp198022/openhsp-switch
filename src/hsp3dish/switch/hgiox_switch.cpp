@@ -271,6 +271,16 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 #define SWITCH_DIAG 1			/* P3: on while the fcgraph colour pass is traced */
 #endif
 
+/*	The three heavy diagnostics: the SD-card copy of every log line, the
+	draw trace and the framebuffer dumps.  All three cost real time on
+	hardware - a dump stalls a frame for seconds, the card copy is an
+	open/write/close per line, and the trace writes tens of megabytes -
+	so they are off unless a capture explicitly asks for them.  The plain
+	stdout log stays on: it costs nothing and keeps a run readable.		*/
+#ifndef SW_FBO_HEAVY
+#define SW_FBO_HEAVY 0
+#endif
+
 #define SWTARGET_MAX 64
 
 typedef struct {
@@ -345,7 +355,7 @@ static void sw_fbo_log( const char *fmt, ... )
 	/*	Keep a copy on the card as well.  The socket only exists when the
 		program is started from the netloader, and the runs that matter are
 		the ordinary ones started from the menu.						*/
-#if SWITCH_DIAG
+#if SW_FBO_HEAVY
 	fp = fopen( "hsp3dish_diag.log", "ab" );
 	if ( fp != NULL ) {
 		fputs( buf, fp );
@@ -383,7 +393,7 @@ static unsigned sw_exp_fbo( const BMSCR *bm )
 static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float w, float h,
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
-	if ( !SWITCH_DIAG ) return;
+	if ( !SW_FBO_HEAVY ) return;
 	char buf[224];
 	/*	5x5 message-board tiles are rebuilt every frame and ate the whole
 		budget before the world stage; drop anything that small. */
@@ -849,6 +859,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
+	if ( !SW_FBO_HEAVY ) return;
 	if ( !SWITCH_DIAG ) return;
 	unsigned char *p;
 	FILE *fp;
