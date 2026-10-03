@@ -494,26 +494,55 @@ static void sw_apply_target( BMSCR *bm )
 #endif
 		glViewport( 0, 0, bm->sx, bm->sy );
 	} else {
-		//	ウインドウ: 上流と同じスケーリング/センタリング
-		float ox, oy;
-		_rateX = 1.0f / _scaleX;
-		_rateY = 1.0f / _scaleY;
-		ox = (float)_bgsx;
-		oy = (float)_bgsy;
+		/*	Main screen: render 1:1 into its own _bgsx x _bgsy texture.  The
+			upscale to the panel happens at present time (sw_apply_window), not
+			here.  The window texture doubles as a gcopy source, so
+			sw_tex_src() has to hand out 1/800 by 1/600 for those reads to land
+			on the region the script asked for - scaling the main target as
+			well made every copy that sampled the window read only the left
+			62.5% of it.  Row 0 stays at v=1, which hgio_copy() compensates
+			for.																*/
+		float ox = (float)_bgsx;
+		float oy = (float)_bgsy;
 #if defined(HSPRASPBIAN) || defined(HSPNDK) || defined(HSPIOS)
 		glOrthof( 0, ox, -oy, 0, -100, 100 );
 #else
 		glOrtho( 0, ox, -oy, 0, -100, 100 );
 #endif
-		_originX = ( _sizex - (ox * _scaleX) ) / 2;
-		_originY = ( _sizey - (oy * _scaleY) ) / 2;
-		glViewport( (float)_originX, (float)_originY, ox * _scaleX, oy * _scaleY );
+		glViewport( 0, 0, (int)ox, (int)oy );
 	}
 
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
 
 	if ( bm != NULL ) hgio_setview( bm );
+}
+
+/*	Present the finished frame: the _bgsx x _bgsy main texture centred and
+	scaled up over the panel.  Only the window pass knows about
+	_originX/_scaleX, so they are set here and left alone by the draw passes
+	above; hgio_scale_point() reads them for pointer coordinates.		*/
+static void sw_apply_window( void )
+{
+	float ox = (float)_bgsx;
+	float oy = (float)_bgsy;
+
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+#if defined(HSPRASPBIAN) || defined(HSPNDK) || defined(HSPIOS)
+	glOrthof( 0, ox, -oy, 0, -100, 100 );
+#else
+	glOrtho( 0, ox, -oy, 0, -100, 100 );
+#endif
+
+	_rateX = 1.0f / _scaleX;
+	_rateY = 1.0f / _scaleY;
+	_originX = ( _sizex - (ox * _scaleX) ) / 2;
+	_originY = ( _sizey - (oy * _scaleY) ) / 2;
+	glViewport( (float)_originX, (float)_originY, ox * _scaleX, oy * _scaleY );
+
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
 }
 
 static int sw_ensure( BMSCR *bm )
@@ -667,8 +696,8 @@ static int sw_drawable( BMSCR *bm )
 
 static void sw_main_ensure( void )
 {
-	int w = (int)_sizex;
-	int h = (int)_sizey;
+	int w = (int)_bgsx;
+	int h = (int)_bgsy;
 
 	if ( sw_main_ok != 0 ) return;
 	if ( w <= 0 || h <= 0 || w > 1920 || h > 1080 ) { sw_main_ok = -1; return; }
@@ -753,13 +782,13 @@ static TEXINF *sw_tex_src( BMSCR *bmsrc, TEXINF *scratch )
 		if ( sw_main_ok != 1 ) return NULL;
 		memset( scratch, 0, sizeof( TEXINF ) );
 		scratch->mode = TEXMODE_NORMAL;
-		scratch->sx = (short)_sizex;
-		scratch->sy = (short)_sizey;
-		scratch->width = (short)_sizex;
-		scratch->height = (short)_sizey;
+		scratch->sx = (short)_bgsx;
+		scratch->sy = (short)_bgsy;
+		scratch->width = (short)_bgsx;
+		scratch->height = (short)_bgsy;
 		scratch->texid = (int)sw_main_tex;
-		scratch->ratex = ( _sizex > 0 ) ? 1.0f / (float)_sizex : 0.0f;
-		scratch->ratey = ( _sizey > 0 ) ? 1.0f / (float)_sizey : 0.0f;
+		scratch->ratex = ( _bgsx > 0 ) ? 1.0f / (float)_bgsx : 0.0f;
+		scratch->ratey = ( _bgsy > 0 ) ? 1.0f / (float)_bgsy : 0.0f;
 		return scratch;
 	}
 	return GetTex( bmsrc->texid );
@@ -931,7 +960,7 @@ static void sw_dump_all( const char *pfx )
 	char nm[40];
 	snprintf( nm, sizeof( nm ), "%s_main.bmp", pfx );
 	sw_dump_fbo( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-		(int)_sizex, (int)_sizey );
+		(int)_bgsx, (int)_bgsy );
 	for ( i = 0; i < sw_target_used; i++ ) {
 		snprintf( nm, sizeof( nm ), "%s_t%02d.bmp", pfx, (int)sw_targets[i].bm->texid );
 		sw_dump_fbo( nm, sw_targets[i].fbo, sw_targets[i].bm->sx, sw_targets[i].bm->sy );
@@ -1042,7 +1071,7 @@ static void sw_main_present( void )
 		trace is closed here so it holds exactly those two moments.			*/
 	if ( sw_panel_b == 1 ) {
 		sw_panel_b = 0;
-		sw_dump_fbo( "panel_b.bmp", sw_main_fbo, (int)_sizex, (int)_sizey );
+		sw_dump_fbo( "panel_b.bmp", sw_main_fbo, (int)_bgsx, (int)_bgsy );
 		if ( sw_trc_fp != NULL ) fclose( sw_trc_fp );
 		sw_trc_fp = NULL;
 		sw_trc_total = SW_TRC_MAX;
@@ -1063,10 +1092,10 @@ static void sw_main_present( void )
 		sw_dump_all( "sw2" );
 	}
 
-	u0 = ( _sizex > 0 ) ? (float)_originX / (float)_sizex : 0.0f;
-	v0 = ( _sizey > 0 ) ? (float)_originY / (float)_sizey : 0.0f;
-	u1 = ( _sizex > 0 ) ? ( (float)_originX + ox * _scaleX ) / (float)_sizex : 1.0f;
-	v1 = ( _sizey > 0 ) ? ( (float)_originY + oy * _scaleY ) / (float)_sizey : 1.0f;
+	/*	The main texture is exactly _bgsx x _bgsy now, so all of it is laid
+		over the viewport rectangle.										*/
+	u0 = 0.0f;	v0 = 0.0f;
+	u1 = 1.0f;	v1 = 1.0f;
 
 	vert[0] = 0.0f;		vert[1] = 0.0f;
 	vert[2] = ox;		vert[3] = 0.0f;
@@ -1091,7 +1120,7 @@ static void sw_main_present( void )
 	/*	The frame may well have ended on an offscreen screen, in which case the
 		projection and viewport still belong to that screen and a quad drawn in
 		them would land somewhere else on the window.						*/
-	sw_apply_target( mainbm );
+	sw_apply_window();
 
 	glDisableClientState( GL_COLOR_ARRAY );
 	glEnableClientState( GL_VERTEX_ARRAY );
