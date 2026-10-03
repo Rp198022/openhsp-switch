@@ -50,6 +50,9 @@
 #include <string.h>
 
 #include <SDL2/SDL.h>
+#if defined(__SWITCH__)
+#include <switch.h>
+#endif
 #include <EGL/egl.h>
 
 #include "switch_input.h"
@@ -233,10 +236,31 @@ void switch_input_poll( void )
 				rx = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX );
 				ry = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTY );
 			}
+#if defined(__SWITCH__)
+			/*	The raw libnx reading, so a frozen SDL gamecontroller can be
+				told apart from a frozen HID layer.							*/
+			{
+				static PadState sw_rawpad;
+				static int sw_rawpad_init = 0;
+				u64 rawbtn = 0;
+				if ( !sw_rawpad_init ) {
+					sw_rawpad_init = 1;
+					padInitializeDefault( &sw_rawpad );
+				}
+				padUpdate( &sw_rawpad );
+				rawbtn = padGetButtons( &sw_rawpad );
+				printf( "hsp3switch: PADRAW pad=%p njoy=%d isgc=%d att=%d "
+					"d(L%dU%dR%dD%d) nb=%d na=%d ls(%d,%d) rs(%d,%d) pushed=%u raw=%llx\n",
+					(void *)sw_pad, SDL_NumJoysticks(), SDL_IsGameController( 0 ), att,
+					dl, du, dr, dd, nb, na, lx, ly, rx, ry, sw_push_no,
+					(unsigned long long)rawbtn );
+			}
+#else
 			printf( "hsp3switch: PADRAW pad=%p njoy=%d isgc=%d att=%d "
 				"d(L%dU%dR%dD%d) nb=%d na=%d ls(%d,%d) rs(%d,%d) pushed=%u\n",
 				(void *)sw_pad, SDL_NumJoysticks(), SDL_IsGameController( 0 ), att,
 				dl, du, dr, dd, nb, na, lx, ly, rx, ry, sw_push_no );
+#endif
 			fflush( stdout );
 		}
 	}
