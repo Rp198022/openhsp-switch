@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r42 (stack-safe system keyboard)\n" );
+		printf( "hsp3switch: build r43 (chgdisp accepted, so fullscreen configs boot)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

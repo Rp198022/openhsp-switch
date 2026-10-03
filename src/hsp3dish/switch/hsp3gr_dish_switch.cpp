@@ -817,6 +817,31 @@ static int cmdfunc_extcmd( int cmd )
 		break;
 		}
 
+	case 0x01:								// chgdisp
+		/*	Fork: upstream hsp3dish never implemented chgdisp - only the GDI
+			backend (hsp3gr_wingui.cpp:493) has it.  Elona+ issues it as soon
+			as its config.txt asks for fullscreen. "1", so without this case
+			the call reached the default below and the interpreter stopped on
+			HSPERR_UNSUPPORTED_FUNCTION: the "unhandled extcmd id=0x1" that
+			ended the boot.  The console has one fixed panel and no mode list,
+			so the change is accepted and ignored; the GDI return contract is
+			kept so the script reads what it expects - 0 = restored/changed,
+			1 = there was nothing to restore.											*/
+		p1 = code_getdi( 0 );
+		p2 = code_getdi( 640 );
+		p3 = code_getdi( 480 );
+		(void)p2;
+		(void)p3;
+		if ( p1 == 0 ) {
+			if ( dispflg == 0 ) { ctx->stat = 1; break; }
+			dispflg = 0;
+			ctx->stat = 0;
+			break;
+		}
+		dispflg = 1;
+		ctx->stat = 0;
+		break;
+
 	case 0x02:								// exec
 		{
 		char *ps;
