@@ -190,6 +190,39 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	SDL_PushEvent( &ev );
 }
 
+/*	The console's own software keyboard.  Elona's prompts are edit objects
+	that only ever receive what the pad can type - X=z, Y=x, ZL=f, ZR=v, ... -
+	so anything outside ASCII is impossible without this.  swkbdShow blocks
+	until the player confirms or cancels, exactly like the input boxes do on
+	the platforms this game was written for, and hands the text back as UTF-8,
+	which is what the injection queue already speaks.
+
+	Returns 1 with text (possibly empty), 0 when the player cancelled, and -1
+	when the keyboard cannot be used at all (an applet-mode launch, for
+	instance) - the caller then leaves the pad's letters as the only path.	*/
+int switch_input_ask_text( char *out, int outsize )
+{
+#if defined(__SWITCH__)
+	SwkbdConfig kbd;
+	Result rc;
+
+	if ( out == NULL || outsize < 2 ) return -1;
+	out[0] = 0;
+	rc = swkbdCreate( &kbd, (size_t)outsize );
+	if ( R_FAILED( rc ) ) return -1;
+	swkbdConfigMakePresetDefault( &kbd );
+	swkbdConfigSetGuideText( &kbd, "Elona" );
+	rc = swkbdShow( &kbd, out, (size_t)outsize );
+	swkbdClose( &kbd );
+	if ( R_FAILED( rc ) ) return -1;
+	return ( out[0] != 0 ) ? 1 : 0;
+#else
+	(void)out;
+	(void)outsize;
+	return -1;
+#endif
+}
+
 void switch_input_poll( void )
 {
 	int i;

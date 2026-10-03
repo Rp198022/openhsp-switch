@@ -571,6 +571,68 @@ static HSPOBJINFO *sw_key_object( Bmscr *bm )
 	return NULL;
 }
 
+/*	Text for the system keyboard to hand over, and the objsel id it was
+	already offered for.  Held separately from sw_key_buf because a line of
+	text does not fit the 64-byte injection buffer - it is copied across in
+	SW_KEY_MAX chunks as the delivery loop drains.						*/
+#define SW_KBD_MAX			1024
+static char	sw_kbd_buf[SW_KBD_MAX];
+static int	sw_kbd_len;
+static int	sw_kbd_pos;
+static int	sw_kbd_shown_for = -1;
+
+extern int switch_input_ask_text( char *out, int outsize );
+
+/*	Move the next chunk of keyboard text into the injection queue.			*/
+static int sw_kbd_take( void )
+{
+	int n;
+
+	if ( sw_kbd_pos >= sw_kbd_len ) {
+		sw_kbd_len = 0;
+		sw_kbd_pos = 0;
+		return 0;
+	}
+	n = sw_kbd_len - sw_kbd_pos;
+	if ( n > SW_KEY_MAX - 1 ) n = SW_KEY_MAX - 1;
+	memcpy( sw_key_buf, sw_kbd_buf + sw_kbd_pos, n );
+	sw_key_buf[n] = 0;
+	sw_kbd_pos += n;
+	sw_key_len = n;
+	sw_key_pos = 0;
+	return 1;
+}
+
+/*	Offer the console keyboard when the game starts waiting for text.
+	Elona selects a real prompt with `objsel 1`; the hidden keylog it polls
+	every frame is obj 0, so anything above 0 is a box the player is meant to
+	type into.  Once per selection - a cancelled keyboard would otherwise be
+	put straight back up.												*/
+static void sw_kbd_offer( void )
+{
+	char text[SW_KBD_MAX];
+	int r, n;
+
+	if ( sw_objsel_id <= 0 ) {
+		sw_kbd_shown_for = -1;
+		return;
+	}
+	if ( sw_kbd_shown_for == sw_objsel_id ) return;
+	sw_kbd_shown_for = sw_objsel_id;
+
+	r = switch_input_ask_text( text, sizeof( text ) );
+	if ( r < 0 ) return;				/* no keyboard: leave the pad path	*/
+	if ( r == 0 ) text[0] = 0;			/* cancelled: close with nothing	*/
+
+	n = (int)strlen( text );
+	if ( n > SW_KBD_MAX - 2 ) n = SW_KBD_MAX - 2;
+	sw_kbd_pos = 0;
+	sw_kbd_len = 0;
+	memcpy( sw_kbd_buf, text, n );
+	sw_kbd_buf[n] = 13;					/* the CR that ends the wait loop	*/
+	sw_kbd_len = n + 1;
+}
+
 static void sw_key_tick( void )
 {
 	HSPOBJINFO *info;
@@ -579,6 +641,7 @@ static void sw_key_tick( void )
 	unsigned char c;
 
 	if ( bmscr == NULL ) return;
+	sw_kbd_offer();
 	if ( sw_key_wait > 0 ) {
 		sw_key_wait--;
 		return;
@@ -586,7 +649,7 @@ static void sw_key_tick( void )
 	if ( sw_key_pos >= sw_key_len ) {
 		sw_key_len = 0;
 		sw_key_pos = 0;
-		if ( !sw_key_from_pad() ) {
+		if ( !sw_kbd_take() && !sw_key_from_pad() ) {
 			if ( sw_key_probe_skip > 0 ) sw_key_probe_skip--;
 			else {
 				sw_key_read();
@@ -1513,6 +1576,11 @@ static int cmdfunc_extcmd( int cmd )
 		if ( p4 < 0 ) break;
 		if (( p1<0 )|( p2>p4 )|( p1>p4 )) throw HSPERR_ILLEGAL_FUNCTION;
 		if ( p2<0 ) p2 = p4;
+		/*	The prompt is gone; the next objsel of a box offers the keyboard
+			again (Elona deletes its prompt object every time).			*/
+		if ( ( sw_kbd_shown_for >= 0 ) && ( sw_kbd_shown_for >= p1 ) && ( sw_kbd_shown_for <= p2 ) ) {
+			sw_kbd_shown_for = -1;
+		}
 		for( p3=p1; p3<=p2; p3++ ) {
 			bmscr->DeleteHSPObject( p3 );
 		}
