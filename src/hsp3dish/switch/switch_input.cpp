@@ -413,63 +413,22 @@ int switch_input_take_keys( char *out, int max )
 
 	return n;
 }
-/*	The DirectInput-shaped joypad state Elona's own gamepad path wants.  Its
-	config maps buttons to keys by index - `key_cancel. "\" ,"0"`,
-	`key_enter. " " ,"2"` - and it reads the state with DIGETJOYSTATE, so the
-	layout here decides which Switch button becomes which action.
+/*	Elona reads this DirectInput-shaped word with DIGETJOYSTATE and turns its
+	bits into its own actions, the button index coming from its config
+	(`key_cancel. "\" ,"0"`, `key_enter. " " ,"2"`).  Nothing is reported any
+	more, and for the same reason the direction bits were cleared long ago:
+	every button already reaches the script through the keyboard emulation
+	above, so a pad bit here was a *second* source.  With both live, one press
+	of Nintendo A confirmed twice - the log shows bit 6 (button index 2, the
+	pad's enter) going high while the same press also typed a CR through
+	key_check().  The keyboard map is the richer of the two - it carries the
+	letters and the typed Return as well - so it is the one that stays.
 
-	It has to agree with the keyboard map above, which is the Nintendo way round:
-	the right-hand button confirms and the bottom one cancels.  SDL names those
-	two the other way round on this mapping (`a:b1,b:b0` - SDL A is the bottom
-	button), so SDL A takes index 0 (cancel) and SDL B index 2 (enter).  With the
-	two layers disagreeing, one press produced both key_enter and key_cancel.	*/
-static const SDL_GameControllerButton sw_pad_button[] = {
-	SDL_CONTROLLER_BUTTON_A,			/* 0: cancel, bottom (Nintendo B)	*/
-	SDL_CONTROLLER_BUTTON_X,			/* 1: top					*/
-	SDL_CONTROLLER_BUTTON_B,			/* 2: enter, right (Nintendo A)	*/
-	SDL_CONTROLLER_BUTTON_Y,			/* 3: left					*/
-	SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
-	SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
-	SDL_CONTROLLER_BUTTON_BACK,
-	SDL_CONTROLLER_BUTTON_START,
-	SDL_CONTROLLER_BUTTON_LEFTSTICK,
-	SDL_CONTROLLER_BUTTON_RIGHTSTICK,
-};
-
-#define SW_PAD_BUTTON_N	((int)( sizeof( sw_pad_button ) / sizeof( sw_pad_button[0] ) ))
-
+	The pad is still polled by switch_input_poll(), which is what feeds
+	sw_keys[] and the synthetic scancode events.							*/
 unsigned int switch_input_pad_bits( void )
 {
-	unsigned int bits = 0;
-	Sint16 lx, ly;
-	int j;
-
-	if ( sw_pad == NULL ) return 0;
-
-	SDL_PumpEvents();
-	SDL_JoystickUpdate();
-
-	/*	Bits 0-3 are deliberately left clear.  They are the D-pad and the left
-		stick in the real DirectInput layout, and Elona does read them as
-		directions - but it reads the keyboard's directions into that same
-		variable first and then ADDS these onto them (init.hsp: `stick p,15`,
-		then `HMMBITCHECK j,0..3` doing `p += 2, 8, 1, 4`).  A D-pad press
-		reaches the script twice in this port - once as these bits, and once as
-		the arrow scancodes pushed below, which hsp3 turns into the very same
-		stick bits - so the two add up: down became 8 + 8 = 16, which is not a
-		direction, and no menu cursor in the game would move.  The scancodes
-		alone carry it correctly, so the bits are left clear to keep one source.
-	*/
-	(void)lx;
-	(void)ly;
-
-	for ( j = 0; j < SW_PAD_BUTTON_N; j++ ) {
-		if ( SDL_GameControllerGetButton( sw_pad, sw_pad_button[j] ) ) bits |= 1u << ( 4 + j );
-	}
-	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT ) > SW_TRIGGER_ON )		bits |= 1u << ( 4 + 10 );
-	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ) > SW_TRIGGER_ON )	bits |= 1u << ( 4 + 11 );
-
-	return bits;
+	return 0;
 }
 /*----------------------------------------------------------------*/
 /*	Install														  */
