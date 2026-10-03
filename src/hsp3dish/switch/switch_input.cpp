@@ -195,7 +195,21 @@ void switch_input_poll( void )
 		if ( sc < SW_KEY_STATE_MAX ) sw_keys[sc] = now;
 		if ( now == sw_state[i] ) continue;
 		sw_state[i] = now;
-		sw_push_key( sc, now );
+
+		/*	A synthesised Return is not pushed.  It would only serve
+			getkey(13), and sw_keys[] below already carries that - hsp3dish's
+			sw_input_key() is get_key_state(sc) || switch_input_key_state(sc).
+			What the event *did* add was a second Enter: the linux glue turns a
+			keydown for Return into SendHSPObjectNotice( HSPOBJ_NOTICE_KEY_CR ),
+			= 13, and the pad's A also types a CR that sw_key_tick() hands to the
+			prompt's own box.  One press put two newlines in the box's bound
+			variable, so every prompt in the character-creation chain advanced
+			twice: the leftover newline completed the next one on the spot.
+			Buttons whose scancode carries no notice (B, R) are pushed as before.
+
+			The pad's letter and CR keys are unaffected - switch_input_take_keys()
+			and sw_key_tick() deliver those straight to the objects.		*/
+		if ( sc != SDL_SCANCODE_RETURN ) sw_push_key( sc, now );
 		sw_push_no++;
 	}
 	/*	P3 DIAGNOSTIC: the DirectInput-shaped value Elona's own gamepad path
