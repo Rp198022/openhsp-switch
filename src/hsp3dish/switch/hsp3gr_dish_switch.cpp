@@ -886,7 +886,22 @@ static int cmdfunc_extcmd( int cmd )
 			i = mmman->Load(fname, p1, p2);
 		}
 #endif
-		if (i) throw HSPERR_FILE_IO;
+		if ( i ) {
+			/*	Fork: Elona never inspects mmload's status - all three of
+				its calls (init.hsp 6344/6401 sound effects, 7310 music)
+				go straight on to mmplay - so throwing here does not tell
+				the script anything, it ends the run.  The console has no
+				MIDI backend (SDL2_mixer finds no timidity.cfg anywhere),
+				so the title BGM, a .mid the game always asks for as soon
+				as config.txt says music. "2", took the whole boot down
+				with "throw 12 (File I/O error)".  Leave the bank empty:
+				a failed load already leaves it MMDATA_NONE and
+				MMMan::Play() returns 2 for that instead of touching
+				audio.  The file is still named so a genuinely absent
+				asset does not go silent.									*/
+			printf( "hsp3switch: mmload '%s' failed - playing nothing for it\n", fname );
+			fflush( stdout );
+		}
 		break;
 		}
 	case 0x09:								// mmplay

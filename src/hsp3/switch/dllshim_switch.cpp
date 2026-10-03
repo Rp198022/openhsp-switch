@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r43 (chgdisp accepted, so fullscreen configs boot)\n" );
+		printf( "hsp3switch: build r44 (a failed mmload no longer ends the run)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
