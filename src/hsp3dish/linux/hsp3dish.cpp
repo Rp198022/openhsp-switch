@@ -445,13 +445,6 @@ static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale,
 	int hsp_fullscr = hsp_wstyle & 0x100;
 
 	flags = SDL_WINDOW_OPENGL;
-#if defined(__SWITCH__)
-	/*	The console has no windowed mode, and a windowed create honours the
-		script's 800x600: the panel then scales that to its own size, which
-		stretches the 4:3 picture across a 16:9 screen.  Asking for the full
-		screen gives the native drawable autoscale needs to letterbox in.	*/
-	hsp_fullscr = 1;
-#endif
 	if (hsp_fullscr) {
 		flags |= SDL_WINDOW_FULLSCREEN;
 		hsp_wposx = 0;
@@ -808,19 +801,13 @@ int hsp3dish_init( char *startfile )
 	}
 
 #if defined(__SWITCH__)
-	/*	The console display is the whole window, so ask for it outright.
-		Otherwise the drawable is the script's 800x600, the picture gets
-		scaled to the panel by the system, and the 4:3 content is stretched
-		across a 16:9 screen.  With a native drawable, autoscale below can
-		letterbox it instead (960x720, centred).						*/
-	{
-		SDL_DisplayMode dm;
-		if ( ( SDL_GetCurrentDisplayMode( 0, &dm ) == 0 ) &&
-			 ( dm.w > 0 ) && ( dm.h > 0 ) ) {
-			sx = dm.w;
-			sy = dm.h;
-		}
-	}
+	/*	A windowed create on the console honours the script's 800x600, and
+		the panel then scales that 4:3 buffer to its own 16:9 size - which
+		is what stretched the picture.  Opening the window at the handheld
+		resolution instead keeps the drawable 16:9, so autoscale below can
+		letterbox 800x600 inside it (960x720, centred).					*/
+	sx = 1280;
+	sy = 720;
 #endif
 
 	//		Window initalize
