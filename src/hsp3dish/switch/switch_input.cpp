@@ -53,6 +53,11 @@
 #include <EGL/egl.h>
 
 #include "switch_input.h"
+/*	Switch diagnostics.  0 = shipping build.						*/
+#ifndef SWITCH_DIAG
+#define SWITCH_DIAG 1
+#endif
+
 
 /*----------------------------------------------------------------*/
 /*	Mapping														  */
@@ -202,6 +207,40 @@ void switch_input_poll( void )
 			fflush( stdout );
 		}
 	}
+/*	P3 diagnostic: the raw SDL view of the pad, once a second.  The
+	failure this was added for is the pad going quiet after a save is
+	loaded - pushed stops moving while the game still renders - and the
+	question is whether SDL stopped reporting the buttons or the port
+	stopped reading them.												*/
+#if SWITCH_DIAG
+	{
+		static unsigned int dbg_last = 0;
+		unsigned int dbg_now = (unsigned int)SDL_GetTicks();
+		if ( ( dbg_now - dbg_last ) >= 1000u ) {
+			int dl = 0, du = 0, dr = 0, dd = 0, nb = 0, na = 0;
+			int lx = 0, ly = 0, rx = 0, ry = 0, att = -9;
+			dbg_last = dbg_now;
+			if ( sw_pad != NULL ) {
+				dl = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT );
+				du = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP );
+				dr = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT );
+				dd = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN );
+				nb = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );
+				na = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A );
+				att = SDL_GameControllerGetAttached( sw_pad );
+				lx = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX );
+				ly = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY );
+				rx = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX );
+				ry = (int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTY );
+			}
+			printf( "hsp3switch: PADRAW pad=%p njoy=%d isgc=%d att=%d "
+				"d(L%dU%dR%dD%d) nb=%d na=%d ls(%d,%d) rs(%d,%d) pushed=%u\n",
+				(void *)sw_pad, SDL_NumJoysticks(), SDL_IsGameController( 0 ), att,
+				dl, du, dr, dd, nb, na, lx, ly, rx, ry, sw_push_no );
+			fflush( stdout );
+		}
+	}
+#endif
 	sw_poll_no++;
 	if ( ( sw_poll_no % 120 ) == 0 ) {
 		printf( "hsp3switch: pad poll=%u pushed=%u down[", sw_poll_no, sw_push_no );
