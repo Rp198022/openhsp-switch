@@ -53,6 +53,13 @@ static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
 
 #define DLLSHIM_MAX_ARGS 16
 
+/*	Names the DLL call being marshalled.  read_arg() below prints it when an
+	sptr argument is missing, which is how the one call that ends the script
+	with HSPERR_NO_DEFAULT gets identified (the extcmd ring only says clrobj,
+	because a dllfunc call is not an extcmd).							*/
+static const char *sw_dll_desc = "(none)";
+static int sw_dll_argi = -1;
+
 /*----------------------------------------------------------------*/
 /*	One resolved argument											*/
 /*----------------------------------------------------------------*/
@@ -110,10 +117,22 @@ static int impl_GetLastError( const DllArgValue *args, int argc )
 //	the port is single-instance by construction, so a non-NULL handle is always
 //	the right answer - "this is the first instance, carry on".
 //
+static void sw_prune_stale_saves( void );		/* defined with RemoveDirectoryA below */
+
 static int impl_CreateMutexA( const DllArgValue *args, int argc )
 {
+	static int pruned = 0;
+
 	(void)args;
 	(void)argc;
+	/*	Elona calls this once, first thing at startup.  Take that moment to
+		drop the save folders that have no header - they cannot be listed,
+		loaded or deleted in game, but they still count towards "Save slots
+		are full" (see sw_prune_stale_saves).							*/
+	if ( !pruned ) {
+		pruned = 1;
+		sw_prune_stale_saves();
+	}
 	return 1;		//	non-NULL handle
 }
 
@@ -336,6 +355,44 @@ static int sw_rmtree( const char *dir )
 	}
 	closedir( d );
 	return rmdir( dir ) == 0;
+}
+
+/*	A save slot is the folder  <HOME>/save/sav_*  and the game recognises it
+	by reading  <folder>/header.txt  - the only thing *load* looks at.  A slot
+	whose header is gone therefore cannot be shown, and so cannot be deleted
+	from the save menu either - yet chara.hsp still counts every folder in
+	that directory (`dirlist buff, exedir + "save\\*"` then `noteinfo() >= 5`,
+	"Save slots are full. You have to delete some of your adventurers.").
+	Until round 37 the delete path left exactly such folders behind: it removed
+	the top-level files and then asked RemoveDirectoryA for the folder, which
+	failed because the port's own <save>/openhsp/tmp/*.s2 was still inside.
+	Remove them once at startup, which also repairs cards that already have
+	them.  (Round 37 made RemoveDirectoryA recursive, so new deletes are clean;
+	this only clears what was already stuck.)							*/
+static void sw_prune_stale_saves( void )
+{
+	const char *home = getenv( "HOME" );
+	char root[512];
+	char dir[1024];
+	char hdr[1100];
+	DIR *d;
+	struct dirent *ent;
+
+	if ( home == NULL || home[0] == 0 ) return;
+	snprintf( root, sizeof( root ), "%s/save", home );
+	d = opendir( root );
+	if ( d == NULL ) return;
+	while ( ( ent = readdir( d ) ) != NULL ) {
+		if ( strncmp( ent->d_name, "sav_", 4 ) != 0 ) continue;
+		snprintf( dir, sizeof( dir ), "%s/%s", root, ent->d_name );
+		snprintf( hdr, sizeof( hdr ), "%s/header.txt", dir );
+		if ( access( hdr, F_OK ) == 0 ) continue;			/* a real save	*/
+		if ( sw_rmtree( dir ) ) {
+			printf( "hsp3switch: pruned stale save '%s'\n", dir );
+			fflush( stdout );
+		}
+	}
+	closedir( d );
 }
 
 static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
@@ -1409,7 +1466,12 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 		//	reference reads code_get() and inspects *mpval to tell them apart.
 		//
 		int chk = code_get();
-		if ( chk < 0 ) throw ( HSPERR_NO_DEFAULT );		// -1 == PARAM_END
+		if ( chk < 0 ) {
+			printf( "hsp3switch: ### %s: argument %d (sptr) missing/default (chk=%d)\n",
+				sw_dll_desc, sw_dll_argi, chk );
+			fflush( stdout );
+			throw ( HSPERR_NO_DEFAULT );
+		}		// -1 == PARAM_END
 		pval = *pmpval;
 		if ( pval->flag == HSPVAR_FLAG_INT ) {
 			v->ival = *(int *)pval->pt;
@@ -1505,6 +1567,7 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	if ( st->nameidx >= 0 ) funcname = code_strp( st->nameidx );
 	if ( desc != NULL && descsize > 0 ) {
 		snprintf( desc, descsize, "%s!%s", libname, funcname );
+		sw_dll_desc = desc;
 	}
 
 	//	Reference order (hsp3extlib_ffi.cpp:724-732): resolve the STRUCTDAT, then
@@ -1539,6 +1602,7 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	argc = st->prmmax;
 	try {
 		for ( i = 0; i < argc; i++ ) {
+			sw_dll_argi = i;
 			read_arg( &args[i], &hspctx->mem_minfo[ st->prmindex + i ] );
 		}
 		result = entry->impl( args, argc );
