@@ -3225,7 +3225,18 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
-    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	The appearance editor's preview is a grotate from the PCC buffer the
+		script composed earlier in this very frame (chips.hsp: picload +
+		gcopy + gfdec2, of which only gfdec2 had a sync point).  The GPU runs
+		that composition asynchronously, so without a wait here the sample
+		can still see the buffer as it was before the part was redrawn - the
+		"figure never follows the part" symptom on hardware, which the
+		emulator's in-order software path hides.  This costs nothing on a
+		frame that only moves the character, because a PCC is rebuilt only
+		when the appearance changes.									*/
+	glFinish();
+	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
 	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
 		draw.  Left set, it also keyed the next draw that never asked for one,
