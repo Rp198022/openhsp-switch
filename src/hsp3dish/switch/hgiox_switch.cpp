@@ -2427,6 +2427,10 @@ void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alpha
 
 	ChangeTex( -1 );
 
+	/*	A solid fill never carries a picture's colour key; drop any left over
+		from the previous copy so the rectangle really lands.				*/
+	sw_glColorKey( 0, 0 );
+
 	float x = x1;
 	float y = y1;
 	float w = (x2-x1);
@@ -2859,6 +2863,10 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	/*	Put the equation back; the blend function itself is restored by the
 		next hgio_setTexBlendMode(), exactly like hgio_copy() does.			*/
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+
+	/*	Nothing draws between here and the next command, so the key this
+		hgio_setTexBlendMode() re-armed must not be left behind.			*/
+	sw_glColorKey( 0, 0 );
 }
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
@@ -3044,6 +3052,13 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 
+	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
+		draw.  Left set, it also keyed the next draw that never asked for one,
+		so a plain boxf clear discarded every pixel it painted - Elona's
+		create_pcpic wipes its 384x198 PCC buffer that way and the buffer kept
+		a stray cyan rectangle behind the character.						*/
+	sw_glColorKey( 0, 0 );
+
 	/*	An fcgraph colour pass armed by gfdec/gfdec2 is consumed by exactly
 		this copy - the one that lifts the tinted scratch strip back into
 		place.  Drop it so the next draw comes out uncoloured.				*/
@@ -3211,6 +3226,13 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
+		draw.  Left set, it also keyed the next draw that never asked for one,
+		so a plain boxf clear discarded every pixel it painted - Elona's
+		create_pcpic wipes its 384x198 PCC buffer that way and the buffer kept
+		a stray cyan rectangle behind the character.						*/
+	sw_glColorKey( 0, 0 );
 }
 
 
@@ -3261,6 +3283,13 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
     //glDisableClientState(GL_COLOR_ARRAY);
     glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
+		draw.  Left set, it also keyed the next draw that never asked for one,
+		so a plain boxf clear discarded every pixel it painted - Elona's
+		create_pcpic wipes its 384x198 PCC buffer that way and the buffer kept
+		a stray cyan rectangle behind the character.						*/
+	sw_glColorKey( 0, 0 );
 }
 
 

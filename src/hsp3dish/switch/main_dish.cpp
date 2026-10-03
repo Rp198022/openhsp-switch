@@ -207,8 +207,17 @@ int main( int argc, char *argv[] )
 				sf, hgio_getstorage( (char *)sf ) );
 			sw_say( "hsp3dish: probe hsp3_flength('%s')     -> %d\n",
 				sf, hsp3_flength( (char *)sf ) );
+			/*	The SDL Switch backend raises the system software keyboard (and with
+				it the console IME) once the video subsystem is taking text input.
+				This port never needs SDL text events - the pad reaches the script
+				through switch_input.cpp - so text input is stopped again as soon as
+				the subsystem is up, and the hint keeps a later SDL_StartTextInput()
+				from the backend itself silent.								*/
+			SDL_SetHint( "SDL_ENABLE_SCREEN_KEYBOARD", "0" );
+			int vres = SDL_Init( SDL_INIT_VIDEO );
+			SDL_StopTextInput();
 			sw_say( "hsp3dish: probe SDL_Init(VIDEO)        -> %d [%s]\n",
-				SDL_Init( SDL_INIT_VIDEO ), SDL_GetError() );
+				vres, SDL_GetError() );
 		}
 
 
