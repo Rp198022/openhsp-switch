@@ -582,6 +582,7 @@ static int	sw_kbd_pos;
 static int	sw_kbd_shown_for = -1;
 
 extern int switch_input_ask_text( char *out, int outsize );
+extern int sw_utf8_to_cp932( const char *in, char *out, int outsz );
 
 /*	Move the next chunk of keyboard text into the injection queue.			*/
 static int sw_kbd_take( void )
@@ -627,11 +628,15 @@ static void sw_kbd_offer( void )
 	if ( r < 0 ) return;				/* no keyboard: leave the pad path	*/
 	if ( r == 0 ) text[0] = 0;			/* cancelled: close with nothing	*/
 
-	n = (int)strlen( text );
-	if ( n > SW_KBD_MAX - 2 ) n = SW_KBD_MAX - 2;
+	/*	The keyboard speaks UTF-8 and the script speaks CP932.  The script
+		sizes paths and buffers by counting two bytes to a character, so a
+		three-byte UTF-8 ideograph in a name made that arithmetic land one
+		off - a Chinese save name built a wrong directory and the save died
+		with err=12.  This is the only place keyboard text enters, so
+		converting here leaves every byte the script sees in its own
+		encoding.														*/
+	n = sw_utf8_to_cp932( text, sw_kbd_buf, SW_KBD_MAX - 1 );
 	sw_kbd_pos = 0;
-	sw_kbd_len = 0;
-	memcpy( sw_kbd_buf, text, n );
 	sw_kbd_buf[n] = 13;					/* the CR that ends the wait loop	*/
 	sw_kbd_len = n + 1;
 }
@@ -665,10 +670,10 @@ static void sw_key_tick( void )
 	}
 
 	c = (unsigned char)sw_key_buf[sw_key_pos];
+	/*	CP932 sizing: a lead byte carries one trail.  This used to read the
+		queue as UTF-8, which is what the keyboard used to put there.	*/
 	n = 1;
-	if ( ( c & 0xe0 ) == 0xc0 ) n = 2;
-	else if ( ( c & 0xf0 ) == 0xe0 ) n = 3;
-	else if ( ( c & 0xf8 ) == 0xf0 ) n = 4;
+	if ( ( c >= 0x81 && c <= 0x9f ) || ( c >= 0xe0 && c <= 0xfc ) ) n = 2;
 	if ( sw_key_pos + n > sw_key_len ) n = 1;
 	/*	Pick the window whose object should take the character.  The current
 		one is tried first; the satisfied-prompt screen switches between two

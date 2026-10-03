@@ -1033,6 +1033,65 @@ static int sw_utf8_len( const unsigned char *p )
 	return 0;
 }
 
+/*	The other direction, for text that arrives as UTF-8 - the console keyboard
+ *	is the one source of it.  Handing it on unchanged breaks every byte length
+ *	the script computes: it counts CP932, two bytes to a character, so a
+ *	three-byte UTF-8 ideograph in a name makes its path arithmetic land one
+ *	off.  A Chinese name then built a wrong save directory and the save died
+ *	with err=12 before it was written.  Converting here keeps the script on
+ *	the encoding it was written for, and cp932_to_utf8() above draws the
+ *	character back for the screen.
+ *
+ *	A character CP932 has no code for is dropped: the table carries the JIS
+ *	ideographs, which cover the characters Japanese and Chinese share, but not
+ *	the simplified-only ones.  There is no code point to hand the script for
+ *	those, and inventing one would corrupt the string.
+ */
+int sw_utf8_to_cp932( const char *in, char *out, int outsz )
+{
+	const unsigned char *p = (const unsigned char *)in;
+	int o = 0;
+
+	while ( *p != 0 && o < outsz - 3 ) {
+		unsigned int cp;
+		int nb, i, hit;
+
+		if ( *p < 0x80 ) {					/* ASCII passes through		*/
+			out[o++] = (char)*p++;
+			continue;
+		}
+		nb = sw_utf8_len( p );
+		if ( nb == 2 ) {
+			cp = ( (unsigned int)( p[0] & 0x1F ) << 6 ) | ( p[1] & 0x3F );
+		} else if ( nb == 3 ) {
+			cp = ( (unsigned int)( p[0] & 0x0F ) << 12 ) |
+				( (unsigned int)( p[1] & 0x3F ) << 6 ) | ( p[2] & 0x3F );
+		} else if ( nb == 4 ) {
+			cp = ( (unsigned int)( p[0] & 0x07 ) << 18 ) |
+				( (unsigned int)( p[1] & 0x3F ) << 12 ) |
+				( (unsigned int)( p[2] & 0x3F ) << 6 ) | ( p[3] & 0x3F );
+		} else {
+			p++;							/* not UTF-8: skip the byte	*/
+			continue;
+		}
+		p += nb;
+
+		hit = -1;
+		for ( i = 0; i < CP932_LEAD_N * CP932_TRAIL_N; i++ ) {
+			if ( cp932_table[i] == (unsigned short)cp ) { hit = i; break; }
+		}
+		if ( hit < 0 ) continue;			/* no CP932 code: drop it	*/
+		{
+			int l = hit / CP932_TRAIL_N;
+			out[o++] = (char)( ( l <= 30 ) ? ( 0x81 + l )
+										   : ( 0xE0 + ( l - 31 ) ) );
+			out[o++] = (char)( 0x40 + ( hit % CP932_TRAIL_N ) );
+		}
+	}
+	out[o] = 0;
+	return o;
+}
+
 static int sw_is_utf8_text( const char *in )
 {
 	const unsigned char *p = (const unsigned char *)in;
