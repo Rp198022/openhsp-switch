@@ -579,7 +579,17 @@ static void Object_InputBox(HSPOBJINFO *info, int wparam)
 		update = true;
 		break;
 	case HSPOBJ_NOTICE_KEY_TAB:
+		break;
 	case HSPOBJ_NOTICE_KEY_CR:
+		/*	The classic runtime puts a real multiline EDIT control behind this
+			object, and Return in one of those does not close the box - it
+			inserts a line break.  Elona's text prompts rely on exactly that:
+			the wait loop ends when the bound variable contains a LF, so a
+			Return delivered as a notice with nothing appended left the player
+			stuck in the box forever.  Append the break the control would have
+			written, then the variable reflects it as it does for any key.	*/
+		edit->tpos.addStringFromCaret( (char *)"\r\n" );
+		update = true;
 		break;
 	case HSPOBJ_NOTICE_KEY_BUFFER:
 		edit->tpos.addStringFromCaret((char *)bm->keybuf);
