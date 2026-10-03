@@ -444,6 +444,19 @@ static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale,
 	int flags;
 	int hsp_fullscr = hsp_wstyle & 0x100;
 
+#if defined(__SWITCH__)
+	/*	Every create lands here - the first one and the rebuild Elona's own
+		bgscr 0,800,600 triggers - so this is where the window has to be
+		pinned.  A create at the script's 800x600 gives a 4:3 drawable that
+		the panel then stretches across its own 16:9 surface, which is what
+		distorted the picture.  The handheld resolution keeps the drawable
+		16:9, and autoscale places the script's size inside it (960x720 for
+		800x600, centred).  hsp_wx/hsp_wy are left alone: they are the size
+		the script draws at, which is exactly what autoscale needs.		*/
+	sx = 1280;
+	sy = 720;
+#endif
+
 	flags = SDL_WINDOW_OPENGL;
 	if (hsp_fullscr) {
 		flags |= SDL_WINDOW_FULLSCREEN;
@@ -799,16 +812,6 @@ int hsp3dish_init( char *startfile )
 			return 1;
 		}
 	}
-
-#if defined(__SWITCH__)
-	/*	A windowed create on the console honours the script's 800x600, and
-		the panel then scales that 4:3 buffer to its own 16:9 size - which
-		is what stretched the picture.  Opening the window at the handheld
-		resolution instead keeps the drawable 16:9, so autoscale below can
-		letterbox 800x600 inside it (960x720, centred).					*/
-	sx = 1280;
-	sy = 720;
-#endif
 
 	//		Window initalize
 	//
