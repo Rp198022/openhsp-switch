@@ -1928,6 +1928,71 @@ int hgio_texload( BMSCR *bm, char *fname )
 }
 
 
+/*	Elona stamps every PCC part into its scratch buffer with `picload file, 1`
+	(chips.hsp, all sixteen parts of create_pcpic) and recomposes the sprite
+	constantly.  RegistTex() decodes the file and allocates a fresh GL texture
+	each time; here the picture is only *sampled* by the blit below, so that
+	texture was dead the moment the quad finished - yet nothing freed it.  A
+	hardware run allocated 15333 of them (128x256, one PCC template each) and hit
+	GL_OUT_OF_MEMORY after ~6000.  Eden never does: its host GPU has the room.
+	Keep the decoded picture of the files that get reloaded - the SD read and
+	the stb decode disappear with it.						*/
+#define SW_PIC_CACHE_MAX 48
+
+typedef struct {
+	char			name[96];
+	int				texid;
+	unsigned int	gl;
+	unsigned int	used;
+} SW_PICCACHE;
+
+static SW_PICCACHE		sw_pic_cache[SW_PIC_CACHE_MAX];
+static int				sw_pic_cache_n = 0;
+static unsigned int	sw_pic_cache_tick = 0;
+
+static int sw_pic_load( const char *fname )
+{
+	int i, slot, texid;
+
+	slot = -1;
+	for ( i = 0; i < sw_pic_cache_n; i++ ) {
+		if ( strcmp( sw_pic_cache[i].name, fname ) == 0 ) { slot = i; break; }
+	}
+	/*	A hit is trusted only while the TEXINF slot still holds the very
+		texture we cached; the table recycles slots by index.		*/
+	if ( slot >= 0 ) {
+		TEXINF *c = GetTex( sw_pic_cache[slot].texid );
+		if ( ( c != NULL ) && ( c->mode != TEXMODE_NONE ) &&
+			( c->texid == (GLuint)sw_pic_cache[slot].gl ) ) {
+			sw_pic_cache[slot].used = ++sw_pic_cache_tick;
+			return sw_pic_cache[slot].texid;
+		}
+	}
+	if ( slot < 0 ) {
+		if ( sw_pic_cache_n < SW_PIC_CACHE_MAX ) {
+			slot = sw_pic_cache_n++;
+		} else {
+			slot = 0;
+			for ( i = 1; i < SW_PIC_CACHE_MAX; i++ ) {
+				if ( sw_pic_cache[i].used < sw_pic_cache[slot].used ) slot = i;
+			}
+			/*	TexReset() first: the binding cache must not keep an id
+				we are about to delete.					*/
+			TexReset();
+			DeleteTex( sw_pic_cache[slot].texid );
+		}
+	}
+	texid = RegistTex( (char *)fname );
+	if ( texid < 0 ) { sw_pic_cache[slot].name[0] = 0; return -1; }
+	strncpy( sw_pic_cache[slot].name, fname, sizeof( sw_pic_cache[slot].name ) - 1 );
+	sw_pic_cache[slot].name[sizeof( sw_pic_cache[slot].name ) - 1] = 0;
+	sw_pic_cache[slot].texid = texid;
+	sw_pic_cache[slot].gl = (unsigned int)GetTex( texid )->texid;
+	sw_pic_cache[slot].used = ++sw_pic_cache_tick;
+	return texid;
+}
+
+
 /*	`picload file, 1` is *overwrite*, not resize: the classic runtime
 	writes the decoded picture into the screen's memory at (0,0) and
 	leaves the screen's size alone (hspwnd_win.cpp, Picload: only mode 0
@@ -1955,7 +2020,7 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 	if ( bm->type == HSPWND_TYPE_MAIN ) return -1;
 	if ( bm->type == HSPWND_TYPE_NONE ) return -1;
 
-	texid = RegistTex( fname );
+	texid = sw_pic_load( fname );
 	if ( texid < 0 ) return -1;
 	t = GetTex( texid );
 	if ( ( t == NULL ) || ( t->mode == TEXMODE_NONE ) ) return -1;
