@@ -211,6 +211,11 @@ int switch_input_ask_text( char *out, int outsize )
 	rc = swkbdCreate( &kbd, (size_t)outsize );
 	if ( R_FAILED( rc ) ) return -1;
 	swkbdConfigMakePresetDefault( &kbd );
+	/*	The preset leaves the type at SwkbdType_Normal, which only offers the
+		Latin layout - Chinese, Japanese and Korean would be unreachable.  The
+		"all language keyboards" type turns every layout on; the keyboard's own
+		globe key then switches between them.							*/
+	swkbdConfigSetType( &kbd, SwkbdType_All );
 	swkbdConfigSetGuideText( &kbd, "Elona" );
 	rc = swkbdShow( &kbd, out, (size_t)outsize );
 	swkbdClose( &kbd );
