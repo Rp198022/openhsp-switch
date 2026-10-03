@@ -110,6 +110,11 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
 	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad R			*/
 	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_SPACE },	/* wait: right stick click	*/
+	/*	Elona's save list deletes a save with BackSpace - system.hsp's
+		*game_title_selectID reads `getkey a, 8` and its hint bar says
+		"BackSpace [Delete]".  The pad has no button left over for it, so it is
+		the L + R combination, read in sw_entry_down() below.				*/
+	{ SW_NO_BUTTON,							SW_NO_AXIS,		SDL_SCANCODE_BACKSPACE },
 };
 
 #define SW_KEYMAP_N	((int)( sizeof( sw_keymap ) / sizeof( sw_keymap[0] ) ))
@@ -147,6 +152,17 @@ static int sw_entry_down( int i )
 		`stick p,15` overwrite the result, so an Escape arriving at the same
 		moment would throw the letter away.								*/
 	if ( e->sc == SDL_SCANCODE_ESCAPE && sw_layer_second() ) return 0;
+
+	/*	Delete is L + R, because R on its own is already Tab and every other
+		button has a first-layer job.  While the pair is held the Tab entry
+		must go quiet - otherwise one press reports two keys, which is the
+		mistake R48/R49 are about.										*/
+	if ( ( e->sc == SDL_SCANCODE_BACKSPACE ) || ( e->sc == SDL_SCANCODE_TAB ) ) {
+		int del = sw_layer_second()
+			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER );
+		if ( e->sc == SDL_SCANCODE_BACKSPACE ) return del ? 1 : 0;
+		if ( del ) return 0;
+	}
 
 	if ( e->btn != SW_NO_BUTTON && SDL_GameControllerGetButton( sw_pad, e->btn ) ) return 1;
 	if ( e->axis != SW_NO_AXIS && SDL_GameControllerGetAxis( sw_pad, e->axis ) > SW_TRIGGER_ON ) return 1;
