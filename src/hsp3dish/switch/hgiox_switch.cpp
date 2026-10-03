@@ -1074,7 +1074,14 @@ static void sw_main_present( void )
 	/*	The frame is on the window; the second screen, if the script asked for
 		one, is composited over it.  The backbuffer is not swapped yet, so both
 		passes land in the same presented frame.							*/
-	sw_main_overlay();
+	/*	Elona's second window (`screen 20`, 800x190 = a third of the main
+		screen) is the "basic operation" help panel.  The classic runtime
+		gives it a window of its own below the main one; overlaying it here
+		buried the bottom third of the game - the message log and the status
+		bars - under the panel's black background, which reads as a dead black
+		band across the bottom of the map.  The offscreen framebuffer is still
+		built (the script's draw commands need a target), but the panel is left
+		off the presented frame so the game screen stays whole.				*/
 }
 static int sw_bind_target( BMSCR *bm )
 {
