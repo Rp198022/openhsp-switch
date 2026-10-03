@@ -1136,7 +1136,18 @@ static void sw_main_present( void )
 		panel vanish. */
 	glDisable( GL_BLEND );
 	sw_bind_tex( (int)sw_main_tex );
+	/*	The window is 1280x720 while the script draws an 800x600 canvas, so
+		this one draw scales it up 1.2x to fill the panel's height.  A
+		non-integer ratio under GL_NEAREST repeats some source rows and not
+		others, which is what made the message text look uneven, so the
+		upscale interpolates.  Both parameters go back afterwards: this same
+		texture is a gcopy source too, and a 1:1 read wants the exact
+		texel.																*/
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 	ChangeTex( -1 );
 
 	/*	The frame is on the window; the second screen, if the script asked for
