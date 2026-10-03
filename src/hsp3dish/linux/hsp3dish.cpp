@@ -471,6 +471,25 @@ static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale,
 	hgio_init( 0, sx, sy, p_engine );
 	hgio_clsmode( CLSMODE_SOLID, 0xffffff, 0 );
 
+#if defined(__SWITCH__)
+	/*	The console has no windowed mode: SDL opens the panel full screen and
+		the size the ini asked for never reaches the display.  What decides
+		the picture is the drawable SDL actually got against the size the
+		script draws at - 800x600 for Elona.  Feeding the drawable to
+		hgio_size and the script size to hgio_view lets autoscale letterbox
+		the one inside the other (960x720 centred on a 1280x720 panel) rather
+		than leaving an 800x600 viewport that the panel then stretches
+		across its full width, which is what distorted the picture.			*/
+	{
+		int dw = sx, dh = sy;
+		if ( window != NULL ) SDL_GL_GetDrawableSize( window, &dw, &dh );
+		if ( ( dw > 0 ) && ( dh > 0 ) && ( hsp_wx > 0 ) && ( hsp_wy > 0 ) ) {
+			hgio_view( hsp_wx, hsp_wy );
+			hgio_size( dw, dh );
+			hgio_autoscale( 0 );
+		}
+	}
+#else
 	if ( sx != hsp_wx || sy != hsp_wy ) {
 #ifndef HSPDISHGP
 		hgio_view( sx, sy );
@@ -478,6 +497,7 @@ static int hsp3dish_initwindow( engine* p_engine, int sx, int sy, int autoscale,
 		hgio_autoscale( autoscale );
 #endif
 	}
+#endif
 
 	// マルチタッチ初期化
 	//MTouchInit( m_hWnd );
@@ -779,6 +799,22 @@ int hsp3dish_init( char *startfile )
 			return 1;
 		}
 	}
+
+#if defined(__SWITCH__)
+	/*	The console display is the whole window, so ask for it outright.
+		Otherwise the drawable is the script's 800x600, the picture gets
+		scaled to the panel by the system, and the 4:3 content is stretched
+		across a 16:9 screen.  With a native drawable, autoscale below can
+		letterbox it instead (960x720, centred).						*/
+	{
+		SDL_DisplayMode dm;
+		if ( ( SDL_GetCurrentDisplayMode( 0, &dm ) == 0 ) &&
+			 ( dm.w > 0 ) && ( dm.h > 0 ) ) {
+			sx = dm.w;
+			sy = dm.h;
+		}
+	}
+#endif
 
 	//		Window initalize
 	//
