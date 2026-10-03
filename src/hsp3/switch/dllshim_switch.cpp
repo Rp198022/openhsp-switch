@@ -912,14 +912,26 @@ static gzFile zlib_port_get( int handle )
 
 static int impl_zlib_zopen( const DllArgValue *args, int argc )
 {
+	char norm[512];
 	const char *path;
-	int mode, slot;
+	int mode, slot, i;
 	gzFile gz;
 
 	if ( argc < 3 || args[0].ptr == NULL || args[1].ptr == NULL ) return 0;
 	path = (const char *)args[1].ptr;
 	mode = args[2].ival;
-	gz = gzopen( path, ( mode != 0 ) ? "wb" : "rb" );
+	/*	Elona builds data paths with the Windows separator
+		(`exedir + "map\\" + name`).  The port normalises those in
+		fopen() through the linker's --wrap hook, but zlib's gzopen()
+		opens through POSIX open(), which that hook never sees, so the
+		path arrived verbatim as 'sdmc:/switch/openhsp\map\home0.idx'.
+		Every map load failed and *map_begin looped on "Map loading
+		failed".  Normalise the path here as well.                    */
+	for ( i = 0; path[i] != 0 && i < (int)sizeof( norm ) - 1; i++ ) {
+		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
+	}
+	norm[i] = 0;
+	gz = gzopen( norm, ( mode != 0 ) ? "wb" : "rb" );
 	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;
 		zlib_fail_n++;

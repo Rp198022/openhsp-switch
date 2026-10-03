@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
@@ -111,6 +112,28 @@ void sw_boot_trace( const char *stage, int value )
 	sw_say( "hsp3dish: init stage %-8s -> %d\n", stage, value );
 }
 
+/*	Elona loads a building from map/<name>.idx/.map/.obj through zlib,
+	and checks it with exist() first, so a missing file leaves no trace
+	in the file log.  Enumerate the directory once at boot.            */
+static void sw_list_dir( const char *path )
+{
+	DIR *dp;
+	struct dirent *de;
+	int n = 0;
+
+	dp = opendir( path );
+	if ( dp == NULL ) {
+		sw_say( "hsp3dish: list %s -> opendir FAILED\n", path );
+		return;
+	}
+	sw_say( "hsp3dish: list %s:\n", path );
+	while ( ( de = readdir( dp ) ) != NULL ) {
+		if ( n < 48 ) sw_say( "hsp3dish:   %s\n", de->d_name );
+		n++;
+	}
+	sw_say( "hsp3dish: list %s -> %d entries\n", path, n );
+	closedir( dp );
+}
 int main( int argc, char *argv[] )
 {
 	int res;
@@ -172,6 +195,8 @@ int main( int argc, char *argv[] )
 	sw_probe_open( HSP3SWITCH_APPDIR "/ipaexg.ttf" );
 
 	sw_probe_open( HSP3SWITCH_STARTAX );
+	sw_list_dir( HSP3SWITCH_APPDIR "/map" );
+	sw_probe_open( HSP3SWITCH_APPDIR "/map/home0.idx" );
 		/*	fopen("start.ax") working says nothing about the file layer the
 			engine actually uses, so ask that one directly. */
 		{
