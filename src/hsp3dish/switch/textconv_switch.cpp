@@ -1011,6 +1011,67 @@ static int cp932_to_utf8( const char *in, char *out, int outsz )
 	return o;
 }
 
+/*	Is this string already UTF-8?
+ *
+ *	The console keyboard (swkbd) hands its text back as UTF-8, while every
+ *	string the script itself holds is CP932.  Telling them apart is what lets
+ *	the one conversion point below leave typed text alone: a CP932 lead/trail
+ *	pair is almost never a well-formed UTF-8 sequence, and UTF-8 CJK is almost
+ *	never a defined CP932 pair, so requiring *both* tests is enough - and
+ *	q_detect.py checks the rule against samples from both sides.
+ *
+ *	Pure ASCII returns 0: it needs no conversion, but it is not "typed UTF-8"
+ *	either, and the caller's fallback handles it identically anyway.
+ */
+static int sw_utf8_len( const unsigned char *p )
+{
+	unsigned char b = *p;
+
+	if ( ( b & 0xE0 ) == 0xC0 ) return 2;
+	if ( ( b & 0xF0 ) == 0xE0 ) return 3;
+	if ( ( b & 0xF8 ) == 0xF0 ) return 4;
+	return 0;
+}
+
+static int sw_is_utf8_text( const char *in )
+{
+	const unsigned char *p = (const unsigned char *)in;
+	int seen = 0;
+
+	while ( *p != 0 ) {
+		int n, i;
+
+		if ( *p < 0x80 ) { p++; continue; }
+		n = sw_utf8_len( p );
+		if ( n == 0 ) return 0;
+		for ( i = 1; i < n; i++ ) {
+			if ( ( p[i] & 0xC0 ) != 0x80 ) return 0;
+		}
+		p += n;
+		seen = 1;
+	}
+	return seen;
+}
+
+/*	Every non-ASCII byte is half-width katakana or a defined CP932 pair.	*/
+static int sw_all_cp932( const char *in )
+{
+	const unsigned char *p = (const unsigned char *)in;
+
+	while ( *p != 0 ) {
+		unsigned char b = *p;
+
+		if ( b < 0x80 ) { p++; continue; }
+		if ( b >= 0xA1 && b <= 0xDF ) { p++; continue; }
+		{
+			int idx = cp932_index( b, p[1] );
+			if ( idx < 0 || cp932_table[idx] == 0 ) return 0;
+		}
+		p += 2;
+	}
+	return 1;
+}
+
 /*	The real entry point, declared by its mangled name: taking the address of
 	an extern "C" symbol spelled this way is exactly what --wrap pairs with.	*/
 extern "C" int __real__Z20hgio_fontsystem_execPcPhiPiS1_P9texmesPos(
@@ -1023,6 +1084,15 @@ extern "C" int __wrap__Z20hgio_fontsystem_execPcPhiPiS1_P9texmesPos(
 
 	if ( msg == NULL ) return __real__Z20hgio_fontsystem_execPcPhiPiS1_P9texmesPos(
 		msg, buffer, pitch, out_sx, out_sy, info );
+
+	/*	Typed text (UTF-8 from the console keyboard) is already what the
+		renderer wants, so it goes through untouched - converting it would
+		read it as CP932 and draw different characters.  The script's own
+		CP932 never passes both tests.									*/
+	if ( sw_is_utf8_text( msg ) && !sw_all_cp932( msg ) ) {
+		return __real__Z20hgio_fontsystem_execPcPhiPiS1_P9texmesPos(
+			msg, buffer, pitch, out_sx, out_sy, info );
+	}
 
 	cp932_to_utf8( msg, conv, TEXTCONV_OUT );
 	return __real__Z20hgio_fontsystem_execPcPhiPiS1_P9texmesPos(
