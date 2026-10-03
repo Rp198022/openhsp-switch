@@ -1001,6 +1001,31 @@ unsigned int sw_last_render_tick = 0;	/* tick of the last presented frame	*/
 static void sw_main_present( void )
 {
 	sw_last_render_tick = (unsigned int)hgio_gettick();
+
+/*	P3 diagnostic: the window the port believes it has against the one
+	SDL actually opened.  Elona asks for 800x600 (4:3) while the Switch
+	panel is 1280x720 (16:9); whichever of the two the viewport is built
+	from decides whether the picture is letterboxed or stretched.		*/
+#if SWITCH_DIAG
+	{
+		static int shown = 0;
+		if ( !shown && ( hgio_gettick() > 3000 ) ) {
+			int ww = 0, wh = 0, dw = 0, dh = 0;
+			SDL_Window *win = SDL_GL_GetCurrentWindow();
+			shown = 1;
+			if ( win != NULL ) {
+				SDL_GetWindowSize( win, &ww, &wh );
+				SDL_GL_GetDrawableSize( win, &dw, &dh );
+			}
+			printf( "hsp3switch: SCREEN sizex=%d sizey=%d bgsx=%d bgsy=%d "
+				"scale=%.3f,%.3f origin=%d,%d win=%dx%d drawable=%dx%d\n",
+				(int)_sizex, (int)_sizey, (int)_bgsx, (int)_bgsy,
+				(double)_scaleX, (double)_scaleY, _originX, _originY,
+				ww, wh, dw, dh );
+			fflush( stdout );
+		}
+	}
+#endif
 	GLfloat vert[8];
 	GLfloat uv[8];
 	float ox = (float)_bgsx;
