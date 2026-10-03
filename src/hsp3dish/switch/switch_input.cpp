@@ -203,7 +203,10 @@ static void sw_push_key( SDL_Scancode sc, int down )
 int switch_input_ask_text( char *out, int outsize )
 {
 #if defined(__SWITCH__)
-	SwkbdConfig kbd;
+	/*	SwkbdConfig is several KB (a union of every swkbd arg version) and
+		this call sits inside the interpreter's call chain - keep it off the
+		stack.  The function is not reentrant.							*/
+	static SwkbdConfig kbd;
 	Result rc;
 
 	if ( out == NULL || outsize < 2 ) return -1;

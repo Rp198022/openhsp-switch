@@ -131,6 +131,8 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
+		printf( "hsp3switch: build r42 (stack-safe system keyboard)\n" );
+		fflush( stdout );
 		sw_prune_stale_saves();
 	}
 	return 1;		//	non-NULL handle
@@ -344,7 +346,7 @@ static int sw_rmtree( const char *dir )
 {
 	DIR *d;
 	struct dirent *ent;
-	char child[1024];
+	char child[512];
 
 	d = opendir( dir );
 	if ( d == NULL ) return remove( dir ) == 0;
@@ -372,9 +374,12 @@ static int sw_rmtree( const char *dir )
 static void sw_prune_stale_saves( void )
 {
 	const char *home = getenv( "HOME" );
-	char root[512];
-	char dir[1024];
-	char hdr[1100];
+	/*	File scope, not stack: this runs inside the interpreter's call chain
+		(the first CreateMutexA), where a few KB of locals is the last thing
+		its stack needs.												*/
+	static char root[512];
+	static char dir[1024];
+	static char hdr[1100];
 	DIR *d;
 	struct dirent *ent;
 

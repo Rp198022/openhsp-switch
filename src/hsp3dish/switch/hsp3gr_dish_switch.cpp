@@ -610,7 +610,10 @@ static int sw_kbd_take( void )
 	put straight back up.												*/
 static void sw_kbd_offer( void )
 {
-	char text[SW_KBD_MAX];
+	/*	File scope, not stack: sw_key_tick() runs on every extended command,
+		so a 1 KB frame here is 1 KB of the interpreter's stack on every one
+		of them.  The function is not reentrant.						*/
+	static char text[SW_KBD_MAX];
 	int r, n;
 
 	if ( sw_objsel_id <= 0 ) {
