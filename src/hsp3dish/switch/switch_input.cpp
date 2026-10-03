@@ -347,7 +347,11 @@ static const SW_CHARKEY sw_charkeys[] = {
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f',  0 },
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v',  0 },
 	/*	- locks the target on; + opens the save/settings menu (Shift+S).	*/
-	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l',  0 },
+	/*	The minus button's second layer is the appearance editor: Elona opens
+		it from the character sheet with a literal 'p' key
+		(command.hsp:10312, `*com_charainfo` page 0), and every other button
+		already has a first-layer job.									*/
+	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', 'p' },
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
 	/*	Left stick press: pick up.  The right stick's press is the Space key
 		now - it is in sw_keymap() above, so it is not typed here.			*/
