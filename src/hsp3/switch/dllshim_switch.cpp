@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>			/* opendir/readdir, for the recursive RemoveDirectoryA below */
 #include <unistd.h>			/* rmdir(), for RemoveDirectoryA below */
 #include <time.h>
 #include <math.h>
@@ -310,6 +311,33 @@ static int impl_win_zero( const DllArgValue *args, int argc )
 //	empty slot left behind.  Removing it for real is all the game needs; the
 //	path arrives with Windows separators like every other path here.
 //
+//	A save folder is a tree, not a flat directory.  Elona's *game_ctrlFile
+//	( fmode == 9 ) only deletes the TOP-LEVEL files it can see with
+//	`dirlist folder + "\\*.*"` and then calls RemoveDirectoryA - but the port's
+//	own HSP save layer has also written  <save>/openhsp/tmp/*.s2  underneath,
+//	so a plain rmdir() still failed with ENOTEMPTY and the slot stayed
+//	"full".  Walk the whole tree first, then drop the folder.
+//
+//	A file (or an unreadable path) simply makes opendir() fail, and remove()
+//	handles it - no stat()/S_ISDIR needed.
+//
+static int sw_rmtree( const char *dir )
+{
+	DIR *d;
+	struct dirent *ent;
+	char child[1024];
+
+	d = opendir( dir );
+	if ( d == NULL ) return remove( dir ) == 0;
+	while ( ( ent = readdir( d ) ) != NULL ) {
+		if ( strcmp( ent->d_name, "." ) == 0 || strcmp( ent->d_name, ".." ) == 0 ) continue;
+		snprintf( child, sizeof( child ), "%s/%s", dir, ent->d_name );
+		sw_rmtree( child );
+	}
+	closedir( d );
+	return rmdir( dir ) == 0;
+}
+
 static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 {
 	char norm[512];
@@ -322,7 +350,7 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
 	}
 	norm[i] = 0;
-	if ( rmdir( norm ) != 0 ) {
+	if ( !sw_rmtree( norm ) ) {
 		printf( "hsp3switch: RemoveDirectory FAIL '%s'\n", path );
 		fflush( stdout );
 		return 0;
