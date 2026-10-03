@@ -138,7 +138,11 @@ int main( int argc, char *argv[] )
 	//
 	setenv( "HOME", HSP3SWITCH_APPDIR, 1 );
 
-	sw_log_open();
+	/*	A host on the other end of nxlink wants the diagnostics live, and
+		freopen() would close the very socket it is listening on - that is what
+		made an earlier hardware run go silent the moment it booted.  Only fall
+		back to the on-card log when there is nobody listening.			*/
+	if ( nxlink_fd < 0 ) sw_log_open();
 	sw_say( "hsp3dish: boot (nxlink fd = %d)\n", nxlink_fd );
 	sw_say( "hsp3dish: HOME=%s\n", getenv( "HOME" ) ? getenv( "HOME" ) : "(null)" );
 
