@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>			/* rmdir(), for RemoveDirectoryA below */
 #include <time.h>
 #include <math.h>
 #include <algorithm>
@@ -296,6 +297,39 @@ static int impl_win_zero( const DllArgValue *args, int argc )
 	(void)args;
 	(void)argc;
 	return 0;
+}
+
+//	kernel32.dll - RemoveDirectoryA( LPCSTR lpPathName ) -> BOOL.
+//
+//	Elona deletes a save by removing every file inside the folder and then
+//	asking for this (system.hsp's *game_ctrlFile, `fmode == 9`:
+//	`RemoveDirectoryA folder`).  It was answered by impl_win_true, i.e. the
+//	call reported success and removed nothing: the files went, the *folder*
+//	stayed, and the save list - a `dirlist ... save\\*` counted with
+//	`noteinfo() >= 5` in chara.hsp - kept saying "Save slots are full" with an
+//	empty slot left behind.  Removing it for real is all the game needs; the
+//	path arrives with Windows separators like every other path here.
+//
+static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
+{
+	char norm[512];
+	const char *path;
+	int i;
+
+	if ( argc < 1 || args[0].ptr == NULL ) return 0;
+	path = (const char *)args[0].ptr;
+	for ( i = 0; path[i] != 0 && i < (int)sizeof( norm ) - 1; i++ ) {
+		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
+	}
+	norm[i] = 0;
+	if ( rmdir( norm ) != 0 ) {
+		printf( "hsp3switch: RemoveDirectory FAIL '%s'\n", path );
+		fflush( stdout );
+		return 0;
+	}
+	printf( "hsp3switch: RemoveDirectory '%s'\n", path );
+	fflush( stdout );
+	return 1;
 }
 
 //	The rest of kernel32.dll.  CloseHandle was the third failure-in-a-loop the
@@ -1115,7 +1149,7 @@ static const DllImplEntry impl_table[] = {
 	{ "kernel32.dll",	"GetLastError",			impl_GetLastError },
 	{ "kernel32.dll",	"CreateMutexA",			impl_CreateMutexA },
 	{ "kernel32.dll",	"CloseHandle",			impl_win_true },
-	{ "kernel32.dll",	"RemoveDirectoryA",		impl_win_true },
+	{ "kernel32.dll",	"RemoveDirectoryA",		impl_RemoveDirectoryA },
 	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
 	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
