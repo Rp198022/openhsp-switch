@@ -1467,10 +1467,24 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 		//
 		int chk = code_get();
 		if ( chk < 0 ) {
-			printf( "hsp3switch: ### %s: argument %d (sptr) missing/default (chk=%d)\n",
-				sw_dll_desc, sw_dll_argi, chk );
+			/*	The parameter is not there.  Elona's  ImmGetContext(hwnd)
+				(module.hsp's imeset/imeget, reached from help.hsp's chat
+				prompt) is declared with sptr but supplies no operand at all,
+				and the reference behaviour - throw HSPERR_NO_DEFAULT - ended
+				the whole script the moment the chat box closed, every time
+				(the r38 device log: "imm32!ImmGetContext: argument 0 (sptr)
+				missing/default (chk=-1)" then "script end: err=5").
+				An absent parameter can only be the last one, and code_get()
+				has already stopped on the terminator without consuming it, so
+				answering NULL leaves the operand stream exactly where the call
+				wants to end.  The imm32 / menu / file-dialog stubs ignore the
+				value anyway.											*/
+			printf( "hsp3switch: ### %s: argument %d (sptr) absent -> NULL\n",
+				sw_dll_desc, sw_dll_argi );
 			fflush( stdout );
-			throw ( HSPERR_NO_DEFAULT );
+			v->ival = 0;
+			v->ptr = NULL;
+			break;
 		}		// -1 == PARAM_END
 		pval = *pmpval;
 		if ( pval->flag == HSPVAR_FLAG_INT ) {
