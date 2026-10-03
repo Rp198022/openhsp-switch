@@ -651,15 +651,6 @@ static void sw_key_tick( void )
 			memcpy( dst->keybuf, sw_key_buf + sw_key_pos, n );
 			dst->keybuf[n] = 0;
 			dst->keybuf_index = 0;
-			{
-				static int boxtrace = 0;
-				if ( boxtrace < 40 ) {
-					boxtrace++;
-					printf( "hsp3switch: ### boxnotice #%d id=%d notice=%d c=%d\n",
-						boxtrace, sw_objsel_id, notice, (int)c );
-					fflush( stdout );
-				}
-			}
 			box->func_notice( box, notice );
 		}
 	}
@@ -728,26 +719,6 @@ static int cmdfunc_extcmd( int cmd )
 	sw_extcmd_ring[sw_extcmd_ring_pos & 7] = cmd;	// fork: temporary error diagnostic
 	sw_extcmd_ring_pos++;
 	sw_stall_probe();
-	{
-		/*	A wait loop that keeps redrawing never stops the frame tick, so the
-			stall probe above cannot see it.  Snapshot the command ring every
-			20000 extended commands instead: during play the snapshots differ, in
-			a wait loop they repeat. */
-		static unsigned int tick = 0;
-		static int snaps = 0;
-		if ( ( ++tick % 20000u ) == 0 && snaps < 24 ) {
-			int k;
-			snaps++;
-			printf( "hsp3switch: ### RING #%d line=%d %s padbits=%#x lastcmd=%#x ring=",
-				snaps, code_getdebug_line(), code_getdebug_name(),
-				(unsigned)switch_input_pad_bits(), (unsigned)sw_last_extcmd );
-			for ( k = 0; k < 8; k++ ) {
-				printf( "%#x ", (unsigned)sw_extcmd_ring[( sw_extcmd_ring_pos + k ) & 7] );
-			}
-			printf( "\n" );
-			fflush( stdout );
-		}
-	}
 	sw_key_tick();							// fork: type a key the harness asked for
 	switch( cmd ) {							// サブコマンドごとの分岐
 
@@ -1518,15 +1489,6 @@ static int cmdfunc_extcmd( int cmd )
 		p1 = code_getdi(0);
 		ctx->stat = bmscr->ActivateHSPObject(p1);
 		sw_objsel_id = p1;
-		{
-			static int objsel_trace = 0;
-			if ( objsel_trace < 60 ) {
-				objsel_trace++;
-				printf( "hsp3switch: ### objsel #%d id=%d stat=%d wid=%d\n",
-					objsel_trace, p1, (int)ctx->stat, bmscr->wid );
-				fflush( stdout );
-			}
-		}
 		break;
 
 	case 0x2e:								// groll
