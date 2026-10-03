@@ -109,13 +109,15 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm: pad A, right	*/
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
 	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad R			*/
+	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_SPACE },	/* wait: right stick click	*/
 };
 
 #define SW_KEYMAP_N	((int)( sizeof( sw_keymap ) / sizeof( sw_keymap[0] ) ))
 
-/*	Analog stick acts as a d-pad so `stick` works without touching it.  The
-	RIGHT stick is the one spent on that (it is the lock-on cursor); the left
-	one types characters, see switch_input_take_keys().						*/
+/*	Both sticks type characters - a stick has no scancode Elona reads, so
+		each direction is a key press on the character channel instead (see
+		switch_input_take_keys()).  The d-pad is the only thing that moves the
+		cursor keys, and it does so through the scancode table above.			*/
 #define SW_STICK_DEADZONE	12000
 
 static SDL_GameController	*sw_pad;
@@ -139,7 +141,6 @@ static int sw_layer_second( void )
 static int sw_entry_down( int i )
 {
 	const SW_KEYMAP_ENTRY *e = &sw_keymap[i];
-	Sint16 rx, ry;
 
 	/*	On the second layer the bottom button types 'q' and must stop being
 		Escape.  key_check() reads the keylog first and then lets a non-zero
@@ -150,16 +151,10 @@ static int sw_entry_down( int i )
 	if ( e->btn != SW_NO_BUTTON && SDL_GameControllerGetButton( sw_pad, e->btn ) ) return 1;
 	if ( e->axis != SW_NO_AXIS && SDL_GameControllerGetAxis( sw_pad, e->axis ) > SW_TRIGGER_ON ) return 1;
 
-	/*	The right stick doubles as the cursor keys (Elona's lock-on cursor).	*/
-	rx = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX );
-	ry = SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTY );
-	switch ( e->sc ) {
-	case SDL_SCANCODE_LEFT:		return rx < -SW_STICK_DEADZONE;
-	case SDL_SCANCODE_RIGHT:	return rx >  SW_STICK_DEADZONE;
-	case SDL_SCANCODE_UP:		return ry < -SW_STICK_DEADZONE;
-	case SDL_SCANCODE_DOWN:		return ry >  SW_STICK_DEADZONE;
-	default:					break;
-	}
+	/*	The right stick used to be spent here, doubling as the cursor keys for
+		Elona's lock-on cursor.  It types its own four characters now (see
+		switch_input_take_keys() below), so nothing in this table reads it and
+		the cursor keys come from the d-pad alone.							*/
 	return 0;
 }
 
@@ -338,9 +333,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	- locks the target on; + opens the save/settings menu (Shift+S).	*/
 	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l',  0 },
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
-	/*	Stick presses: pick up; rest in place (Shift+R) / drop.			*/
+	/*	Left stick press: pick up.  The right stick's press is the Space key
+		now - it is in sw_keymap() above, so it is not typed here.			*/
 	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'g',  0 },
-	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,	SW_NO_AXIS,							'R', 'd' },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))
@@ -353,8 +348,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_LEFT	'c'
 #define SW_LSTICK_RIGHT	'T'
 
-/*	Right stick, second layer only: the letters the first layer gives to the
-	cursor keys.															*/
+/*	Right stick: the four field actions that have no scancode.  They fire on
+		either layer - the stick is not the cursor any more, so there is no
+		first-layer job left for it to keep.								*/
 #define SW_RSTICK_UP	'Z'		/* whirl a wand (Shift+Z)	*/
 #define SW_RSTICK_DOWN	's'		/* search the ground		*/
 #define SW_RSTICK_LEFT	'a'		/* use a special ability	*/
@@ -418,11 +414,9 @@ int switch_input_take_keys( char *out, int max )
 	if ( c != 0 && n < max ) out[n++] = c;
 	c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTY, &sw_lstick_y, SW_LSTICK_UP, SW_LSTICK_DOWN );
 	if ( c != 0 && n < max ) out[n++] = c;
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTX, &sw_rstick_x,
-						( layer ? SW_RSTICK_LEFT : 0 ), ( layer ? SW_RSTICK_RIGHT : 0 ) );
+	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTX, &sw_rstick_x, SW_RSTICK_LEFT, SW_RSTICK_RIGHT );
 	if ( c != 0 && n < max ) out[n++] = c;
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTY, &sw_rstick_y,
-						( layer ? SW_RSTICK_UP : 0 ), ( layer ? SW_RSTICK_DOWN : 0 ) );
+	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTY, &sw_rstick_y, SW_RSTICK_UP, SW_RSTICK_DOWN );
 	if ( c != 0 && n < max ) out[n++] = c;
 
 	return n;
