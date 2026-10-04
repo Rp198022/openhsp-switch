@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r82 (keep the offscreen target across a present)\n" );
+		printf( "hsp3switch: build r83 (the system keyboard cannot be closed empty)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

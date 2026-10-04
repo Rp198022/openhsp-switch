@@ -607,6 +607,12 @@ static char	sw_kbd_buf[SW_KBD_MAX];
 static int	sw_kbd_len;
 static int	sw_kbd_pos;
 static int	sw_kbd_shown_for = -1;
+static int	sw_kbd_retry = 0;			/* the player closed it empty		*/
+static unsigned	sw_kbd_retry_at = 0;		/* tick the re-raise is allowed	*/
+static int	sw_kbd_tries_for = -1;		/* box the cancel count belongs to	*/
+static int	sw_kbd_empty_tries = 0;
+#define SW_KBD_REOPEN_MS	800			/* cool-down before re-raising		*/
+#define SW_KBD_GIVE_UP		6			/* cancels before the pad takes over*/
 
 extern int switch_input_ask_text( char *out, int outsize );
 extern int sw_utf8_to_cp932( const char *in, char *out, int outsz );
@@ -634,8 +640,9 @@ static int sw_kbd_take( void )
 /*	Offer the console keyboard when the game starts waiting for text.
 	Elona selects a real prompt with `objsel 1`; the hidden keylog it polls
 	every frame is obj 0, so anything above 0 is a box the player is meant to
-	type into.  Once per selection - a cancelled keyboard would otherwise be
-	put straight back up.												*/
+	type into.  Offered once per selection, EXCEPT when the player closes it
+	without typing: that puts it straight back up (a cool-down apart, and only
+	a few times) because an empty line is not a valid answer to these boxes.	*/
 static void sw_kbd_offer( void )
 {
 	/*	File scope, not stack: sw_key_tick() runs on every extended command,
@@ -646,17 +653,48 @@ static void sw_kbd_offer( void )
 
 	if ( sw_objsel_id <= 0 ) {
 		sw_kbd_shown_for = -1;
+		sw_kbd_retry = 0;
+		sw_kbd_tries_for = -1;
+		sw_kbd_empty_tries = 0;
 		return;
 	}
-	if ( sw_kbd_shown_for == sw_objsel_id ) return;
+	if ( sw_kbd_tries_for != sw_objsel_id ) {
+		sw_kbd_tries_for = sw_objsel_id;
+		sw_kbd_empty_tries = 0;
+	}
+	if ( sw_kbd_shown_for == sw_objsel_id ) {
+		/*	Already offered for this box.  The only reason to come back is
+			that the player closed it without typing; wait out the cool-down
+			so a held cancel button cannot make it flicker.				*/
+		if ( !sw_kbd_retry ) return;
+		if ( (unsigned)hgio_gettick() < sw_kbd_retry_at ) return;
+	}
+	sw_kbd_retry = 0;
 	printf( "hsp3switch: swkbd up for obj %d (shown_for was %d)\n",
 		sw_objsel_id, sw_kbd_shown_for );
 	fflush( stdout );
 	sw_kbd_shown_for = sw_objsel_id;
 
 	r = switch_input_ask_text( text, sizeof( text ) );
-	if ( r < 0 ) return;				/* no keyboard: leave the pad path	*/
-	if ( r == 0 ) text[0] = 0;			/* cancelled: close with nothing	*/
+	if ( r == -2 ) return;				/* no keyboard: leave the pad path	*/
+	if ( r <= 0 ) {
+		/*	Closed without typing.  Elona's prompts cannot be answered with
+			an empty line - the name it takes becomes the save directory -
+			so put the keyboard back up instead of submitting for the player.
+			After a few tries the pad's letters stay as the way out, so this
+			can never trap someone who means to skip the box.			*/
+		if ( ++sw_kbd_empty_tries >= SW_KBD_GIVE_UP ) {
+			sw_kbd_empty_tries = 0;
+			printf( "hsp3switch: swkbd closed empty %d times, leaving it to the pad\n",
+				SW_KBD_GIVE_UP );
+			fflush( stdout );
+			return;
+		}
+		sw_kbd_retry = 1;
+		sw_kbd_retry_at = (unsigned)hgio_gettick() + SW_KBD_REOPEN_MS;
+		return;
+	}
+	sw_kbd_empty_tries = 0;
 
 	/*	The keyboard speaks UTF-8 and the script speaks CP932.  The script
 		sizes paths and buffers by counting two bytes to a character, so a

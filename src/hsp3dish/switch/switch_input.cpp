@@ -197,9 +197,11 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	the platforms this game was written for, and hands the text back as UTF-8,
 	which is what the injection queue already speaks.
 
-	Returns 1 with text (possibly empty), 0 when the player cancelled, and -1
+	Returns 1 with text, 0 when the player closed it without typing, and -2
 	when the keyboard cannot be used at all (an applet-mode launch, for
-	instance) - the caller then leaves the pad's letters as the only path.	*/
+	instance) - the caller then leaves the pad's letters as the only path.
+	A cancel must stay distinct from "no keyboard": the caller re-raises the
+	keyboard on a cancel, but must not retry one that cannot open.			*/
 int switch_input_ask_text( char *out, int outsize )
 {
 #if defined(__SWITCH__)
@@ -209,10 +211,10 @@ int switch_input_ask_text( char *out, int outsize )
 	static SwkbdConfig kbd;
 	Result rc;
 
-	if ( out == NULL || outsize < 2 ) return -1;
+	if ( out == NULL || outsize < 2 ) return -2;
 	out[0] = 0;
 	rc = swkbdCreate( &kbd, (size_t)outsize );
-	if ( R_FAILED( rc ) ) return -1;
+	if ( R_FAILED( rc ) ) return -2;
 	swkbdConfigMakePresetDefault( &kbd );
 	/*	The preset leaves the type at SwkbdType_Normal, which only offers the
 		Latin layout - Chinese, Japanese and Korean would be unreachable.  The
@@ -222,12 +224,12 @@ int switch_input_ask_text( char *out, int outsize )
 	swkbdConfigSetGuideText( &kbd, "Elona" );
 	rc = swkbdShow( &kbd, out, (size_t)outsize );
 	swkbdClose( &kbd );
-	if ( R_FAILED( rc ) ) return -1;
+	if ( R_FAILED( rc ) ) return 0;			/* the player closed it empty	*/
 	return ( out[0] != 0 ) ? 1 : 0;
 #else
 	(void)out;
 	(void)outsize;
-	return -1;
+	return -2;
 #endif
 }
 
