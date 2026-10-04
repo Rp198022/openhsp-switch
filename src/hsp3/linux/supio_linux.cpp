@@ -405,7 +405,26 @@ int makedir( char *name )
 	char buf[_MAX_PATH+1];
 	int ret;
 	supio_slash( name, buf, sizeof( buf ) );
-	sw_path_sanitize( buf );
+	{
+		/*	Inlined on purpose: calling out to another translation unit did
+			not take effect here.  Each EF BF BD run becomes one underscore; the
+			count is printed so a run can show whether it matched at all. */
+		char *p = buf;
+		int hit = 0;
+		while ( *p != 0 ) {
+			if ( ( (unsigned char)p[0] == 0xef ) &&
+				 ( (unsigned char)p[1] == 0xbf ) &&
+				 ( (unsigned char)p[2] == 0xbd ) ) {
+				*p = '_';
+				memmove( p + 1, p + 3, strlen( p + 3 ) + 1 );
+				hit++;
+				continue;
+			}
+			p++;
+		}
+		printf( "hsp3file: makedir sanitize hits=%d buf='%s'\n", hit, buf );
+		fflush( stdout );
+	}
 	ret = mkdir( buf, 0755 );
 #ifdef __SWITCH__
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
