@@ -3021,14 +3021,29 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		both sampled and rendered into undefined, the classic runtime copies
 		row by row and has no such restriction.
 
-		The 64x64 limit is deliberate.  p3s195 lifted it to cover create_pcpic's
-		128x198 parts and the whole map went white: those two copies are
-		128,0->256,0 and 256,0->0,0, which do not overlap one another and so
-		never needed staging, while routing Elona's larger translucent
-		composites through a single shared scratch changed how many times each
-		layer landed on the screen.  Overlap only happens at tile sizes.	*/
+		The 64x64 rule alone was not enough.  Elona draws its scene pictures
+		with `gsel BUFFER_BUF / picload ...640x480 / pos 0,y1 /
+		gzoom w,h, BUFFER_BUF, 0,0, 640,480` (scene.hsp) - a 640x480 copy from
+		a screen onto itself at an offset.  That is larger than the tile rule,
+		so it went through unstaged and the GPU read rows it was still writing:
+		on hardware the picture comes out sheared along a diagonal.
+
+		So the test is geometric now - same texture, and the source rectangle
+		really does overlap the destination one.  The 64x64 rule is kept as
+		well, because create_pcpic's 16x16 tiles are the case it was written
+		for.  p3s195's mistake was raising the size limit outright: that also
+		routed create_pcpic's 128x198 parts (128,0->256,0 and 256,0->0,0, which
+		do NOT overlap) through the single shared scratch, changing how often
+		each layer landed on the screen - which whitened the whole map.		*/
+	int sw_ov;
+	{
+		int sx0 = (int)xx, sy0 = (int)yy;
+		int dx0 = (int)bm->cx, dy0 = (int)bm->cy;
+		sw_ov = ( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
+				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );
+	}
 	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
+		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
