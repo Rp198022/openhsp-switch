@@ -1309,10 +1309,11 @@ static int cmdfunc_intcmd( int cmd )
 		{
 		PVal *pv;
 		APTR ap;
+		printf( "hsp3int: sortnote stub entry\n" );
 		ap = code_getva( &pv );		// パラメータ1:変数
+		printf( "hsp3int: sortnote stub got va\n" );
 		code_getdi( 0 );	// パラメータ2:数値
-		// Sorting stubbed out: hspda.dll sortnote is a no-op on Switch,
-		// and the built-in sortnote overflows arrays with large note strings.
+		printf( "hsp3int: sortnote stub done\n" );
 		break;
 		}
 
