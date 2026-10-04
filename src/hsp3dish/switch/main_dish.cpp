@@ -161,6 +161,16 @@ int main( int argc, char *argv[] )
 	//
 	setenv( "HOME", HSP3SWITCH_APPDIR, 1 );
 
+	/*	The game's music is MIDI, and SDL_mixer renders MIDI with its
+		built-in TiMidity.  That code searches a fixed list of Linux patch
+		configurations (the boot log shows it trying /etc/timidity.cfg,
+		/etc/timidity/freepats.cfg, ... - none of which exist here), fails
+		every mmload of a .mid with "[MMMan] Failed ... on bank #0", and the
+		title BGM goes silent.  TiMidity reads TIMIDITY_CFG once, when the
+		first music file is opened - long after this - so seat it next to
+		HOME: <appdir>/timidity.cfg, with the patches in <appdir>/timidity/. */
+	setenv( "TIMIDITY_CFG", HSP3SWITCH_APPDIR "/timidity.cfg", 1 );
+
 	/*	A host on the other end of nxlink wants the diagnostics live, and
 		freopen() would close the very socket it is listening on - that is what
 		made an earlier hardware run go silent the moment it booted.  Only fall
