@@ -394,6 +394,23 @@ int makedir( char *name )
 		struct stat st;
 		if ( stat( buf, &st ) == 0 && S_ISDIR( st.st_mode ) ) ret = 0;
 	}
+	if ( ret != 0 ) {
+		/*	Ask for save/<name> when save/ itself is not there and the
+			call fails for the wrong reason.  Build the missing levels and
+			retry - the write path does the same in glue_mkdir_p(). */
+		size_t k;
+		for ( k = 4; buf[k] != 0; k++ ) {		/* step past "sdmc" */
+			if ( buf[k] != '/' ) continue;
+			buf[k] = 0;
+			mkdir( buf, 0755 );
+			buf[k] = '/';
+		}
+		ret = mkdir( buf, 0755 );
+		if ( ret != 0 ) {
+			struct stat st2;
+			if ( stat( buf, &st2 ) == 0 && S_ISDIR( st2.st_mode ) ) ret = 0;
+		}
+	}
 	{
 		/*	When this still fails, say why: ENOENT means the parent folder
 			is missing, EACCES a permission problem, and a name the devoptab
