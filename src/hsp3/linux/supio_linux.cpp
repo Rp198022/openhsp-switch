@@ -404,13 +404,14 @@ int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
 	int ret;
-	supio_slash( name, buf, sizeof( buf ) );
+	/*	supio_slash() returns the path to use; it does not necessarily write
+		into buf at all (a path with no backslash needs no conversion).  The
+		earlier attempts ignored that and edited uninitialised stack. */
+	char *use = supio_slash( name, buf, sizeof( buf ) );
 	{
-		/*	Inlined on purpose: calling out to another translation unit did
-			not take effect here.  Each EF BF BD run becomes one underscore; the
-			count is printed so a run can show whether it matched at all. */
-		char *p = buf;
+		char *p = use;
 		int hit = 0;
+		int i;
 		while ( *p != 0 ) {
 			if ( ( (unsigned char)p[0] == 0xef ) &&
 				 ( (unsigned char)p[1] == 0xbf ) &&
@@ -422,10 +423,15 @@ int makedir( char *name )
 			}
 			p++;
 		}
-		printf( "hsp3file: makedir sanitize hits=%d buf='%s'\n", hit, buf );
+		printf( "hsp3file: makedir sanitize hits=%d use='%s'\n", hit, use );
+		printf( "hsp3file: makedir raw bytes:" );
+		for ( i = 0; use[i] != 0 && i < 48; i++ ) {
+			printf( " %02x", (unsigned char)use[i] );
+		}
+		printf( "\n" );
 		fflush( stdout );
 	}
-	ret = mkdir( buf, 0755 );
+	ret = mkdir( use, 0755 );
 #ifdef __SWITCH__
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
