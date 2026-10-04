@@ -395,17 +395,21 @@ int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
 	int ret;
-	/*	supio_slash() returns the path to use; it hands `name` back untouched
-		when there is no backslash to convert.  Switch's filesystem takes
-		UTF-8, so translate whatever came out. */
+#ifdef HSPDISH
+	/*	Switch's filesystem takes UTF-8 paths while Elona builds CP932 ones,
+		so translate.  supio_slash() returns the path to use but does not
+		necessarily write buf, hence the copy. */
 	{
-		const char *src = supio_slash( name, buf, sizeof( buf ) );
 		char u8[_MAX_PATH * 3 + 1];
-		if ( sw_path_to_utf8( src, u8, sizeof( u8 ) ) > 0 ) {
+		supio_slash( name, buf, sizeof( buf ) );
+		if ( sw_path_to_utf8( name, u8, sizeof( u8 ) ) > 0 ) {
 			strcpy( buf, u8 );
 		}
+		ret = mkdir( buf, 0755 );
 	}
-	ret = mkdir( buf, 0755 );
+#else
+	ret = mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
+#endif
 #ifdef __SWITCH__
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
@@ -514,6 +518,7 @@ int dirlist( char *fname, char **target, int p3 )
 	}
 	patbuf[n] = 0;
 
+#ifdef HSPDISH
 	/*	the pattern is CP932 like everything else Elona hands us */
 	{
 		char u8[_MAX_PATH * 3 + 1];
@@ -521,6 +526,7 @@ int dirlist( char *fname, char **target, int p3 )
 			strcpy( patbuf, u8 );
 		}
 	}
+#endif
 
 	slash = strrchr( patbuf, '/' );
 	if ( slash == NULL ) {
@@ -574,10 +580,12 @@ int dirlist( char *fname, char **target, int p3 )
 		}
 
 		if (fl) {
+#ifdef HSPDISH
 			/*	the entry name comes from the filesystem as UTF-8; Elona
 				compares it against CP932 strings, so translate it back */
 			char back[_MAX_PATH * 3 + 1];
 			if ( sw_path_to_cp932( p, back, sizeof( back ) ) > 0 ) p = back;
+#endif
 			stat_main++;
 			sbStrAdd( target, p );
 			sbStrAdd( target, "\n" );
