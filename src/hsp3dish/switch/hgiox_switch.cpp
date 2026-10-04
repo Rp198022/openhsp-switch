@@ -3917,10 +3917,8 @@ void hgio_setinfo( int type, HSPREAL val )
 	target and mark the frame open.  No present - the classic runtime updates
 	the screen on `redraw 1` alone, and presenting here let the title menu (7
 	redraw 0 a frame) show the half-drawn state.						*/
-static void sw_frame_begin( void )
+static void sw_frame_begin( BMSCR *keep )
 {
-	BMSCR *keep = sw_cur;
-
 	/*	This is what a pad read hangs off, so it still runs on every redraw 0.
 		The counters showed several calls a frame, which is what kept input
 		alive once the frame clear stopped being the sampling point.		*/
@@ -3944,12 +3942,17 @@ static void sw_frame_begin( void )
 
 int hgio_render_start( void )
 {
+	/*	Capture the offscreen target FIRST: hgio_render_end() unbinds it
+		(sw_unbind_window() clears sw_cur), so reading it afterwards always
+		yields NULL and the target is never restored.						*/
+	BMSCR *keep = sw_cur;
+
 	/*	A frame that was never closed by redraw 1 is presented here, so a
 		script that draws outside a redraw cycle still reaches the screen.	*/
 	if ( drawflag ) {
 		hgio_render_end();
 	}
-	sw_frame_begin();
+	sw_frame_begin( keep );
 	return 0;
 }
 
@@ -4093,7 +4096,7 @@ int hgio_redraw( BMSCR *bm, int flag )
 		hgio_render_end();
 		sw_redraw_time( bm );
 	} else {
-		sw_frame_begin();
+		sw_frame_begin( sw_cur );
 	}
 	return 0;
 }
