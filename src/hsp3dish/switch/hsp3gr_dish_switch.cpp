@@ -53,6 +53,21 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 	Remember the last gmode and carry it into whatever window gsel selects.	*/
 static int sw_gmode_g[4] = { 0, 32, 32, 0 };		/* mode, gx, gy, gfrate	*/
 static int sw_gmode_set = 0;
+static void *sw_bmscr_cur = NULL;				/* window gmode was last set on	*/
+
+/*	Put the mode back to its default.  The real water.hpi resets it while
+	it draws its ripples, and Elona's title loop depends on that landing
+	before cs_listbk - see the note on impl_water_draw in dllshim_switch.cpp. */
+extern "C" void sw_gmode_reset( void )
+{
+	sw_gmode_g[0] = 0; sw_gmode_g[1] = 32;
+	sw_gmode_g[2] = 32; sw_gmode_g[3] = 0;
+	sw_gmode_set = 0;
+	if ( sw_bmscr_cur != NULL ) {
+		Bmscr *bm = (Bmscr *)sw_bmscr_cur;
+		bm->gmode = 0; bm->gx = 32; bm->gy = 32; bm->gfrate = 0;
+	}
+}
 		/* switch_input_take_keys(): the pad's characters */
 
 #ifdef HSPWIN
@@ -1225,6 +1240,7 @@ static int cmdfunc_extcmd( int cmd )
 			bmscr->gy     = sw_gmode_g[2];
 			bmscr->gfrate = sw_gmode_g[3];
 		}
+		sw_bmscr_cur = (void *)bmscr;
 #ifdef HSPWIN
 		if (p1 == 0) {
 			if (p2 < 0) {
@@ -1298,6 +1314,7 @@ static int cmdfunc_extcmd( int cmd )
 		sw_gmode_g[2] = bmscr->gy;
 		sw_gmode_g[3] = bmscr->gfrate;
 		sw_gmode_set = 1;
+		sw_bmscr_cur = (void *)bmscr;
 		//Alertf("OK");
 		break;
 

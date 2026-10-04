@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r53 (gmode global, in the file that is built)\n" );
+		printf( "hsp3switch: build r54 (water_draw resets the global gmode)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -1360,12 +1360,32 @@ static const DllImplEntry impl_table[] = {
 	{ "hspinet.dll",	"_netdlname@16",		impl_hspinet_zero },
 	{ "hspinet.dll",	"_netrequest@16",		impl_hspinet_zero },
 
+//	water.hpi - the ripple effect; there is no Windows binary here, so the
+//	port draws no ripples.  But the real plugin does more than draw: Elona's
+//	title loop is water_draw -> cs_listbk -> six display_customkey calls, and
+//	display_customkey leaves `gmode 2` (its black colour key) behind.  In the
+//	classic runtime gmode is one global setting, so without a reset the plain
+//	gcopy inside cs_listbk inherits that key, drops the dark pixels of the
+//	background it is restoring and lets the white highlight show through as a
+//	smear.  Resetting here is what the real plugin leaves behind, and it keeps
+//	the erase a plain copy.
+static int impl_water_draw( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+#ifdef HSPDISH
+	extern "C" void sw_gmode_reset( void );
+	sw_gmode_reset();
+#endif
+	return 0;
+}
+
 	//	water.hpi - the ripple effect; Windows binary only, so inert.
 	{ "water.hpi",		"_water_getimage@16",	impl_water_zero },
 	{ "water.hpi",		"_water_refresh@16",	impl_water_zero },
 	{ "water.hpi",		"_water_setripple@16",	impl_water_zero },
 	{ "water.hpi",		"_water_calc@16",		impl_water_zero },
-	{ "water.hpi",		"_water_draw@16",		impl_water_zero },
+	{ "water.hpi",		"_water_draw@16",		impl_water_draw },
 
 	//	exrand.dll - the extended RNG (randomize is already above).
 	{ "exrand.dll",		"_exrand_rnd@16",		impl_exrand_rnd },
