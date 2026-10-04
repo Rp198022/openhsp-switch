@@ -1231,12 +1231,15 @@ static int impl_water_zero( const DllArgValue *args, int argc )
 //	background it is restoring, and lets the white highlight show through as
 //	a smear when the cursor moves.
 //
+#ifdef HSPDISH
+extern "C" void sw_gmode_reset( void );
+#endif
+
 static int impl_water_draw( const DllArgValue *args, int argc )
 {
 	(void)args;
 	(void)argc;
 #ifdef HSPDISH
-	extern "C" void sw_gmode_reset( void );
 	sw_gmode_reset();
 #endif
 	return 0;
