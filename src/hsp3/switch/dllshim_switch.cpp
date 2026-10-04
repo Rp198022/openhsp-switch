@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r90 (GetVersionExA answers Windows 10 for the Chinese build's check)\n" );
+		printf( "hsp3switch: build r91 (GetTempPathA points at the card's tmp folder)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -432,6 +432,28 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 //	pre-fills dwOSVersionInfoSize and only the fields inside that declared
 //	size are written (148 for OSVERSIONINFOA, 276 for the EX form).
 //
+//	kernel32.dll - GetTempPathA( DWORD nBufferLength, LPSTR lpBuffer ).
+//	The answer is the app's own tmp folder, spelled relative to the
+//	current directory - every open in the image resolves there anyway,
+//	and the card already carries the tmp/ the game makes.  The contract
+//	is the Win32 one: the length written (without the NUL) on success,
+//	the required size (with the NUL) when the buffer is too small.
+//
+static int impl_GetTempPathA( const DllArgValue *args, int argc )
+{
+	static const char tmpdir[] = "tmp/";
+	char *dest;
+	int room, n;
+
+	if ( argc < 2 || args[1].ptr == NULL ) return 0;
+	dest = (char *)args[1].ptr;
+	room = (int)args[0].ival;
+	n = (int)( sizeof( tmpdir ) - 1 );
+	if ( room <= n ) return n + 1;
+	memcpy( dest, tmpdir, (size_t)n + 1 );
+	return n;
+}
+
 static int impl_GetVersionExA( const DllArgValue *args, int argc )
 {
 	unsigned char *p;
@@ -1344,6 +1366,7 @@ static const DllImplEntry impl_table[] = {
 	{ "kernel32.dll",	"CloseHandle",			impl_win_true },
 	{ "kernel32.dll",	"RemoveDirectoryA",		impl_RemoveDirectoryA },
 	{ "kernel32.dll",	"GetVersionExA",			impl_GetVersionExA },
+	{ "kernel32.dll",	"GetTempPathA",			impl_GetTempPathA },
 	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
 	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
