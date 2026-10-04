@@ -3513,6 +3513,17 @@ int hgio_dialog( int mode, char *str1, char *str2 )
 #ifdef HSPLINUX
 	{
 	int i = 0;
+	/*	The Switch has no window-system message box - SDL_ShowSimpleMessageBox
+		lands nowhere here.  Elona announces real decisions through dialog()
+		(*world_init refuses a save with "invalid version" or "The adventurer
+		is not revived again...", then ends the script), so with the text gone
+		an intentional exit is indistinguishable from a crash.  Keep a copy in
+		the log. */
+	printf( "hsp3switch: dialog mode=%d: %s%s%s\n", mode,
+		( str1 != NULL ) ? str1 : "",
+		( ( str1 != NULL ) && ( str2 != NULL ) ) ? " / " : "",
+		( str2 != NULL ) ? str2 : "" );
+	fflush( stdout );
 	if (mode>=16) return 0;
 	if (mode&1) i|=SDL_MESSAGEBOX_WARNING; else i|=SDL_MESSAGEBOX_INFORMATION;
 	SDL_ShowSimpleMessageBox(i, str2, str1, NULL);
