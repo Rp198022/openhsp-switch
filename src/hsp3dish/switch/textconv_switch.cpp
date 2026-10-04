@@ -1047,6 +1047,41 @@ static int sw_utf8_len( const unsigned char *p )
  *	the simplified-only ones.  There is no code point to hand the script for
  *	those, and inventing one would corrupt the string.
  */
+static int cp932_to_utf8( const char *in, char *out, int outsz );
+static int sw_is_utf8_text( const char *in );
+static int sw_all_cp932( const char *in );
+int sw_utf8_to_cp932( const char *in, char *out, int outsz );
+int sw_path_to_cp932( const char *in, char *out, int outsz )
+{
+	int n;
+	if ( sw_all_cp932( in ) ) {
+		n = (int)strlen( in );
+		if ( n > outsz - 1 ) n = outsz - 1;
+		memcpy( out, in, n );
+		out[n] = 0;
+		return n;
+	}
+	return sw_utf8_to_cp932( in, out, outsz );
+}
+
+
+/*	Switch's filesystem takes UTF-8 paths while Elona builds CP932 ones, so
+	a path has to be translated going in and coming back.  The direction is
+decided by the same rule the drawing path uses - valid UTF-8 that is not a
+defined CP932 byte pair is already UTF-8 - which leaves plain ASCII alone. */
+int sw_path_to_utf8( const char *in, char *out, int outsz )
+{
+	int n;
+	if ( sw_is_utf8_text( in ) ) {
+		n = (int)strlen( in );
+		if ( n > outsz - 1 ) n = outsz - 1;
+		memcpy( out, in, n );
+		out[n] = 0;
+		return n;
+	}
+	return cp932_to_utf8( in, out, outsz );
+}
+
 int sw_utf8_to_cp932( const char *in, char *out, int outsz )
 {
 	const unsigned char *p = (const unsigned char *)in;

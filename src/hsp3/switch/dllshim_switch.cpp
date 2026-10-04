@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r62 (makedir copies the resolved path in)\n" );
+		printf( "hsp3switch: build r63 (paths are translated to UTF-8)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

@@ -561,6 +561,7 @@ static int glue_fopen_writes( const char *mode )
 }
 
 extern "C" void sw_path_sanitize( char *buf );
+extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz );
 
 static void glue_mkdir_p( const char *path )
 {
@@ -599,22 +600,17 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	//	"err=7 (Array overflow)".  Normalising at the one place every open goes
 	//	through fixes all of the script's paths at once, reads and writes alike.
 	//
-	if ( strchr( path, '\\' ) != NULL ) {
+	/*	Elona separates with backslashes and writes CP932; the Switch
+		filesystem wants slashes and UTF-8.  Normalise, then translate. */
+	{
+		char tmp[sizeof( fixed )];
 		n = strlen( path );
-		if ( n > sizeof( fixed ) - 1 ) n = sizeof( fixed ) - 1;
-		for ( i = 0; i < n; i++ ) fixed[i] = ( path[i] == '\\' ) ? '/' : path[i];
-		fixed[n] = 0;
+		if ( n > sizeof( tmp ) - 1 ) return __real_fopen( path, mode );
+		for ( i = 0; i < n; i++ ) tmp[i] = ( path[i] == '\\' ) ? '/' : path[i];
+		tmp[n] = 0;
+		sw_path_to_utf8( tmp, fixed, sizeof( fixed ) - 1 );
 		use = fixed;
 	}
-	else {
-		/*	the sanitising below edits in place, so a path that needed no
-			backslash fixing still has to be copied first */
-		n = strlen( path );
-		if ( n > sizeof( fixed ) - 1 ) return __real_fopen( path, mode );
-		memcpy( fixed, path, n + 1 );
-		use = fixed;
-	}
-	sw_path_sanitize( fixed );
 
 	fp = __real_fopen( use, mode );
 	if ( fp == NULL && glue_fopen_writes( mode ) ) {

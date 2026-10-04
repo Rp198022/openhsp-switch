@@ -386,59 +386,24 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 	fopen both fail on it.  Map each run to an underscore, and do it on
 	every path this port opens, so the folder created and the folder read
 	back still agree.  Valid multi-byte names pass through untouched. */
-extern "C" void sw_path_sanitize( char *buf )
-{
-	char *p = buf;
-	while ( *p != 0 ) {
-		if ( ( (unsigned char)p[0] == 0xef ) &&
-			 ( (unsigned char)p[1] == 0xbf ) &&
-			 ( (unsigned char)p[2] == 0xbd ) ) {
-			*p = '_';
-			memmove( p + 1, p + 3, strlen( p + 3 ) + 1 );
-		}
-		p++;
-	}
-}
+#ifdef HSPDISH
+extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz );
+extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz );
+#endif
 
 int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
 	int ret;
-	/*	supio_slash() returns the path to use; it does not necessarily write
-		into buf at all (a path with no backslash needs no conversion, and
-		Elona's paths are all forward slashes).  Copy into buf either way -
-		that buffer is what gets rewritten and `name` belongs to the caller. */
+	/*	supio_slash() returns the path to use; it hands `name` back untouched
+		when there is no backslash to convert.  Switch's filesystem takes
+		UTF-8, so translate whatever came out. */
 	{
 		const char *src = supio_slash( name, buf, sizeof( buf ) );
-		if ( src != buf ) {
-			size_t n = strlen( src );
-			if ( n > sizeof( buf ) - 1 ) n = sizeof( buf ) - 1;
-			memcpy( buf, src, n );
-			buf[n] = 0;
+		char u8[_MAX_PATH * 3 + 1];
+		if ( sw_path_to_utf8( src, u8, sizeof( u8 ) ) > 0 ) {
+			strcpy( buf, u8 );
 		}
-	}
-	{
-		char *p = buf;
-		int hit = 0;
-		int i;
-		while ( *p != 0 ) {
-			if ( ( (unsigned char)p[0] == 0xef ) &&
-				 ( (unsigned char)p[1] == 0xbf ) &&
-				 ( (unsigned char)p[2] == 0xbd ) ) {
-				*p = '_';
-				memmove( p + 1, p + 3, strlen( p + 3 ) + 1 );
-				hit++;
-				continue;
-			}
-			p++;
-		}
-		printf( "hsp3file: makedir sanitize hits=%d buf='%s'\n", hit, buf );
-		printf( "hsp3file: makedir raw bytes:" );
-		for ( i = 0; buf[i] != 0 && i < 48; i++ ) {
-			printf( " %02x", (unsigned char)buf[i] );
-		}
-		printf( "\n" );
-		fflush( stdout );
 	}
 	ret = mkdir( buf, 0755 );
 #ifdef __SWITCH__
@@ -549,6 +514,14 @@ int dirlist( char *fname, char **target, int p3 )
 	}
 	patbuf[n] = 0;
 
+	/*	the pattern is CP932 like everything else Elona hands us */
+	{
+		char u8[_MAX_PATH * 3 + 1];
+		if ( sw_path_to_utf8( patbuf, u8, sizeof( u8 ) ) > 0 ) {
+			strcpy( patbuf, u8 );
+		}
+	}
+
 	slash = strrchr( patbuf, '/' );
 	if ( slash == NULL ) {
 		dirbuf[0] = 0;
@@ -601,6 +574,10 @@ int dirlist( char *fname, char **target, int p3 )
 		}
 
 		if (fl) {
+			/*	the entry name comes from the filesystem as UTF-8; Elona
+				compares it against CP932 strings, so translate it back */
+			char back[_MAX_PATH * 3 + 1];
+			if ( sw_path_to_cp932( p, back, sizeof( back ) ) > 0 ) p = back;
 			stat_main++;
 			sbStrAdd( target, p );
 			sbStrAdd( target, "\n" );
