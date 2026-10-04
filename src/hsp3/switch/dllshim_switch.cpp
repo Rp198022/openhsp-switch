@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r47 (keyboard text enters as CP932)\n" );
+		printf( "hsp3switch: build r49 (gfinc adds colour instead of nothing)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -854,19 +854,15 @@ static void hspda_probe_args( const char *who, const DllArgValue *args, int argc
 //	gfdec2/gfinc.  fcgraph.cpp writes straight into the software screen's pBit
 //	buffer, but hsp3dish's BMSCR has pBit commented out
 //	(src/hsp3dish/hspwnd_dish.h:633) and the Switch backend keeps no software
-//	framebuffer at all, so there is nothing to write and no pointer to touch -
-//	these can only report success.
+//	framebuffer at all.  All four are served by the GL backend instead
+//	(hgiox_switch.cpp: sw_fcgraph_lock / sw_fcgraph_sub / sw_fcgraph_add) -
+//	none of them is a stub any more.
 //
-static int impl_hspext_fcgraph_zero( const DllArgValue *args, int argc )
-{
-	(void)args;
-	(void)argc;
-	return 0;
-}
 
-//	fcgraph.cpp:41-122 is the authority: gfini( bm, p1, p2, p3 ) locks p1 x p2
-//	pixels at the screen's current position, and gfdec/gfdec2 subtract p1,p2,p3
-//	from that rectangle's R,G,B, saturating at 0 - in place, with no drawing
+//	fcgraph.cpp:41-160 is the authority: gfini( bm, p1, p2, p3 ) locks p1 x p2
+//	pixels at the screen's current position, and gfdec/gfdec2/gfinc add or
+//	subtract p1,p2,p3 to/from that rectangle's R,G,B, saturating at 0 and 255
+//	- in place, with no drawing
 //	and no copy of any kind.  Elona's create_pcpic draws each PCC part from a
 //	greyscale template into a scratch strip, locks it, subtracts c_col and
 //	copies the strip back (chips.hsp:101-179), which is what turns grey hair
@@ -882,6 +878,7 @@ static int impl_hspext_fcgraph_zero( const DllArgValue *args, int argc )
 extern "C" {
 extern void sw_fcgraph_lock( int xs, int ys );
 extern void sw_fcgraph_sub( int r, int g, int b );
+extern void sw_fcgraph_add( int r, int g, int b );
 }
 
 //	P3 DIAGNOSTIC counters - "is the colour pass reached at all?"  Elona calls
@@ -891,6 +888,7 @@ extern void sw_fcgraph_sub( int r, int g, int b );
 //
 static int	sw_gfini_trace = 0;
 static int	sw_gfdec_trace = 0;
+static int	sw_gfinc_trace = 0;
 #endif
 
 //	gfini xsize,ysize - lock the rectangle the colour pass applies to.  The
@@ -932,6 +930,33 @@ static int impl_hspext_gfdec( const DllArgValue *args, int argc )
 			sw_gfdec_trace++;
 			printf( "hsp3switch: ### gfdec #%d argc=%d arg=%d,%d,%d,%d\n",
 				sw_gfdec_trace, argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
+				( argc > 3 ) ? (int)args[3].ival : -1 );
+			fflush( stdout );
+		}
+	}
+#else
+	(void)args;
+	(void)argc;
+#endif
+	return 0;
+}
+
+//	gfinc r,g,b - the saturated per-channel addition (fcgraph.cpp:125-160:
+//	a1..a3 are added and clamped at 255).  Its calling shape is gfdec's
+//	exactly - four int words and no screen pointer - so the three channels
+//	sit in args[0..2] just as they do there.  Elona's cs_list draws every
+//	list highlight as gfdec -30,-10,0 then gfinc 50,50,50 (module.hsp:173-
+//	265), which is why the stub left every selection in the game darker.
+//
+static int impl_hspext_gfinc( const DllArgValue *args, int argc )
+{
+#ifdef HSPDISH
+	if ( argc >= 3 ) {
+		sw_fcgraph_add( (int)args[0].ival, (int)args[1].ival, (int)args[2].ival );
+		if ( SWITCH_DIAG && sw_gfinc_trace < 64 ) {
+			sw_gfinc_trace++;
+			printf( "hsp3switch: ### gfinc #%d argc=%d arg=%d,%d,%d,%d\n",
+				sw_gfinc_trace, argc, (int)args[0].ival, (int)args[1].ival, (int)args[2].ival,
 				( argc > 3 ) ? (int)args[3].ival : -1 );
 			fflush( stdout );
 		}
@@ -1298,7 +1323,7 @@ static const DllImplEntry impl_table[] = {
 	{ "hspext_ext.dll",	"_gfini@16",			impl_hspext_gfini },
 	{ "hspext_ext.dll",	"_gfdec@16",			impl_hspext_gfdec },
 	{ "hspext_ext.dll",	"_gfdec2@16",			impl_hspext_gfdec },
-	{ "hspext_ext.dll",	"_gfinc@16",			impl_hspext_fcgraph_zero },
+	{ "hspext_ext.dll",	"_gfinc@16",			impl_hspext_gfinc },
 	{ "hspext_ext.dll",	"_ematan@16",			impl_hspext_ematan },
 	{ "hspext_ext.dll",	"_aplsel@16",			impl_hspext_apl_zero },
 	{ "hspext_ext.dll",	"_aplobj@16",			impl_hspext_apl_zero },

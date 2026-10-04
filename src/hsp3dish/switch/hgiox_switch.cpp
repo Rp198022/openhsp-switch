@@ -2740,7 +2740,8 @@ static int sw_pcc_copy_trace = 0;
 
 /*	fcgraph colour pass, done in place.
 
-	Hspext's gfini/gfdec/gfdec2 (src/plugins/win32/Hspext/fcgraph.cpp:41-122) do
+	Hspext's gfini/gfdec/gfdec2/gfinc (src/plugins/win32/Hspext/fcgraph.cpp:41-160)
+	do
 	not draw anything: gfini locks an xsize x ysize rectangle whose top-left is
 	the current screen position, and gfdec/gfdec2 walk that rectangle's pixels
 	subtracting a per-channel amount, saturating at 0.  Elona leans on that for
@@ -2759,7 +2760,13 @@ static int sw_pcc_copy_trace = 0;
 	the locked rectangle, blended with GL_FUNC_REVERSE_SUBTRACT
 	(dst = dst*1 - src*1), which the fixed-point colour buffer clamps to
 	max(0, dst-src) on its own.  The vertex colour's alpha is 0, so the same
-	equation leaves the destination's alpha untouched.						*/
+	equation leaves the destination's alpha untouched.
+
+	gfinc (fcgraph.cpp:125-160) is the same walk with each channel ADDED and
+	clamped at 255.  GL_FUNC_ADD with those same ( ONE, ONE ) factors is
+	exactly that, so both directions share one function and differ only in
+	the equation they arm.
+							*/
 
 static int		sw_fc_lock_x = 0;			/* gfini xsize (0 = whole width)	*/
 static int		sw_fc_lock_y = 0;			/* gfini ysize (0 = whole height)	*/
@@ -2784,7 +2791,10 @@ extern "C" void sw_fcgraph_lock( int xs, int ys )
 	sw_fc_lock_py = ( bm != NULL ) ? (int)bm->cy : 0;
 }
 
-extern "C" void sw_fcgraph_sub( int r, int g, int b )
+//	gfdec/gfdec2 (add == 0) and gfinc (add == 1) - one implementation, two
+//	directions.  Only the blend equation and the zero case differ.
+//
+static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
 	GLfloat vert[8];
 	GLfloat cols[16];
@@ -2793,26 +2803,32 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	if ( SWITCH_DIAG && sw_fcsub_trace < 40 && ( sw_fc_lock_x >= 100 ) && ( sw_fc_lock_y >= 100 ) ) {
 		sw_fcsub_trace++;
 		if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
-			sw_fbo_log( "hgio: fcsub #%d SKIP rgb<=0\n", sw_fcsub_trace );
+			sw_fbo_log( "hgio: fc%s #%d SKIP rgb<=0\n", add ? "inc" : "sub", sw_fcsub_trace );
 		} else if ( ( bm == NULL ) || ( bm != sw_cur ) ) {
-			sw_fbo_log( "hgio: fcsub #%d SKIP badbm lockbm=%p cur=%p\n", sw_fcsub_trace, (void *)bm, (void *)sw_cur );
+			sw_fbo_log( "hgio: fc%s #%d SKIP badbm lockbm=%p cur=%p\n", add ? "inc" : "sub", sw_fcsub_trace, (void *)bm, (void *)sw_cur );
 		} else {
-			sw_fbo_log( "hgio: fcsub #%d rgb=%d,%d,%d at %d,%d size=%dx%d\n", sw_fcsub_trace, r, g, b, sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y );
+			sw_fbo_log( "hgio: fc%s #%d rgb=%d,%d,%d at %d,%d size=%dx%d\n", add ? "inc" : "sub", sw_fcsub_trace, r, g, b, sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y );
 		}
 	}
 	float x1, y1, x2, y2, cr, cg, cb;
+	int eq_ok;
 
 	if ( ( r <= 0 ) && ( g <= 0 ) && ( b <= 0 ) ) {
 		/*	Nothing to subtract, but the copy that follows still samples the
 			texture the copy before it wrote.  Without the stall the subtracting
 			path takes, the two parts whose tint is all zero - the eye and the
 			cloth - come out missing from the PCC sheet.  A zero tint is a real
-			case, not an error: the body uses it too. */
-		glFinish();
+			case, not an error: the body uses it too.  An addition of zero
+			changes no pixel and owes the next copy nothing, so only the
+			subtraction stalls here. */
+		if ( add == 0 ) glFinish();
 		return;
 	}
 	if ( ( bm == NULL ) || ( bm != sw_cur ) ) return;		/* the lock died with its screen	*/
-	if ( sw_glBlendEquationAvailable() == 0 ) return;		/* an add would brighten instead	*/
+	/*	A subtraction has no fallback - without the equation it would brighten
+		instead - while an addition can always lean on blendFunc( ONE, ONE ). */
+	eq_ok = sw_glBlendEquationAvailable();
+	if ( ( add == 0 ) && ( eq_ok == 0 ) ) return;
 
 	w = sw_fc_lock_x; h = sw_fc_lock_y;
 	if ( w <= 0 ) w = bm->sx;								/* gfini 0 = whole width	*/
@@ -2849,15 +2865,19 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	glColorPointer( 4, GL_FLOAT, 0, cols );
 	sw_glColorKey( 0, 0 );
 	glEnable( GL_BLEND );
-	glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
+	if ( add == 0 ) {
+		glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
+	} else if ( eq_ok != 0 ) {
+		glBlendEquation( GL_FUNC_ADD );			/* the default anyway	*/
+	}
 	glBlendFunc( GL_ONE, GL_ONE );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	/*	Restored: the gcopy that follows samples the very texture this quad
-		just wrote, so the subtraction has to be out of the pipeline before
+		just wrote, so the tint has to be out of the pipeline before
 		the sample lands - the failure shows up as un-subtracted or missing
 		PCC parts.  Eden renders on the host GPU too, so it needs the stall. */
 	glFinish();
-	glBlendEquation( GL_FUNC_ADD );
+	if ( eq_ok != 0 ) glBlendEquation( GL_FUNC_ADD );
 	if ( tex2d_was ) glEnable( GL_TEXTURE_2D );
 
 	/*	Put the equation back; the blend function itself is restored by the
@@ -2867,6 +2887,21 @@ extern "C" void sw_fcgraph_sub( int r, int g, int b )
 	/*	Nothing draws between here and the next command, so the key this
 		hgio_setTexBlendMode() re-armed must not be left behind.			*/
 	sw_glColorKey( 0, 0 );
+}
+
+/*	gfdec r,g,b / gfdec2 r,g,b - subtract from the rectangle gfini locked. */
+extern "C" void sw_fcgraph_sub( int r, int g, int b )
+{
+	sw_fcgraph_tint( r, g, b, 0 );
+}
+
+/*	gfinc r,g,b - the saturated per-channel addition.  Elona tints every
+	list highlight with gfdec -30,-10,0 followed by gfinc 50,50,50
+	(module.hsp:173-265); while this one was a stub every selection in the
+	game came out 50 short per channel, i.e. darker than the original. */
+extern "C" void sw_fcgraph_add( int r, int g, int b )
+{
+	sw_fcgraph_tint( r, g, b, 1 );
 }
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
