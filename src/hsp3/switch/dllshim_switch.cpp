@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r91 (GetTempPathA points at the card's tmp folder)\n" );
+		printf( "hsp3switch: build r92 (GetLongPathNameA answers the path itself)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -439,6 +439,27 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 //	is the Win32 one: the length written (without the NUL) on success,
 //	the required size (with the NUL) when the buffer is too small.
 //
+//	kernel32.dll - GetLongPathNameA( LPCSTR short, LPSTR long, DWORD cch ).
+//	Nothing on the card carries an 8.3 short name, so the long form of a
+//	path is the path; the buffer contract is the Win32 one (length written
+//	without the NUL, or required size with it when the buffer is too small).
+//
+static int impl_GetLongPathNameA( const DllArgValue *args, int argc )
+{
+	const char *src;
+	char *dest;
+	int room, n;
+
+	if ( argc < 3 || args[0].ptr == NULL || args[1].ptr == NULL ) return 0;
+	src = (const char *)args[0].ptr;
+	dest = (char *)args[1].ptr;
+	room = (int)args[2].ival;
+	n = (int)strlen( src );
+	if ( room <= n ) return n + 1;
+	memcpy( dest, src, (size_t)n + 1 );
+	return n;
+}
+
 static int impl_GetTempPathA( const DllArgValue *args, int argc )
 {
 	static const char tmpdir[] = "tmp/";
@@ -1367,6 +1388,7 @@ static const DllImplEntry impl_table[] = {
 	{ "kernel32.dll",	"RemoveDirectoryA",		impl_RemoveDirectoryA },
 	{ "kernel32.dll",	"GetVersionExA",			impl_GetVersionExA },
 	{ "kernel32.dll",	"GetTempPathA",			impl_GetTempPathA },
+	{ "kernel32.dll",	"GetLongPathNameA",		impl_GetLongPathNameA },
 	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
 	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
