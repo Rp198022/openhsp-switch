@@ -560,6 +560,20 @@ static int glue_fopen_writes( const char *mode )
 			 strchr( mode, '+' ) != NULL );
 }
 
+extern "C" void sw_path_sanitize( char *buf )
+{
+	char *p = buf;
+	while ( *p != 0 ) {
+		if ( ( (unsigned char)p[0] == 0xef ) &&
+			 ( (unsigned char)p[1] == 0xbf ) &&
+			 ( (unsigned char)p[2] == 0xbd ) ) {
+			*p = '_';
+			memmove( p + 1, p + 3, strlen( p + 3 ) + 1 );
+		}
+		p++;
+	}
+}
+
 static void glue_mkdir_p( const char *path )
 {
 	char buf[512];
@@ -604,6 +618,15 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		fixed[n] = 0;
 		use = fixed;
 	}
+	else {
+		/*	the sanitising below edits in place, so a path that needed no
+			backslash fixing still has to be copied first */
+		n = strlen( path );
+		if ( n > sizeof( fixed ) - 1 ) return __real_fopen( path, mode );
+		memcpy( fixed, path, n + 1 );
+		use = fixed;
+	}
+	sw_path_sanitize( fixed );
 
 	fp = __real_fopen( use, mode );
 	if ( fp == NULL && glue_fopen_writes( mode ) ) {

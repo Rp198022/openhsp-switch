@@ -380,10 +380,19 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 }
 
 
+#ifdef HSPDISH
+extern "C" void sw_path_sanitize( char *buf );
+#endif
+
 int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
-	int ret = mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
+	int ret;
+	supio_slash( name, buf, sizeof( buf ) );
+#ifdef HSPDISH
+	sw_path_sanitize( buf );
+#endif
+	ret = mkdir( buf, 0755 );
 #ifdef __SWITCH__
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
