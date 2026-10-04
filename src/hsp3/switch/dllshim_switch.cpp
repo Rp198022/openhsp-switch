@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r88 (sysfont accepted and ignored; the Chinese build's boot check runs)\n" );
+		printf( "hsp3switch: build r89 (filemd5 hashes the card's files for the Chinese build's check)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -1211,6 +1211,35 @@ static int impl_hspinet_neterror( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	hspinet.dll - filemd5( var, file ).  main.cpp:294-323 loads the file,
+//	stores its MD5 (32 lowercase hex) into the variable and the byte size
+//	into strsize; -1 when the read fails.  The Chinese build's start-up
+//	check hashes its seven DLLs and the two text stubs with it and compares
+//	the digests against constants baked into start.ax - which match the
+//	stock files on the card, so a correct hash passes the check.
+//
+int sw_md5_file( const char *path, char out[33], unsigned int *outsize );
+
+static int impl_hspinet_filemd5( const DllArgValue *args, int argc )
+{
+	PVal *pval = NULL;
+	APTR aptr;
+	char *fname;
+	char digest[33];
+	unsigned int size = 0;
+
+	(void)args;
+	(void)argc;
+
+	aptr = code_getva( &pval );
+	fname = code_gets();
+	if ( pval == NULL || fname == NULL ) return 0;
+	if ( sw_md5_file( fname, digest, &size ) != 0 ) return -1;
+	code_setva( pval, aptr, HSPVAR_FLAG_STR, digest );
+	if ( hspctx != NULL ) hspctx->strsize = (int)size;
+	return 0;
+}
+
 //	water.hpi - Elona's water-ripple effect.  Only the Windows binary ships in
 //	the tree (no source), so every entry is an inert success.
 //
@@ -1377,6 +1406,7 @@ static const DllImplEntry impl_table[] = {
 	{ "hspsock.dll",	"_sockput@16",			impl_hspsock_zero },
 
 	//	hspinet.dll - the HTTP family; neterror reads its own operand.
+	{ "hspinet.dll",	"_filemd5@16",			impl_hspinet_filemd5 },
 	{ "hspinet.dll",	"_netinit@16",			impl_hspinet_zero },
 	{ "hspinet.dll",	"_netexec@16",			impl_hspinet_zero },
 	{ "hspinet.dll",	"_neterror@16",			impl_hspinet_neterror },
