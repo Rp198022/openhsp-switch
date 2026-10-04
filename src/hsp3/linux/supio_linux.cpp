@@ -380,7 +380,21 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
-	return mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
+	int ret = mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
+#ifdef __SWITCH__
+	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
+		lists the save folder and only creates it when it was not in that
+		listing (system.hsp:2883-2896).  POSIX reports an existing folder as
+		a failure and the script turns that into a fatal file I/O error, so
+		an existing folder has to count as success here. */
+	if ( ret != 0 ) {
+		struct stat st;
+		if ( stat( buf, &st ) == 0 && S_ISDIR( st.st_mode ) ) ret = 0;
+	}
+	printf( "hsp3file: makedir '%s' -> %d\n", buf, ret );
+	fflush( stdout );
+#endif
+	return ret;
 }
 
 
