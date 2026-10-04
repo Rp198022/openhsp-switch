@@ -16,6 +16,9 @@
 #include <ctype.h>
 
 // gettime
+#ifdef __SWITCH__
+#include <errno.h>		/* makedir() reports why it failed */
+#endif
 #include <sys/time.h>
 #include <time.h>
 // mkdir stat
@@ -391,8 +394,27 @@ int makedir( char *name )
 		struct stat st;
 		if ( stat( buf, &st ) == 0 && S_ISDIR( st.st_mode ) ) ret = 0;
 	}
-	printf( "hsp3file: makedir '%s' -> %d\n", buf, ret );
-	fflush( stdout );
+	{
+		/*	When this still fails, say why: ENOENT means the parent folder
+			is missing, EACCES a permission problem, and a name the devoptab
+			cannot represent shows up here too.  Also stat the parent so the
+			answer does not depend on the reader knowing the layout. */
+		struct stat pst;
+		char pbuf[_MAX_PATH+1];
+		size_t n = strlen( buf );
+		int pe = -1;
+		if ( n < sizeof( pbuf ) ) {
+			memcpy( pbuf, buf, n + 1 );
+			while ( n > 0 && pbuf[n] != '/' ) n--;
+			if ( n > 0 ) {
+				pbuf[n] = 0;
+				pe = stat( pbuf, &pst );
+			}
+		}
+		printf( "hsp3file: makedir '%s' -> %d errno=%d parent='%s' -> %d\n",
+			buf, ret, errno, ( n > 0 ) ? pbuf : "?", pe );
+		fflush( stdout );
+	}
 #endif
 	return ret;
 }
