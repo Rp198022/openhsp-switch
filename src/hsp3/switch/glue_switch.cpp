@@ -560,19 +560,7 @@ static int glue_fopen_writes( const char *mode )
 			 strchr( mode, '+' ) != NULL );
 }
 
-extern "C" void sw_path_sanitize( char *buf )
-{
-	char *p = buf;
-	while ( *p != 0 ) {
-		if ( ( (unsigned char)p[0] == 0xef ) &&
-			 ( (unsigned char)p[1] == 0xbf ) &&
-			 ( (unsigned char)p[2] == 0xbd ) ) {
-			*p = '_';
-			memmove( p + 1, p + 3, strlen( p + 3 ) + 1 );
-		}
-		p++;
-	}
-}
+extern "C" void sw_path_sanitize( char *buf );
 
 static void glue_mkdir_p( const char *path )
 {
