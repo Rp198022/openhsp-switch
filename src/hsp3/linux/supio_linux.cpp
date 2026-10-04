@@ -392,7 +392,7 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 	weak pass-through keeps the console build - which has no textconv and
 	does not need one - linkable; the strong definitions in the dish target
 	override it. */
-__attribute__((weak)) int sw_path_to_utf8( const char *in, char *out, int outsz )
+extern "C" __attribute__((weak)) int sw_path_to_utf8( const char *in, char *out, int outsz )
 {
 	int n = (int)strlen( in );
 	if ( n > outsz - 1 ) n = outsz - 1;
@@ -401,7 +401,7 @@ __attribute__((weak)) int sw_path_to_utf8( const char *in, char *out, int outsz 
 	return n;
 }
 
-__attribute__((weak)) int sw_path_to_cp932( const char *in, char *out, int outsz )
+extern "C" __attribute__((weak)) int sw_path_to_cp932( const char *in, char *out, int outsz )
 {
 	int n = (int)strlen( in );
 	if ( n > outsz - 1 ) n = outsz - 1;
