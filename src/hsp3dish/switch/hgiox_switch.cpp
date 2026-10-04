@@ -3130,7 +3130,10 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		the log says whether the source row was already dirty when saved.	*/
 	if ( SWITCH_DIAG && ( srcsy == 19 ) && ( srcsx >= 40 ) && ( srcsx <= 200 ) ) {
 		static int sw_l19 = 0;
-		if ( sw_l19 < 800 ) {
+		static int sw_l19_key = -99999;
+		int l19key = ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) )
+			? (int)yy : (int)bm->cy;
+		if ( ( sw_l19_key != l19key ) || ( sw_l19 < 40 ) ) {
 			int lh = ( bm->type == HSPWND_TYPE_MAIN ) ? (int)_bgsy : (int)bm->sy;
 			int rx = (int)bm->cx;
 			int ry = (int)bm->cy + 5;
@@ -3179,6 +3182,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				}
 				sw_bfb( keep );
 			}
+			sw_l19_key = l19key;
 			sw_l19++;
 			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mdark=%d mx0=%d mx1=%d\n",
 				sw_l19, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
