@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r78 (L19 probe v2: dark+pale ink)\n" );
+		printf( "hsp3switch: build r79 (gmode 2 copies opaquely again)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

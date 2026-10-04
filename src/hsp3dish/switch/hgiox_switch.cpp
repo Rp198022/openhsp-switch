@@ -1746,6 +1746,14 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		(setBlendMode() below) turns the key back off. */
 	setBlendMode( mode );
 	if ( mode == 2 ) {
+		/*	Colour-key copy: the classic runtime skips the key-coloured
+			source pixels and copies every other one opaquely - there is no
+			alpha to blend with.  The shader already discards the key, so
+			blending here only mixed the copy with the destination whenever
+			the source's alpha had fallen below 1.  That is what let the
+			title menu's per-row strip pick up the neighbouring row's text.
+																					*/
+		glDisable( GL_BLEND );
 		sw_glColorKey( 1, 0x000000u );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
 		sw_glColorKey( 1, (unsigned)bm->color & 0xffffffu );
@@ -3194,10 +3202,10 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				sw_bfb( keep );
 			}
 			sw_l19++;
-			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mid=%d mx=%d..%d mdark=%d mx0=%d mx1=%d\n",
+			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mid=%d mx=%d..%d mdark=%d mx0=%d mx1=%d gm=%d\n",
 				sw_l19, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
 				( bmsrc != NULL ) ? bmsrc->texid : -99, bm->texid,
-				(double)bm->cx, (double)bm->cy, lh, ldark, lx0, lx1, lmid, lmx0, lmx1, mdark, mx0, mx1 );
+				(double)bm->cx, (double)bm->cy, lh, ldark, lx0, lx1, lmid, lmx0, lmx1, mdark, mx0, mx1, bm->gmode );
 		}
 	}
 
