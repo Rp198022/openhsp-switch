@@ -969,7 +969,12 @@ static const unsigned short cp932_table[CP932_LEAD_N * CP932_TRAIL_N] = {
 #define GBK_LEAD_N	126
 #define GBK_TRAIL_N	191
 
-static const unsigned short gbk_table[GBK_LEAD_N * GBK_TRAIL_N] = {
+/*	Deliberately NOT const: a read-only table here joins the CP932 one in
+	.rodata, and growing that segment by 48 KB moved every later segment
+	0xC000 down the file - which the Eden loader at hand did not survive
+	(unmapped-write storm during early boot).  A writable table is emitted
+	into .data instead, so the read-only segment keeps the size it had.	*/
+static unsigned short gbk_table[GBK_LEAD_N * GBK_TRAIL_N] = {
 	0x4e02,0x4e04,0x4e05,0x4e06,0x4e0f,0x4e12,0x4e17,0x4e1f,0x4e20,0x4e21,0x4e23,0x4e26,
 	0x4e29,0x4e2e,0x4e2f,0x4e31,0x4e33,0x4e35,0x4e37,0x4e3c,0x4e40,0x4e41,0x4e42,0x4e44,
 	0x4e46,0x4e4a,0x4e51,0x4e55,0x4e57,0x4e5a,0x4e5b,0x4e62,0x4e63,0x4e64,0x4e65,0x4e67,
