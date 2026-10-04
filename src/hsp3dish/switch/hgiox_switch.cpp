@@ -3991,21 +3991,19 @@ void hgio_setinfo( int type, HSPREAL val )
 	}
 }
 
-int hgio_render_start( void )
+/*	Start of a frame's drawing: poll the pad, put the main screen back as the
+	target and mark the frame open.  No present - the classic runtime updates
+	the screen on `redraw 1` alone, and presenting here let the title menu (7
+	redraw 0 a frame) show the half-drawn state.						*/
+static void sw_frame_begin( void )
 {
 	BMSCR *keep = sw_cur;
 
-	/*	This really is entered once per frame - the counters showed ~1080 calls
-		in one run - which is what a pad read needs.  sw_glClear() used to be
-		the sampling point, but the CLSMODE fix turned the frame clear into a
-		one-off inside the main screen's framebuffer, so the pad was read twice
-		in a whole run and every key looked dead.								*/
+	/*	This is what a pad read hangs off, so it still runs on every redraw 0.
+		The counters showed several calls a frame, which is what kept input
+		alive once the frame clear stopped being the sampling point.		*/
 	switch_input_poll();
 	sw_frame_tick();
-
-	if ( drawflag ) {
-		hgio_render_end();
-	}
 
 #ifdef HSPIOS
     gb_render_start();
@@ -4020,6 +4018,16 @@ int hgio_render_start( void )
 	}
 
 	drawflag = 1;
+}
+
+int hgio_render_start( void )
+{
+	/*	A frame that was never closed by redraw 1 is presented here, so a
+		script that draws outside a redraw cycle still reaches the screen.	*/
+	if ( drawflag ) {
+		hgio_render_end();
+	}
+	sw_frame_begin();
 	return 0;
 }
 
@@ -4163,7 +4171,7 @@ int hgio_redraw( BMSCR *bm, int flag )
 		hgio_render_end();
 		sw_redraw_time( bm );
 	} else {
-		hgio_render_start();
+		sw_frame_begin();
 	}
 	return 0;
 }
