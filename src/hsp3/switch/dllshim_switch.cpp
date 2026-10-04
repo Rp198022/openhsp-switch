@@ -1221,6 +1221,27 @@ static int impl_water_zero( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	water_draw is the one entry that cannot be inert: the real plugin resets
+//	the drawing mode while it draws its ripples, and Elona's title loop leans
+//	on that.  The loop is water_draw -> cs_listbk -> six display_customkey
+//	calls, display_customkey ends with `gmode 2` (its black colour key), and
+//	cs_listbk then restores the previously highlighted row with a plain
+//	gcopy.  gmode is one global setting in the classic runtime, so without
+//	this reset that gcopy inherits the key, drops the dark pixels of the
+//	background it is restoring, and lets the white highlight show through as
+//	a smear when the cursor moves.
+//
+static int impl_water_draw( const DllArgValue *args, int argc )
+{
+	(void)args;
+	(void)argc;
+#ifdef HSPDISH
+	extern "C" void sw_gmode_reset( void );
+	sw_gmode_reset();
+#endif
+	return 0;
+}
+
 //	exrand.dll - _exrand_rnd@16( var, max, _, _ ).  The script uses it as a
 //	weighted random picker: `exrand_rnd dbtmp, dbsum` is followed by a scan for
 //	the first cumulative integer weight that exceeds dbtmp (blend.hsp,
@@ -1359,26 +1380,6 @@ static const DllImplEntry impl_table[] = {
 	{ "hspinet.dll",	"_neturl@16",			impl_hspinet_zero },
 	{ "hspinet.dll",	"_netdlname@16",		impl_hspinet_zero },
 	{ "hspinet.dll",	"_netrequest@16",		impl_hspinet_zero },
-
-//	water.hpi - the ripple effect; there is no Windows binary here, so the
-//	port draws no ripples.  But the real plugin does more than draw: Elona's
-//	title loop is water_draw -> cs_listbk -> six display_customkey calls, and
-//	display_customkey leaves `gmode 2` (its black colour key) behind.  In the
-//	classic runtime gmode is one global setting, so without a reset the plain
-//	gcopy inside cs_listbk inherits that key, drops the dark pixels of the
-//	background it is restoring and lets the white highlight show through as a
-//	smear.  Resetting here is what the real plugin leaves behind, and it keeps
-//	the erase a plain copy.
-static int impl_water_draw( const DllArgValue *args, int argc )
-{
-	(void)args;
-	(void)argc;
-#ifdef HSPDISH
-	extern "C" void sw_gmode_reset( void );
-	sw_gmode_reset();
-#endif
-	return 0;
-}
 
 	//	water.hpi - the ripple effect; Windows binary only, so inert.
 	{ "water.hpi",		"_water_getimage@16",	impl_water_zero },
