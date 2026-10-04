@@ -3131,25 +3131,36 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	if ( SWITCH_DIAG && ( srcsy == 19 ) && ( srcsx >= 40 ) && ( srcsx <= 200 ) ) {
 		static int sw_l19 = 0;
 		static int sw_l19_key = -99999;
+		static int sw_l19_burst = 0;
 		int l19key = ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) )
 			? (int)yy : (int)bm->cy;
-		if ( ( sw_l19_key != l19key ) || ( sw_l19 < 40 ) ) {
+		if ( sw_l19_key != l19key ) { sw_l19_key = l19key; sw_l19_burst = 8; }
+		if ( ( sw_l19_burst > 0 ) || ( sw_l19 < 40 ) ) {
+			if ( sw_l19_burst > 0 ) sw_l19_burst--;
 			int lh = ( bm->type == HSPWND_TYPE_MAIN ) ? (int)_bgsy : (int)bm->sy;
 			int rx = (int)bm->cx;
 			int ry = (int)bm->cy + 5;
 			int rw = (int)srcsx;
 			int ldark = 0, lx0 = -1, lx1 = -1, li, lj;
+			int lmid = 0, lmx0 = -1, lmx1 = -1;
 			int mdark = -1, mx0 = -1, mx1 = -1;
 			unsigned char lp[220*3*4];
 			unsigned char mp[220*3*4];
 			if ( rw > 220 ) rw = 220;
 			if ( ( rw > 0 ) && ( lh > 0 ) && ( ry >= 0 ) && ( ry + 3 <= lh ) ) {
 				memset( lp, 0, sizeof(lp) );
+				glFinish();
 				glReadPixels( rx, lh - ry - 3, rw, 3, GL_RGBA, GL_UNSIGNED_BYTE, lp );
 				for ( lj = 0; lj < 3; lj++ ) {
 					for ( li = 0; li < rw; li++ ) {
 						unsigned char *q = lp + ( lj * rw + li ) * 4;
-						if ( ( q[0] < 90 ) && ( q[1] < 90 ) && ( q[2] < 90 ) ) {
+						int lum = (int)( 0.3f * q[0] + 0.59f * q[1] + 0.11f * q[2] );
+						if ( lum < 180 ) {
+							lmid++;
+							if ( lmx0 < 0 ) lmx0 = li;
+							lmx1 = li;
+						}
+						if ( lum < 90 ) {
 							ldark++;
 							if ( lx0 < 0 ) lx0 = li;
 							lx1 = li;
@@ -3182,12 +3193,11 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				}
 				sw_bfb( keep );
 			}
-			sw_l19_key = l19key;
 			sw_l19++;
-			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mdark=%d mx0=%d mx1=%d\n",
+			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mid=%d mx=%d..%d mdark=%d mx0=%d mx1=%d\n",
 				sw_l19, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
 				( bmsrc != NULL ) ? bmsrc->texid : -99, bm->texid,
-				(double)bm->cx, (double)bm->cy, lh, ldark, lx0, lx1, mdark, mx0, mx1 );
+				(double)bm->cx, (double)bm->cy, lh, ldark, lx0, lx1, lmid, lmx0, lmx1, mdark, mx0, mx1 );
 		}
 	}
 
