@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r56 (makedir says why it failed)\n" );
+		printf( "hsp3switch: build r57 (keyboard input bytes are logged)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

@@ -662,7 +662,28 @@ static void sw_kbd_offer( void )
 		with err=12.  This is the only place keyboard text enters, so
 		converting here leaves every byte the script sees in its own
 		encoding.														*/
+	/*	Diagnostic: the name that ends up in save/<name> arrives here, so
+		show both sides of the conversion.  A double-byte character that
+		shows as two EF BF BD means the input was not UTF-8 to begin with. */
+	{
+		int di;
+		printf( "hsp3kbd: raw:" );
+		for ( di = 0; text[di] != 0 && di < 24; di++ ) {
+			printf( " %02x", (unsigned char)text[di] );
+		}
+		printf( "\n" );
+		fflush( stdout );
+	}
 	n = sw_utf8_to_cp932( text, sw_kbd_buf, SW_KBD_MAX - 1 );
+	{
+		int di;
+		printf( "hsp3kbd: cp932:" );
+		for ( di = 0; di < n && di < 24; di++ ) {
+			printf( " %02x", (unsigned char)sw_kbd_buf[di] );
+		}
+		printf( " (n=%d)\n", n );
+		fflush( stdout );
+	}
 	sw_kbd_pos = 0;
 	sw_kbd_buf[n] = 13;					/* the CR that ends the wait loop	*/
 	sw_kbd_len = n + 1;
