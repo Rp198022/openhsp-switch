@@ -1138,6 +1138,19 @@ static int cmdfunc_extcmd( int cmd )
 		ctx->stat = 0;
 		break;
 		}
+	case 0x15:								// sysfont
+		/*	Accepted and ignored, like chgdisp above: the desktop build
+			swaps the GDI font for a stock system font here, but this
+			target draws every string through one TTF (fontsystem.cpp),
+			so there is no font table to change.  The Chinese build
+			issues it from its start-up check - without the case the
+			interpreter stopped on "unhandled extcmd id=0x15" and the
+			run ended with err=21 before the first screen was built.		*/
+		p1 = code_getdi( 0 );
+		(void)p1;
+		ctx->stat = 0;
+		break;
+
 	case 0x16:								// objsize
 		p1 = code_getdi( 64 );
 		p2 = code_getdi( 24 );

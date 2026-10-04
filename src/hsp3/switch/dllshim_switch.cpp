@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r87 (the GBK plane read no longer re-enters the fopen wrapper)\n" );
+		printf( "hsp3switch: build r88 (sysfont accepted and ignored; the Chinese build's boot check runs)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
