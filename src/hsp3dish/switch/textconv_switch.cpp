@@ -1055,9 +1055,11 @@ int sw_path_to_cp932( const char *in, char *out, int outsz )
 {
 	int n;
 	if ( sw_all_cp932( in ) ) {
-		n = (int)strlen( in );
-		if ( n > outsz - 1 ) n = outsz - 1;
-		memcpy( out, in, n );
+		n = 0;
+		while ( in[n] != 0 && n < outsz - 1 ) {
+			out[n] = in[n];
+			n++;
+		}
 		out[n] = 0;
 		return n;
 	}
@@ -1073,9 +1075,11 @@ int sw_path_to_utf8( const char *in, char *out, int outsz )
 {
 	int n;
 	if ( sw_is_utf8_text( in ) ) {
-		n = (int)strlen( in );
-		if ( n > outsz - 1 ) n = outsz - 1;
-		memcpy( out, in, n );
+		n = 0;
+		while ( in[n] != 0 && n < outsz - 1 ) {
+			out[n] = in[n];
+			n++;
+		}
 		out[n] = 0;
 		return n;
 	}
