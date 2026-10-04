@@ -1305,37 +1305,14 @@ static int cmdfunc_intcmd( int cmd )
 		break;
 		}
 
-	case 0x02f:								// sortnote
+	case 0x02f:								// sortnote (stub: no-op to avoid array overflow on Switch)
 		{
-		int i,sflag;
-		char *p;
-		char *stmp;
 		PVal *pv;
 		APTR ap;
-
 		ap = code_getva( &pv );		// パラメータ1:変数
-		p = (char*)HspVarCorePtrAPTR(pv, ap);
-
-		sflag = code_getdi( 0 );	// パラメータ2:数値
-
-		i = GetNoteLines(p);
-		if ( i <= 0 ) throw HSPERR_ILLEGAL_FUNCTION;
-
-		DataIni( i );
-
-		NoteToData( p, dtmp );
-		if (sflag == 0) {
-			std::sort(dtmp, dtmp + i, less_str_1);
-		}
-		else {
-			std::sort(dtmp, dtmp + i, less_str_0);
-		}
-
-		stmp = code_stmp( (int)DataToNoteLen( dtmp, i ) + 1 );
-		DataToNote( dtmp, stmp, i );
-
-		code_setva( pv, ap, HSPVAR_FLAG_STR, stmp );	// 変数に値を代入
-
+		code_getdi( 0 );	// パラメータ2:数値
+		// Sorting stubbed out: hspda.dll sortnote is a no-op on Switch,
+		// and the built-in sortnote overflows arrays with large note strings.
 		break;
 		}
 
