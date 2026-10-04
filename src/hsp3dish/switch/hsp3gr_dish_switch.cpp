@@ -783,11 +783,13 @@ static void sw_key_tick( void )
 		box->func_notice( box, notice );
 	}
 
-	printf( "hsp3switch: ## key '%c' (0x%02x) -> obj %d bm=%p wid=%d cur=%d found=%d om=%d\n",
+	printf( "hsp3switch: ## key '%c' (0x%02x) -> obj %d bm=%p wid=%d cur=%d found=%d om=%d objsel=%d box=%p%s\n",
 			( c >= 32 && c < 127 ) ? c : '.', (unsigned)c, sw_key_target,
 			(void *)dst, dst->wid, cur_window,
 			( info != NULL ) ? 1 : 0,
-			( info != NULL ) ? (int)info->owmode : -1 );
+			( info != NULL ) ? (int)info->owmode : -1,
+			sw_objsel_id, (void *)box,
+			( box != NULL ) ? " ->box" : " ->keylog" );
 	fflush( stdout );
 	sw_key_pos += n;
 	sw_key_wait = SW_KEY_GAP;
@@ -1671,6 +1673,10 @@ static int cmdfunc_extcmd( int cmd )
 	case 0x2d:								// objsel
 		p1 = code_getdi(0);
 		ctx->stat = bmscr->ActivateHSPObject(p1);
+		if ( p1 != sw_objsel_id ) {
+			printf( "hsp3switch: objsel %d (was %d)\n", p1, sw_objsel_id );
+			fflush( stdout );
+		}
 		sw_objsel_id = p1;
 		break;
 
