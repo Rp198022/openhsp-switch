@@ -405,11 +405,20 @@ int makedir( char *name )
 	char buf[_MAX_PATH+1];
 	int ret;
 	/*	supio_slash() returns the path to use; it does not necessarily write
-		into buf at all (a path with no backslash needs no conversion).  The
-		earlier attempts ignored that and edited uninitialised stack. */
-	char *use = supio_slash( name, buf, sizeof( buf ) );
+		into buf at all (a path with no backslash needs no conversion, and
+		Elona's paths are all forward slashes).  Copy into buf either way -
+		that buffer is what gets rewritten and `name` belongs to the caller. */
 	{
-		char *p = use;
+		const char *src = supio_slash( name, buf, sizeof( buf ) );
+		if ( src != buf ) {
+			size_t n = strlen( src );
+			if ( n > sizeof( buf ) - 1 ) n = sizeof( buf ) - 1;
+			memcpy( buf, src, n );
+			buf[n] = 0;
+		}
+	}
+	{
+		char *p = buf;
 		int hit = 0;
 		int i;
 		while ( *p != 0 ) {
@@ -423,15 +432,15 @@ int makedir( char *name )
 			}
 			p++;
 		}
-		printf( "hsp3file: makedir sanitize hits=%d use='%s'\n", hit, use );
+		printf( "hsp3file: makedir sanitize hits=%d buf='%s'\n", hit, buf );
 		printf( "hsp3file: makedir raw bytes:" );
-		for ( i = 0; use[i] != 0 && i < 48; i++ ) {
-			printf( " %02x", (unsigned char)use[i] );
+		for ( i = 0; buf[i] != 0 && i < 48; i++ ) {
+			printf( " %02x", (unsigned char)buf[i] );
 		}
 		printf( "\n" );
 		fflush( stdout );
 	}
-	ret = mkdir( use, 0755 );
+	ret = mkdir( buf, 0755 );
 #ifdef __SWITCH__
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
