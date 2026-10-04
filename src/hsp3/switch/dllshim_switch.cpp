@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r83 (the system keyboard cannot be closed empty)\n" );
+		printf( "hsp3switch: build r92 (GetLongPathNameA answers the path itself)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -426,6 +426,74 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 //	device runs found (about 2.8 million calls in 75 seconds, right after the
 //	game opened its own 800x600 screen), so it has to succeed like the others.
 //
+//	kernel32.dll - GetVersionExA( LPOSVERSIONINFOA ).  The start-up check
+//	asks for the OS version; the answer it wants is "new enough", so it gets
+//	Windows 10 (10.0 build 19045, VER_PLATFORM_WIN32_NT).  The caller
+//	pre-fills dwOSVersionInfoSize and only the fields inside that declared
+//	size are written (148 for OSVERSIONINFOA, 276 for the EX form).
+//
+//	kernel32.dll - GetTempPathA( DWORD nBufferLength, LPSTR lpBuffer ).
+//	The answer is the app's own tmp folder, spelled relative to the
+//	current directory - every open in the image resolves there anyway,
+//	and the card already carries the tmp/ the game makes.  The contract
+//	is the Win32 one: the length written (without the NUL) on success,
+//	the required size (with the NUL) when the buffer is too small.
+//
+//	kernel32.dll - GetLongPathNameA( LPCSTR short, LPSTR long, DWORD cch ).
+//	Nothing on the card carries an 8.3 short name, so the long form of a
+//	path is the path; the buffer contract is the Win32 one (length written
+//	without the NUL, or required size with it when the buffer is too small).
+//
+static int impl_GetLongPathNameA( const DllArgValue *args, int argc )
+{
+	const char *src;
+	char *dest;
+	int room, n;
+
+	if ( argc < 3 || args[0].ptr == NULL || args[1].ptr == NULL ) return 0;
+	src = (const char *)args[0].ptr;
+	dest = (char *)args[1].ptr;
+	room = (int)args[2].ival;
+	n = (int)strlen( src );
+	if ( room <= n ) return n + 1;
+	memcpy( dest, src, (size_t)n + 1 );
+	return n;
+}
+
+static int impl_GetTempPathA( const DllArgValue *args, int argc )
+{
+	static const char tmpdir[] = "tmp/";
+	char *dest;
+	int room, n;
+
+	if ( argc < 2 || args[1].ptr == NULL ) return 0;
+	dest = (char *)args[1].ptr;
+	room = (int)args[0].ival;
+	n = (int)( sizeof( tmpdir ) - 1 );
+	if ( room <= n ) return n + 1;
+	memcpy( dest, tmpdir, (size_t)n + 1 );
+	return n;
+}
+
+static int impl_GetVersionExA( const DllArgValue *args, int argc )
+{
+	unsigned char *p;
+	unsigned int size, i;
+
+	if ( argc < 1 || args[0].ptr == NULL ) return 0;
+	p = (unsigned char *)args[0].ptr;
+	size = (unsigned int)p[0] | ( (unsigned int)p[1] << 8 ) |
+		   ( (unsigned int)p[2] << 16 ) | ( (unsigned int)p[3] << 24 );
+	if ( size < 20 ) return 0;
+
+	p[4] = 10; p[5] = 0; p[6] = 0; p[7] = 0;				/* dwMajorVersion = 10 */
+	p[8] = 0; p[9] = 0; p[10] = 0; p[11] = 0;				/* dwMinorVersion = 0 */
+	p[12] = 0x35; p[13] = 0x4a; p[14] = 0; p[15] = 0;	/* dwBuildNumber = 19045 */
+	p[16] = 2; p[17] = 0; p[18] = 0; p[19] = 0;			/* VER_PLATFORM_WIN32_NT */
+	for ( i = 20; i < size && i < 148; i++ ) p[i] = 0;	/* szCSDVersion = "" */
+	return 1;
+}
+
 static int impl_GetUserDefaultLCID( const DllArgValue *args, int argc )
 {
 	(void)args;
@@ -1211,6 +1279,35 @@ static int impl_hspinet_neterror( const DllArgValue *args, int argc )
 	return 0;
 }
 
+//	hspinet.dll - filemd5( var, file ).  main.cpp:294-323 loads the file,
+//	stores its MD5 (32 lowercase hex) into the variable and the byte size
+//	into strsize; -1 when the read fails.  The Chinese build's start-up
+//	check hashes its seven DLLs and the two text stubs with it and compares
+//	the digests against constants baked into start.ax - which match the
+//	stock files on the card, so a correct hash passes the check.
+//
+int sw_md5_file( const char *path, char out[33], unsigned int *outsize );
+
+static int impl_hspinet_filemd5( const DllArgValue *args, int argc )
+{
+	PVal *pval = NULL;
+	APTR aptr;
+	char *fname;
+	char digest[33];
+	unsigned int size = 0;
+
+	(void)args;
+	(void)argc;
+
+	aptr = code_getva( &pval );
+	fname = code_gets();
+	if ( pval == NULL || fname == NULL ) return 0;
+	if ( sw_md5_file( fname, digest, &size ) != 0 ) return -1;
+	code_setva( pval, aptr, HSPVAR_FLAG_STR, digest );
+	if ( hspctx != NULL ) hspctx->strsize = (int)size;
+	return 0;
+}
+
 //	water.hpi - Elona's water-ripple effect.  Only the Windows binary ships in
 //	the tree (no source), so every entry is an inert success.
 //
@@ -1289,6 +1386,9 @@ static const DllImplEntry impl_table[] = {
 	{ "kernel32.dll",	"CreateMutexA",			impl_CreateMutexA },
 	{ "kernel32.dll",	"CloseHandle",			impl_win_true },
 	{ "kernel32.dll",	"RemoveDirectoryA",		impl_RemoveDirectoryA },
+	{ "kernel32.dll",	"GetVersionExA",			impl_GetVersionExA },
+	{ "kernel32.dll",	"GetTempPathA",			impl_GetTempPathA },
+	{ "kernel32.dll",	"GetLongPathNameA",		impl_GetLongPathNameA },
 	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
 	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
@@ -1377,6 +1477,7 @@ static const DllImplEntry impl_table[] = {
 	{ "hspsock.dll",	"_sockput@16",			impl_hspsock_zero },
 
 	//	hspinet.dll - the HTTP family; neterror reads its own operand.
+	{ "hspinet.dll",	"_filemd5@16",			impl_hspinet_filemd5 },
 	{ "hspinet.dll",	"_netinit@16",			impl_hspinet_zero },
 	{ "hspinet.dll",	"_netexec@16",			impl_hspinet_zero },
 	{ "hspinet.dll",	"_neterror@16",			impl_hspinet_neterror },
