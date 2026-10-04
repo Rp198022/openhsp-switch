@@ -417,14 +417,30 @@ int makedir( char *name )
 	char buf[_MAX_PATH+1];
 	int ret;
 #ifdef __SWITCH__
-	/*	Switch's filesystem takes UTF-8 paths while Elona builds CP932 ones,
-		so translate.  supio_slash() returns the path to use but does not
-		necessarily write buf, hence the copy. */
+	/*	Order matters: normalise the separators first, then translate the
+		result.  Translating `name` instead would put the backslashes back.
+		supio_slash() returns the path to use and does not necessarily write
+		into the buffer it is given. */
 	{
+		char tmp[_MAX_PATH + 1];
 		char u8[_MAX_PATH * 3 + 1];
-		supio_slash( name, buf, sizeof( buf ) );
-		if ( sw_path_to_utf8( name, u8, sizeof( u8 ) ) > 0 ) {
+		const char *src = supio_slash( name, tmp, sizeof( tmp ) );
+		if ( sw_path_to_utf8( src, u8, sizeof( u8 ) ) > 0 ) {
 			strcpy( buf, u8 );
+		}
+		else {
+			strcpy( buf, src );
+		}
+		/*	the bytes mkdir is actually handed, so the log is not filtered
+			through a decoder on the way out */
+		{
+			int i;
+			printf( "hsp3file: makedir bytes:" );
+			for ( i = 0; buf[i] != 0 && i < 48; i++ ) {
+				printf( " %02x", (unsigned char)buf[i] );
+			}
+			printf( "\n" );
+			fflush( stdout );
 		}
 		ret = mkdir( buf, 0755 );
 	}
