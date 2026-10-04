@@ -41,7 +41,19 @@ char *hsp3dish_getlog(void);		// for gameplay3d log
 #include "../sysreq.h"
 #include "../webtask.h"
 #include "../hsp3ext.h"
-#include "switch_input.h"		/* switch_input_take_keys(): the pad's characters */
+#include "switch_input.h"
+
+/*	gmode is a global setting in the classic HSP runtime: it applies to every
+	window, not only the one that happened to be current when it was issued.
+	dish keeps it per BMSCR and BMSCR::Select() resets it to 0, so a script
+	that does `gmode 2` -> `gsel other` -> `gcopy` lost the mode along the way.
+	Elona's display_customkey is written exactly that way (module.hsp:5425-
+	5439): the colour key never reached the copy, so the black corner of each
+	letter badge on the title screen was painted instead of being dropped.
+	Remember the last gmode and carry it into whatever window gsel selects.	*/
+static int sw_gmode_g[4] = { 0, 32, 32, 0 };		/* mode, gx, gy, gfrate	*/
+static int sw_gmode_set = 0;
+		/* switch_input_take_keys(): the pad's characters */
 
 #ifdef HSPWIN
 #include "../win32/bmscr_exc.h"
@@ -1205,6 +1217,14 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
 		bmscr->Select( p2 );
+		/*	Select() has just reset this window's gmode to 0; the script expects
+			the mode it set earlier to still be in force. */
+		if ( sw_gmode_set ) {
+			bmscr->gmode  = sw_gmode_g[0];
+			bmscr->gx     = sw_gmode_g[1];
+			bmscr->gy     = sw_gmode_g[2];
+			bmscr->gfrate = sw_gmode_g[3];
+		}
 #ifdef HSPWIN
 		if (p1 == 0) {
 			if (p2 < 0) {
@@ -1273,6 +1293,11 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr->gx = p2;
 		bmscr->gy = p3;
 		bmscr->gfrate = p4;
+		sw_gmode_g[0] = bmscr->gmode;
+		sw_gmode_g[1] = bmscr->gx;
+		sw_gmode_g[2] = bmscr->gy;
+		sw_gmode_g[3] = bmscr->gfrate;
+		sw_gmode_set = 1;
 		//Alertf("OK");
 		break;
 
