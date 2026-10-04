@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r89 (filemd5 hashes the card's files for the Chinese build's check)\n" );
+		printf( "hsp3switch: build r90 (GetVersionExA answers Windows 10 for the Chinese build's check)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -426,6 +426,31 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 //	device runs found (about 2.8 million calls in 75 seconds, right after the
 //	game opened its own 800x600 screen), so it has to succeed like the others.
 //
+//	kernel32.dll - GetVersionExA( LPOSVERSIONINFOA ).  The start-up check
+//	asks for the OS version; the answer it wants is "new enough", so it gets
+//	Windows 10 (10.0 build 19045, VER_PLATFORM_WIN32_NT).  The caller
+//	pre-fills dwOSVersionInfoSize and only the fields inside that declared
+//	size are written (148 for OSVERSIONINFOA, 276 for the EX form).
+//
+static int impl_GetVersionExA( const DllArgValue *args, int argc )
+{
+	unsigned char *p;
+	unsigned int size, i;
+
+	if ( argc < 1 || args[0].ptr == NULL ) return 0;
+	p = (unsigned char *)args[0].ptr;
+	size = (unsigned int)p[0] | ( (unsigned int)p[1] << 8 ) |
+		   ( (unsigned int)p[2] << 16 ) | ( (unsigned int)p[3] << 24 );
+	if ( size < 20 ) return 0;
+
+	p[4] = 10; p[5] = 0; p[6] = 0; p[7] = 0;				/* dwMajorVersion = 10 */
+	p[8] = 0; p[9] = 0; p[10] = 0; p[11] = 0;				/* dwMinorVersion = 0 */
+	p[12] = 0x35; p[13] = 0x4a; p[14] = 0; p[15] = 0;	/* dwBuildNumber = 19045 */
+	p[16] = 2; p[17] = 0; p[18] = 0; p[19] = 0;			/* VER_PLATFORM_WIN32_NT */
+	for ( i = 20; i < size && i < 148; i++ ) p[i] = 0;	/* szCSDVersion = "" */
+	return 1;
+}
+
 static int impl_GetUserDefaultLCID( const DllArgValue *args, int argc )
 {
 	(void)args;
@@ -1318,6 +1343,7 @@ static const DllImplEntry impl_table[] = {
 	{ "kernel32.dll",	"CreateMutexA",			impl_CreateMutexA },
 	{ "kernel32.dll",	"CloseHandle",			impl_win_true },
 	{ "kernel32.dll",	"RemoveDirectoryA",		impl_RemoveDirectoryA },
+	{ "kernel32.dll",	"GetVersionExA",			impl_GetVersionExA },
 	{ "kernel32.dll",	"GetUserDefaultLCID",	impl_GetUserDefaultLCID },
 	{ "kernel32.dll",	"LCMapStringA",			impl_LCMapStringA },
 	{ "winmm.dll",		"timeBeginPeriod",		impl_timeBeginPeriod },
