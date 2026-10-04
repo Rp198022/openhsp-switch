@@ -1051,7 +1051,7 @@ static int cp932_to_utf8( const char *in, char *out, int outsz );
 static int sw_is_utf8_text( const char *in );
 static int sw_all_cp932( const char *in );
 int sw_utf8_to_cp932( const char *in, char *out, int outsz );
-int sw_path_to_cp932( const char *in, char *out, int outsz )
+extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz )
 {
 	int n;
 	if ( sw_all_cp932( in ) ) {
@@ -1071,7 +1071,7 @@ int sw_path_to_cp932( const char *in, char *out, int outsz )
 	a path has to be translated going in and coming back.  The direction is
 decided by the same rule the drawing path uses - valid UTF-8 that is not a
 defined CP932 byte pair is already UTF-8 - which leaves plain ASCII alone. */
-int sw_path_to_utf8( const char *in, char *out, int outsz )
+extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz )
 {
 	int n;
 	if ( sw_is_utf8_text( in ) ) {
