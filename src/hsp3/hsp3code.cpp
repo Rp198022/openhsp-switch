@@ -2039,8 +2039,6 @@ static int cmdfunc_prog( int cmd )
 
 	code_next();							// 次のコードを取得(最初に必ず必要です)
 
-	sw_diagf_printf("prog: cmd=0x%04x\n", cmd);
-
 	switch( cmd ) {							// サブコマンドごとの分岐
 
 	case 0x00:								// goto
