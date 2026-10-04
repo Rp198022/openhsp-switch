@@ -386,7 +386,7 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 	fopen both fail on it.  Map each run to an underscore, and do it on
 	every path this port opens, so the folder created and the folder read
 	back still agree.  Valid multi-byte names pass through untouched. */
-#ifdef HSPDISH
+#ifdef __SWITCH__
 extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz );
 extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz );
 #endif
@@ -395,7 +395,7 @@ int makedir( char *name )
 {
 	char buf[_MAX_PATH+1];
 	int ret;
-#ifdef HSPDISH
+#ifdef __SWITCH__
 	/*	Switch's filesystem takes UTF-8 paths while Elona builds CP932 ones,
 		so translate.  supio_slash() returns the path to use but does not
 		necessarily write buf, hence the copy. */
@@ -518,7 +518,7 @@ int dirlist( char *fname, char **target, int p3 )
 	}
 	patbuf[n] = 0;
 
-#ifdef HSPDISH
+#ifdef __SWITCH__
 	/*	the pattern is CP932 like everything else Elona hands us */
 	{
 		char u8[_MAX_PATH * 3 + 1];
@@ -580,7 +580,7 @@ int dirlist( char *fname, char **target, int p3 )
 		}
 
 		if (fl) {
-#ifdef HSPDISH
+#ifdef __SWITCH__
 			/*	the entry name comes from the filesystem as UTF-8; Elona
 				compares it against CP932 strings, so translate it back */
 			char back[_MAX_PATH * 3 + 1];
