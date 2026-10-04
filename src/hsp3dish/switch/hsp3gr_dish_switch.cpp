@@ -692,6 +692,7 @@ static void sw_kbd_offer( void )
 static void sw_key_tick( void )
 {
 	HSPOBJINFO *info;
+	HSPOBJINFO *box;
 	Bmscr *dst;
 	int n;
 	unsigned char c;
@@ -743,35 +744,43 @@ static void sw_key_tick( void )
 	dst->keybuf[n] = 0;
 	dst->keybuf_index = 0;
 
-	/*	Straight to the named object, so the game's own selection - and the
-		highlight the player sees - is left where the script put it.		*/
-	if ( info != NULL && info->func_notice != NULL ) {
-		info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
-	}
-
-	/*	Elona's own prompts (the name box, the death box) are edit objects it
-		selects with objsel, and the classic runtime typed into whichever object
-		was selected.  The keylog delivery above is what the game's *keys* ride
-		on, so both are served here: printable characters also go to the selected
-		box, while CR/BS/TAB are handed over as the notices the dish box handler
-		expects (HSPOBJ_NOTICE_KEY_CR and friends) rather than as stray control
-		bytes in its text - which is why such a prompt could never be finished. */
+	/*	A selected prompt box takes the keystroke and the keylog does not.
+		Elona reads its prompts through their own text (prompt_word waits for
+		a LF in the bound variable) and never calls key_check() while one is
+		up, so a copy in the hidden keylog only lingered: the next key_check()
+		after the box closed read it as a fresh press - one A finished the box
+		and answered the confirm behind it.  In the original the box has
+		focus and the hidden box receives nothing, so keep them exclusive.	*/
+	box = NULL;
 	if ( sw_objsel_id > 0 && sw_objsel_id != sw_key_target ) {
 		int saved = sw_key_target;
-		HSPOBJINFO *box;
 		sw_key_target = sw_objsel_id;
 		box = sw_key_object( dst );
 		sw_key_target = saved;
-		if ( box != NULL && box != info && box->func_notice != NULL ) {
-			int notice = HSPOBJ_NOTICE_KEY_BUFFER;
-			if ( c == 13 || c == 10 ) notice = HSPOBJ_NOTICE_KEY_CR;
-			else if ( c == 8 ) notice = HSPOBJ_NOTICE_KEY_BS;
-			else if ( c == 9 ) notice = HSPOBJ_NOTICE_KEY_TAB;
-			memcpy( dst->keybuf, sw_key_buf + sw_key_pos, n );
-			dst->keybuf[n] = 0;
-			dst->keybuf_index = 0;
-			box->func_notice( box, notice );
-		}
+		if ( box == info ) box = NULL;	/* same object: nothing extra	*/
+	}
+
+	/*	Straight to the named object, so the game's own selection - and the
+		highlight the player sees - is left where the script put it.  This is
+		the field path: the keylog is what the game's keys ride on when no
+		prompt is waiting.											*/
+	if ( box == NULL && info != NULL && info->func_notice != NULL ) {
+		info->func_notice( info, HSPOBJ_NOTICE_KEY_BUFFER );
+	}
+
+	/*	CR/BS/TAB reached the box above as the notices the dish box handler
+		expects (HSPOBJ_NOTICE_KEY_CR and friends) rather than as stray control
+		bytes in its text - which is why such a prompt could never be finished
+		when they went to the keylog alone.									*/
+	if ( box != NULL && box->func_notice != NULL ) {
+		int notice = HSPOBJ_NOTICE_KEY_BUFFER;
+		if ( c == 13 || c == 10 ) notice = HSPOBJ_NOTICE_KEY_CR;
+		else if ( c == 8 ) notice = HSPOBJ_NOTICE_KEY_BS;
+		else if ( c == 9 ) notice = HSPOBJ_NOTICE_KEY_TAB;
+		memcpy( dst->keybuf, sw_key_buf + sw_key_pos, n );
+		dst->keybuf[n] = 0;
+		dst->keybuf_index = 0;
+		box->func_notice( box, notice );
 	}
 
 	printf( "hsp3switch: ## key '%c' (0x%02x) -> obj %d bm=%p wid=%d cur=%d found=%d om=%d\n",

@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r70 (path translators are extern C)\n" );
+		printf( "hsp3switch: build r71 (prompt boxes do not feed the keylog)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
