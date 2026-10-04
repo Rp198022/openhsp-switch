@@ -3123,6 +3123,70 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		place.  Drop it so the next draw comes out uncoloured.				*/
 	sw_fc_tint_on = 0;
 
+	/*	t23 diagnostic: the title menu's per-row highlight strip is the only
+		19-row copy in Elona (cs_list saves it, cs_listbk restores it).  For
+		each one, read three rows of the destination - dark pixels mean text is
+		present - and, for the save, the MAIN screen at the same rectangle, so
+		the log says whether the source row was already dirty when saved.	*/
+	if ( SWITCH_DIAG && ( srcsy == 19 ) && ( srcsx >= 40 ) && ( srcsx <= 200 ) ) {
+		static int sw_l19 = 0;
+		if ( sw_l19 < 800 ) {
+			int lh = ( bm->type == HSPWND_TYPE_MAIN ) ? (int)_bgsy : (int)bm->sy;
+			int rx = (int)bm->cx;
+			int ry = (int)bm->cy + 5;
+			int rw = (int)srcsx;
+			int ldark = 0, lx0 = -1, lx1 = -1, li, lj;
+			int mdark = -1, mx0 = -1, mx1 = -1;
+			unsigned char lp[220*3*4];
+			unsigned char mp[220*3*4];
+			if ( rw > 220 ) rw = 220;
+			if ( ( rw > 0 ) && ( lh > 0 ) && ( ry >= 0 ) && ( ry + 3 <= lh ) ) {
+				memset( lp, 0, sizeof(lp) );
+				glReadPixels( rx, lh - ry - 3, rw, 3, GL_RGBA, GL_UNSIGNED_BYTE, lp );
+				for ( lj = 0; lj < 3; lj++ ) {
+					for ( li = 0; li < rw; li++ ) {
+						unsigned char *q = lp + ( lj * rw + li ) * 4;
+						if ( ( q[0] < 90 ) && ( q[1] < 90 ) && ( q[2] < 90 ) ) {
+							ldark++;
+							if ( lx0 < 0 ) lx0 = li;
+							lx1 = li;
+						}
+					}
+				}
+			}
+			/*	the save's source is the MAIN screen at (xx,yy): sample it while
+				INF is the bound target, then put INF back so the next draw is
+				unaffected.												*/
+			if ( ( bm->type != HSPWND_TYPE_MAIN ) && ( sw_main_ok == 1 ) && ( rw > 0 ) ) {
+				int mh = (int)_bgsy;
+				int my = (int)yy + 5;
+				GLuint keep = sw_real_fbo;
+				sw_bfb( sw_main_fbo );
+				memset( mp, 0, sizeof(mp) );
+				if ( ( mh > 0 ) && ( my >= 0 ) && ( my + 3 <= mh ) && ( (int)xx + rw <= (int)_bgsx ) ) {
+					glReadPixels( (int)xx, mh - my - 3, rw, 3, GL_RGBA, GL_UNSIGNED_BYTE, mp );
+					mdark = 0;
+					for ( lj = 0; lj < 3; lj++ ) {
+						for ( li = 0; li < rw; li++ ) {
+							unsigned char *q = mp + ( lj * rw + li ) * 4;
+							if ( ( q[0] < 90 ) && ( q[1] < 90 ) && ( q[2] < 90 ) ) {
+								mdark++;
+								if ( mx0 < 0 ) mx0 = li;
+								mx1 = li;
+							}
+						}
+					}
+				}
+				sw_bfb( keep );
+			}
+			sw_l19++;
+			sw_fbo_log( "hgio: L19 #%d src=(%d,%d %dx%d) srctx=%d dsttx=%d dst=(%g,%g) H=%d dark=%d x0=%d x1=%d mdark=%d mx0=%d mx1=%d\n",
+				sw_l19, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				( bmsrc != NULL ) ? bmsrc->texid : -99, bm->texid,
+				(double)bm->cx, (double)bm->cy, lh, ldark, lx0, lx1, mdark, mx0, mx1 );
+		}
+	}
+
 	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
 		and never fired, although the copy is logged with the right rectangle
 		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
