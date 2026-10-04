@@ -5249,6 +5249,13 @@ void hsp3excmd_rebuild_window(void)
 	wnd->SetHSPCTX(ctx);
 	bmscr = wnd->GetBmscr(0);
 
+	/*	The SDL window/GL context is torn down and rebuilt by the screen
+		command, so every GL object the shim owns (main FBO, offscreen
+		targets, textures) goes stale.  hgio_resume() drops them all so the
+		main screen is reattached instead of being drawn into a freed FBO -
+		which surfaced as a black title screen on the 2.30 Chinese build.	*/
+	hgio_resume();
+
 #ifdef USE_ESSPRITE
 	if (sprite) delete sprite;
 	sprite = new essprite;
