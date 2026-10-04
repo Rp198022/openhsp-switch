@@ -1017,14 +1017,28 @@ static int gbk_index( unsigned char lead, unsigned char trail )
 /*	charset.txt in the game folder decides the plane.  "gbk" (any case,
 	first three letters) selects GBK - but only when gbk.tbl is present
 	too, since the plane itself is loaded from that file; anything else,
-	or no file at all, keeps CP932.  Read once, then cached.				*/
+	or no file at all, keeps CP932.  Read once, then cached.
+ *
+ *	The guard is what makes the read safe: this function's caller chain
+ *	runs inside __wrap_fopen (glue_switch.cpp translates every opened path
+ *	through sw_path_to_utf8 -> cp932_to_utf8 -> here), so an unguarded
+ *	fopen( "charset.txt" ) here re-enters the wrapper, which re-enters
+ *	this function, and so on - the first r84 card run died that way, a
+ *	recursion whose stack ran off the mapped heap in the first seconds of
+ *	boot.  While the read is in progress a re-entered call answers CP932;
+ *	the only paths it has to translate then are "charset.txt" and
+ *	"gbk.tbl", pure ASCII, identical under either plane.					*/
 static int sw_charset_gbk( void )
 {
 	static int mode = -1;
+	static int busy = 0;
 
-	if ( mode < 0 ) {
+	if ( mode >= 0 ) return mode;
+	if ( busy ) return 0;
+	busy = 1;
+	mode = 0;
+	{
 		FILE *fp = fopen( "charset.txt", "rb" );
-		mode = 0;
 		if ( fp != NULL ) {
 			char line[64];
 			if ( fgets( line, sizeof line, fp ) != NULL ) {
@@ -1038,6 +1052,7 @@ static int sw_charset_gbk( void )
 			fclose( fp );
 		}
 	}
+	busy = 0;
 	return mode;
 }
 
