@@ -387,8 +387,29 @@ static const char *supio_slash( const char *name, char *buf, size_t len )
 	every path this port opens, so the folder created and the folder read
 	back still agree.  Valid multi-byte names pass through untouched. */
 #ifdef __SWITCH__
-extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz );
-extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz );
+/*	The dish build defines these for real in textconv_switch.cpp, where the
+	CP932 tables live.  This file is compiled into both Switch targets, so a
+	weak pass-through keeps the console build - which has no textconv and
+	does not need one - linkable; the strong definitions in the dish target
+	override it. */
+__attribute__((weak)) int sw_path_to_utf8( const char *in, char *out, int outsz )
+{
+	int n = (int)strlen( in );
+	if ( n > outsz - 1 ) n = outsz - 1;
+	memcpy( out, in, n );
+	out[n] = 0;
+	return n;
+}
+
+__attribute__((weak)) int sw_path_to_cp932( const char *in, char *out, int outsz )
+{
+	int n = (int)strlen( in );
+	if ( n > outsz - 1 ) n = outsz - 1;
+	memcpy( out, in, n );
+	out[n] = 0;
+	return n;
+}
+
 #endif
 
 int makedir( char *name )
