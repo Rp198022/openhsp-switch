@@ -3124,6 +3124,41 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		so a plain boxf clear discarded every pixel it painted - Elona's
 		create_pcpic wipes its 384x198 PCC buffer that way and the buffer kept
 		a stray cyan rectangle behind the character.						*/
+	sw_glColorKey( 0, 0 );
+
+	/*	An fcgraph colour pass armed by gfdec/gfdec2 is consumed by exactly
+		this copy - the one that lifts the tinted scratch strip back into
+		place.  Drop it so the next draw comes out uncoloured.				*/
+	sw_fc_tint_on = 0;
+
+	/*	t23 probe: the p3s155 probe armed on `bm->type == HSPWND_TYPE_MAIN`
+		and never fired, although the copy is logged with the right rectangle
+		every frame as `700x400 src tx=8 ... dst tx=-1`.  The window is the
+		only screen with texid -1, so `dst tx=-1` has to be a *different*
+		screen whose texture was released by delscreen and never re-made -
+		which would compose the sheet into something nothing shows.  Arm on
+		the copy geometry alone and name the destination instead of assuming
+		it: screen, type, texid, size, sw_cur, the framebuffer bound and the
+		one sw_find() resolves, source and its texture, sw_main_ok, blend
+		mode, uv rectangle, plus three pixels read straight back inside the
+		sheet's rectangle (50..750 x 86..486).  Four copies are kept, which
+		covers the single gmode 6 pass at the panel origin and the repeating
+		gmode 2 pass beside it.												*/
+	if ( SWITCH_DIAG && ( sw_panel_a < 4 ) && ( srcsx == 700 ) && ( srcsy == 400 ) ) {
+		unsigned char pt[3][4];
+		int k;
+		SWTARGET *ptgt = sw_find( bm );
+		unsigned dfo = (unsigned)sw_real_fbo;
+		int dw = (int)bm->sx;
+		int dh = (int)bm->sy;
+		if ( dw <= 0 ) dw = 800;
+		if ( dh <= 0 ) dh = 600;
+		if ( dh < 301 ) dh = 301;
+		sw_panel_a++;
+		if ( sw_panel_a == 1 ) sw_panel_b = 1;
+		for ( k = 0; k < 3; k++ ) {
+			pt[k][0] = pt[k][1] = pt[k][2] = pt[k][3] = 0;
+		}
 		glReadPixels( 100, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[0] );
 		glReadPixels( 300, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[1] );
 		glReadPixels( 600, dh - 301, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pt[2] );
