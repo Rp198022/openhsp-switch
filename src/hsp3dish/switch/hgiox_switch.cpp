@@ -3039,7 +3039,16 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	{
 		int sx0 = (int)xx, sy0 = (int)yy;
 		int dx0 = (int)bm->cx, dy0 = (int)bm->cy;
-		sw_ov = ( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
+		/*	A copy that lands exactly where it came from changes nothing on
+			the direct path, and Elona uses one to "refresh" a screen - the
+			title screen does a full 800x600 onto itself.  Staging that would
+			read the screen while it is still being drawn and paint the result
+			back; on hardware it came out black.  Only a PARTIAL overlap is a
+			real hazard, so an exact self-copy stays on the direct path. */
+		int sw_same = ( sx0 == dx0 ) && ( sy0 == dy0 ) &&
+				( (int)srcsx == (int)psx ) && ( (int)srcsy == (int)psy );
+		sw_ov = ( sw_same == 0 ) &&
+				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );
 	}
 	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
