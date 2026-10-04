@@ -649,6 +649,9 @@ static void sw_kbd_offer( void )
 		return;
 	}
 	if ( sw_kbd_shown_for == sw_objsel_id ) return;
+	printf( "hsp3switch: swkbd up for obj %d (shown_for was %d)\n",
+		sw_objsel_id, sw_kbd_shown_for );
+	fflush( stdout );
 	sw_kbd_shown_for = sw_objsel_id;
 
 	r = switch_input_ask_text( text, sizeof( text ) );
@@ -1706,6 +1709,18 @@ static int cmdfunc_extcmd( int cmd )
 			again (Elona deletes its prompt object every time).			*/
 		if ( ( sw_kbd_shown_for >= 0 ) && ( sw_kbd_shown_for >= p1 ) && ( sw_kbd_shown_for <= p2 ) ) {
 			sw_kbd_shown_for = -1;
+		}
+		/*	The id must stop counting as *selected* as well.  With shown_for
+			cleared but objsel still pointing at the deleted box, sw_kbd_offer()
+			saw a live selection it had never offered for and put the system
+			keyboard up again on its own - the death screen asked for the dying
+			message twice, with no objsel change in between.  Elona reuses the
+			id for the next prompt, so a real second prompt still objsel()s and
+			still gets its keyboard.										*/
+		if ( ( sw_objsel_id >= p1 ) && ( sw_objsel_id <= p2 ) ) {
+			printf( "hsp3switch: clrobj %d..%d drops objsel %d\n", p1, p2, sw_objsel_id );
+			fflush( stdout );
+			sw_objsel_id = 0;
 		}
 		for( p3=p1; p3<=p2; p3++ ) {
 			bmscr->DeleteHSPObject( p3 );

@@ -131,7 +131,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r73 (dialog text is kept in the log)\n" );
+		printf( "hsp3switch: build r74 (a deleted prompt is not a selection)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
