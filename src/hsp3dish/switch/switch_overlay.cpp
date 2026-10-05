@@ -65,7 +65,7 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "左摇杆→",	"投掷" },
 	{ "左摇杆按下",	"拾取" },
 	{ "ZL",			"射击" },
-	{ "−",			"锁定目标" },
+	{ "减号",			"锁定目标" },
 	{ "L 按住",		"第二层" },
 };
 
@@ -79,7 +79,7 @@ static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "ZR",			"咏唱魔法" },
 	{ "右摇杆",		"锁定光标" },
 	{ "右摇杆按下",	"原地休息" },
-	{ "+",			"存档/设置" },
+	{ "加号",			"存档/设置" },
 	{ NULL,			"— 第二层（按住 L）—" },
 	{ "A",			"吃" },
 	{ "B",			"喝" },
@@ -138,6 +138,7 @@ static TTF_Font *sw_ovl_open_font( void )
 	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
 		TTF_Font *f = TTF_OpenFont( cand[i], SW_OVL_FONT_SIZE );
 		if ( f != NULL ) {
+			TTF_SetFontOutline( f, 1 );	/* thicken the thin 14px glyphs */
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
 			return f;
@@ -182,10 +183,10 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 		const SW_OVL_ROW *r = &rows[i];
 		int y = SW_OVL_PAD_Y + i * SW_OVL_LINE_H;
 		if ( r->key == NULL ) {
-			sw_ovl_blit_text( panel, r->desc, 150, SW_OVL_TITLE_X, y );
+			sw_ovl_blit_text( panel, r->desc, 205, SW_OVL_TITLE_X, y );
 		} else {
 			sw_ovl_blit_text( panel, r->key, 255, SW_OVL_KEY_X, y );
-			sw_ovl_blit_text( panel, r->desc, 195, SW_OVL_DESC_X, y );
+			sw_ovl_blit_text( panel, r->desc, 230, SW_OVL_DESC_X, y );
 		}
 	}
 
@@ -195,8 +196,8 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 	}
 	glGenTextures( 1, &sw_ovl_tex[ix] );
 	glBindTexture( GL_TEXTURE_2D, sw_ovl_tex[ix] );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, strip_w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, panel->pixels );
