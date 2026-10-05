@@ -37,6 +37,14 @@
 #include "../../hsp3dish/switch/switch_input.h"
 #endif
 
+/*	CP932/GBK -> UTF-8 path translation.  The console filesystem stores
+	UTF-8 names while every path the script builds is CP932/GBK; the fopen
+	wrapper (glue_switch.cpp) translates the paths that go through it.
+	Defined for real in textconv_switch.cpp (dish build) and as a weak
+	pass-through in supio_linux.cpp (console build).  Anything that opens
+	a file without passing through fopen() has to translate here.		*/
+extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz );
+
 static HSPCTX *hspctx = NULL;		// Current Context
 static HSPEXINFO *exinfo = NULL;	// Info for Plugins
 static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
@@ -131,7 +139,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r92 (GetLongPathNameA answers the path itself)\n" );
+		printf( "hsp3switch: build r99 (zOpen/RemoveDirectory/delfile translate paths to UTF-8)\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -403,6 +411,8 @@ static void sw_prune_stale_saves( void )
 static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 {
 	char norm[512];
+	char u8[sizeof( norm ) * 3 + 1];
+	const char *use;
 	const char *path;
 	int i;
 
@@ -412,12 +422,17 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
 	}
 	norm[i] = 0;
-	if ( !sw_rmtree( norm ) ) {
-		printf( "hsp3switch: RemoveDirectory FAIL '%s'\n", path );
+	/*	A save folder is named by the player, and fopen created it under
+		the UTF-8 form of that name.  Walking it under the GBK form would
+		miss the very folder fopen wrote; translate like the fopen hook. */
+	use = norm;
+	if ( sw_path_to_utf8( norm, u8, sizeof( u8 ) - 1 ) > 0 ) use = u8;
+	if ( !sw_rmtree( use ) ) {
+		printf( "hsp3switch: RemoveDirectory FAIL '%s'\n", use );
 		fflush( stdout );
 		return 0;
 	}
-	printf( "hsp3switch: RemoveDirectory '%s'\n", path );
+	printf( "hsp3switch: RemoveDirectory '%s'\n", use );
 	fflush( stdout );
 	return 1;
 }
@@ -1148,7 +1163,21 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
 	}
 	norm[i] = 0;
-	gz = gzopen( norm, ( mode != 0 ) ? "wb" : "rb" );
+	/*	The other half of what the fopen hook does: translate the path
+		from the script's CP932/GBK plane into the UTF-8 names the
+		console filesystem stores.  zlib's gzopen() opens through POSIX
+		open(), which never passes through that hook, so a Chinese save
+		folder was written by fopen under its UTF-8 name and read back
+		here under its GBK bytes - every .s1 of sav_<name> failed to open
+		(48 zOpen FAILs in one save) and the folder came back incomplete. */
+	{
+		char u8[sizeof( norm ) * 3 + 1];
+		if ( sw_path_to_utf8( norm, u8, sizeof( u8 ) - 1 ) > 0 ) {
+			gz = gzopen( u8, ( mode != 0 ) ? "wb" : "rb" );
+		} else {
+			gz = gzopen( norm, ( mode != 0 ) ? "wb" : "rb" );
+		}
+	}
 	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;
 		zlib_fail_n++;

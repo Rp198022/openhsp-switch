@@ -515,7 +515,19 @@ int delfile( char *name )
 		success that way round.  unlink() is the exact opposite, so passing
 		its result through unchanged made every *successful* delete raise
 		"File I/O error".  Answer in the Windows convention.     			*/
+#ifdef __SWITCH__
+	/*	The name is CP932/GBK and the filesystem stores UTF-8, so a file
+		inside a player-named save folder could not be found without the
+		same translation makedir()/dirlist() do.						*/
+	{
+		char u8[_MAX_PATH * 3 + 1];
+		const char *src = supio_slash( name, buf, sizeof( buf ) );
+		if ( sw_path_to_utf8( src, u8, sizeof( u8 ) ) > 0 ) src = u8;
+		return ( unlink( src ) == 0 );
+	}
+#else
 	return ( unlink( supio_slash( name, buf, sizeof( buf ) ) ) == 0 );
+#endif
 	//return remove( name );		// ディレクトリにもファイルにも対応
 }
 
