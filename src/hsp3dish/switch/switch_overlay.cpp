@@ -35,6 +35,14 @@
 
 #include "switch_overlay.h"
 
+/*	Texture on/off is part of the fixed-function state the shim tracks,
+	and the present pass leaves GL_TEXTURE_2D *disabled*: ChangeTex(-1)
+	disables it on the way out (hgtex.cpp).  A draw whose texture never
+	gets sampled falls back to flat white in the shim's shader, so the
+	panels enable it themselves and put the state back.  sw_texture2d_on
+	is the shim's own view of that switch.  */
+extern "C" int sw_texture2d_on( void );
+
 #define SW_OVL_FONT_SIZE	14
 #define SW_OVL_LINE_H		20
 #define SW_OVL_PAD_Y		8
@@ -245,7 +253,7 @@ static void sw_ovl_quad( GLuint tex, float x0, float y0, float w, float h )
 
 void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 {
-	int right_x, right_w, ly0, ry0;
+	int right_x, right_w, ly0, ry0, tex2d_was;
 
 	if ( sw_ovl_off || sw_ovl_failed ) return;
 	if ( win_w <= 0 || win_h <= 0 ) return;
@@ -273,6 +281,8 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		colour-keying off; the fragments come from the texture's own alpha.	*/
 	glDisableClientState( GL_COLOR_ARRAY );
 	sw_glColorKey( 0, 0 );
+	tex2d_was = sw_texture2d_on();
+	glEnable( GL_TEXTURE_2D );
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 
@@ -288,4 +298,5 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		at the top of the next frame (sw_apply_target), so they stay.		*/
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
+	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
 }
