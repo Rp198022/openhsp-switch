@@ -3751,27 +3751,65 @@ static void sw_text_draw_log( BMSCR *bm, const char *tag, int x, int y, const ch
 
 /*-------------------------------------------------------------------------------*/
 /*
-		r103: mes-dedup guard
+		r104: drop the spurious second copy of a story line
 
-		Elona's {txt} scene reader occasionally emits the same story line twice
-		with a full-width-space (GBK A1A1) line in between.  That draws the
-		line over itself one row lower, which reads as overlapping text.
-		A genuine redraw of the same line happens a frame later with the rest
-		of the block in between, so a same-line repeat that immediately
-		follows only blank lines is the spurious one and is skipped (the row
-		advance is still honoured so subsequent lines stay aligned).
+		One line of Elona's story reader arrives twice at hgio_mes: the clean
+		copy first, then a copy still carrying its line-ending CR that lands a
+		row or two lower - that shifted second copy is what doubles the text
+		on screen.  The register cache compares strings with strcmp, so the CR
+		copy never matches the clean one, and it gets its own texture and its
+		own draw.
+
+		Only a repeat within a few milliseconds of the first can be that copy:
+		the ordinary redraw repeats the whole block every frame (tens of ms
+		apart), and the outline/shadow passes sit on the same spot (x differing
+		by a pixel, y by one).  So a CR-terminated string whose clean text was
+		drawn less than 5ms ago at the same x and 6..48px higher is skipped -
+		the row advance is still applied so the rest of the block stays put.
 */
 /*-------------------------------------------------------------------------------*/
-static char *sw_mes_last_text = NULL;
-static int   sw_mes_last_len = 0;
-static int   sw_mes_blank_since = 0;
+#define SWMES_CLEAN_MAX 512
+#define SWMES_DRAWN_KEEP 64
 
-static int sw_mes_is_blank( const char *msg )
+typedef struct {
+	void		*bm;
+	int		x, y;
+	unsigned	tick;
+	unsigned	hash;
+} SWMESDRAWN;
+
+static SWMESDRAWN sw_mes_drawn[SWMES_DRAWN_KEEP];
+static int sw_mes_drawn_ix = 0;
+static int sw_mes_skip_reports = 0;
+
+/*	Copy msg, trimming any line-ending CR/LF from the tail.  *had_cr tells
+	whether the original ended with one (that is the spurious-copy marker),
+	*ok says the string fit the buffer and can be used as the clean text.	*/
+static void sw_mes_clean( char *dst, const char *msg, int *had_cr, int *ok )
 {
-	if ( msg == NULL || msg[0] == 0 ) return 1;
-	/* GBK full-width space A1A1 is used by Elona as a paragraph break */
-	if ( (unsigned char)msg[0] == 0xA1 && (unsigned char)msg[1] == 0xA1 && msg[2] == 0 ) return 1;
-	return 0;
+	int n = (int)strlen( msg );
+	int i;
+	*had_cr = 0;
+	*ok = 0;
+	if ( n >= SWMES_CLEAN_MAX ) return;
+	memcpy( dst, msg, n + 1 );
+	*ok = 1;
+	for ( i = n; i > 0; i-- ) {
+		char c = dst[i-1];
+		if ( c != 0x0D && c != 0x0A ) break;
+		*had_cr = 1;
+		dst[i-1] = 0;
+	}
+}
+
+static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
+{
+	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
+	sw_mes_drawn[sw_mes_drawn_ix].x = x;
+	sw_mes_drawn[sw_mes_drawn_ix].y = y;
+	sw_mes_drawn[sw_mes_drawn_ix].tick = (unsigned)hgio_gettick();
+	sw_mes_drawn[sw_mes_drawn_ix].hash = sw_text_hash( s );
+	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
 }
 
 int hgio_mes(BMSCR* bm, char* msg)
@@ -3779,6 +3817,10 @@ int hgio_mes(BMSCR* bm, char* msg)
 	//		mes,print 文字表示
 	//
 	int xsize, ysize;
+	char clean[SWMES_CLEAN_MAX];
+	int had_cr, clean_ok;
+	const char *use;
+
 	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
 
@@ -3787,45 +3829,45 @@ int hgio_mes(BMSCR* bm, char* msg)
 		if (bm->cy >= bm->sy) return -1;
 	}
 
-	if ( sw_mes_is_blank( msg ) ) {
+	if (*msg == 0) {
 		ysize = tmes._fontsize;
 		bm->printsizey += ysize;
 		bm->cy += ysize;
-		sw_mes_blank_since = 1;
 		return 0;
 	}
 
-	/*	Skip a same-line repeat that arrives right after blank lines:
-		this is the spurious second copy from the {txt} reader.		*/
-	if ( sw_mes_blank_since && sw_mes_last_text != NULL ) {
-		int len = (int)strlen( msg );
-		if ( len == sw_mes_last_len && memcmp( msg, sw_mes_last_text, len ) == 0 ) {
+	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
+	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
+
+	/*	r104: skip the shifted CR-terminated second copy			*/
+	if ( had_cr && clean_ok && clean[0] != 0 ) {
+		unsigned h = sw_text_hash( use );
+		unsigned tick = (unsigned)hgio_gettick();
+		int i;
+		for ( i = 0; i < SWMES_DRAWN_KEEP; i++ ) {
+			int dy;
+			if ( sw_mes_drawn[i].bm != (void *)bm ) continue;
+			if ( sw_mes_drawn[i].hash != h ) continue;
+			if ( sw_mes_drawn[i].x != bm->cx ) continue;
+			dy = bm->cy - sw_mes_drawn[i].y;
+			if ( dy < 6 || dy > 48 ) continue;
+			if ( tick - sw_mes_drawn[i].tick > 5 ) continue;
+			if ( sw_mes_skip_reports < 300 ) {
+				sw_mes_skip_reports++;
+				printf( "t26: skip dup bm=%p x=%d y=%d t=%u s=%s\n",
+					(void *)bm, bm->cx, bm->cy, tick, use );
+				fflush( stdout );
+			}
 			ysize = tmes._fontsize;
 			bm->printsizey += ysize;
 			bm->cy += ysize;
-			sw_mes_blank_since = 0;
 			return 0;
 		}
 	}
 
-	/*	Remember this line for the blank+repeat test above.			*/
-	{
-		int len = (int)strlen( msg );
-		if ( len > sw_mes_last_len ) {
-			if ( sw_mes_last_text != NULL ) free( sw_mes_last_text );
-			sw_mes_last_text = (char *)malloc( len + 1 );
-			sw_mes_last_len = len;
-		}
-		if ( sw_mes_last_text != NULL ) {
-			memcpy( sw_mes_last_text, msg, len + 1 );
-			sw_mes_last_len = len;
-		}
-	}
-	sw_mes_blank_since = 0;
-
 	int id;
 	texmes* tex;
-	id = tmes.texmesRegist(msg);
+	id = tmes.texmesRegist((char *)use);
 	if (id < 0) return -1;
 	tex = tmes.texmesGet(id);
 	if (tex == NULL) return -1;
@@ -3848,7 +3890,8 @@ int hgio_mes(BMSCR* bm, char* msg)
 		bm->printoffsety = 0;
 	}
 
-	sw_text_draw_log( bm, "mes", bm->cx, bm->cy, msg );
+	sw_mes_note_draw( bm, bm->cx, bm->cy, use );
+	sw_text_draw_log( bm, "mes", bm->cx, bm->cy, use );
 	hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 
 	if (xsize > bm->printsizex) bm->printsizex = xsize;
