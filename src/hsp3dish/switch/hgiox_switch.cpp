@@ -106,6 +106,7 @@ extern SDL_Window *window;
 #endif
 
 #include "switch_input.h"
+#include "switch_overlay.h"
 
 /*	The pad reaches getkey/stick through two tables: the Linux glue's keys[],
 	which only the synthetic SDL key events can fill, and the pad's own table
@@ -4157,6 +4158,13 @@ int hgio_render_end( void )
 
 	//	ウインドウ(FBO 0)に戻してからスワップする
 	sw_unbind_window();
+
+	/*	Side panels: the 800x600 picture sits centred on a 16:9 panel with
+		a letterbox strip on either side, and the strips carry the pad's key
+		hints (switch_overlay.cpp).  The window framebuffer is bound here and
+		the swap has not happened yet, so this is the point to draw them.  */
+	switch_overlay_draw( (int)_sizex, (int)_sizey, (int)_originX,
+		(int)( _bgsx * _scaleX ) );
 
 
 #if defined(HSPRASPBIAN) || defined(HSPNDK)

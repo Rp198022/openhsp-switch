@@ -56,6 +56,7 @@
 #include <EGL/egl.h>
 
 #include "switch_input.h"
+#include "switch_overlay.h"
 /*	Switch diagnostics.  0 = shipping build.						*/
 #ifndef SWITCH_DIAG
 #define SWITCH_DIAG 1
@@ -162,6 +163,16 @@ static int sw_entry_down( int i )
 			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER );
 		if ( e->sc == SDL_SCANCODE_BACKSPACE ) return del ? 1 : 0;
 		if ( del ) return 0;
+	}
+
+	/*	R + right-stick click toggles the side-panel key hints.  While the
+		pair is held both of its members go quiet: R alone is Tab and the
+		stick click alone is Space (wait), so without this the same press
+		that flips the hints would also flip Elona's tab page and make the
+		character rest.  */
+	if ( ( e->sc == SDL_SCANCODE_TAB ) || ( e->sc == SDL_SCANCODE_SPACE ) ) {
+		if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER )
+			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK ) ) return 0;
 	}
 
 	if ( e->btn != SW_NO_BUTTON && SDL_GameControllerGetButton( sw_pad, e->btn ) ) return 1;
@@ -341,6 +352,16 @@ void switch_input_poll( void )
 		}
 		printf( " ]\n" );
 		fflush( stdout );
+	}
+
+	/*	The hints toggle is edge-triggered: the pair must be released and
+		pressed again for the next flip.  */
+	{
+		static int sw_ovl_combo = 0;
+		int now = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER )
+			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
+		if ( now && !sw_ovl_combo ) switch_overlay_toggle();
+		sw_ovl_combo = now;
 	}
 }
 

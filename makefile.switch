@@ -207,6 +207,7 @@ OBJS_DISH := \
 	src/hsp3/switch/dllshim_switch.swd \
 	src/hsp3dish/switch/gles1_shim.swd \
 	src/hsp3dish/switch/switch_input.swd \
+	src/hsp3dish/switch/switch_overlay.swd \
 	src/hsp3dish/switch/textconv_switch.swd \
 	src/hsp3dish/switch/webtask_switch.swd \
 	src/hsp3dish/switch/main_dish.swd
