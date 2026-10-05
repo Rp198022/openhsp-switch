@@ -1,4 +1,4 @@
-//
+﻿//
 //		Draw lib (iOS/android/opengl/ndk)
 //			onion software/onitama 2011/11
 //
@@ -3743,6 +3743,31 @@ static void sw_text_draw_log( BMSCR *bm, const char *tag, int x, int y, const ch
 	fflush( stdout );
 }
 
+/*-------------------------------------------------------------------------------*/
+/*
+		r103: mes-dedup guard
+
+		Elona's {txt} scene reader occasionally emits the same story line twice
+		with a full-width-space (GBK A1A1) line in between.  That draws the
+		line over itself one row lower, which reads as overlapping text.
+		A genuine redraw of the same line happens a frame later with the rest
+		of the block in between, so a same-line repeat that immediately
+		follows only blank lines is the spurious one and is skipped (the row
+		advance is still honoured so subsequent lines stay aligned).
+*/
+/*-------------------------------------------------------------------------------*/
+static char *sw_mes_last_text = NULL;
+static int   sw_mes_last_len = 0;
+static int   sw_mes_blank_since = 0;
+
+static int sw_mes_is_blank( const char *msg )
+{
+	if ( msg == NULL || msg[0] == 0 ) return 1;
+	/* GBK full-width space A1A1 is used by Elona as a paragraph break */
+	if ( (unsigned char)msg[0] == 0xA1 && (unsigned char)msg[1] == 0xA1 && msg[2] == 0 ) return 1;
+	return 0;
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
@@ -3756,12 +3781,41 @@ int hgio_mes(BMSCR* bm, char* msg)
 		if (bm->cy >= bm->sy) return -1;
 	}
 
-	if (*msg == 0) {
+	if ( sw_mes_is_blank( msg ) ) {
 		ysize = tmes._fontsize;
 		bm->printsizey += ysize;
 		bm->cy += ysize;
+		sw_mes_blank_since = 1;
 		return 0;
 	}
+
+	/*	Skip a same-line repeat that arrives right after blank lines:
+		this is the spurious second copy from the {txt} reader.		*/
+	if ( sw_mes_blank_since && sw_mes_last_text != NULL ) {
+		int len = (int)strlen( msg );
+		if ( len == sw_mes_last_len && memcmp( msg, sw_mes_last_text, len ) == 0 ) {
+			ysize = tmes._fontsize;
+			bm->printsizey += ysize;
+			bm->cy += ysize;
+			sw_mes_blank_since = 0;
+			return 0;
+		}
+	}
+
+	/*	Remember this line for the blank+repeat test above.			*/
+	{
+		int len = (int)strlen( msg );
+		if ( len > sw_mes_last_len ) {
+			if ( sw_mes_last_text != NULL ) free( sw_mes_last_text );
+			sw_mes_last_text = (char *)malloc( len + 1 );
+			sw_mes_last_len = len;
+		}
+		if ( sw_mes_last_text != NULL ) {
+			memcpy( sw_mes_last_text, msg, len + 1 );
+			sw_mes_last_len = len;
+		}
+	}
+	sw_mes_blank_since = 0;
 
 	int id;
 	texmes* tex;
