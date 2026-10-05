@@ -96,9 +96,13 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 	/*	SDL names the face buttons the Xbox way - its logical A is the bottom
 		button and its logical B the right-hand one - while Nintendo labels
 		the Switch the other way round, so the entries below are named by
-		POSITION: SDL B is the top-right button (Nintendo's A), SDL A the
-		bottom one (Nintendo's B), SDL X the top one, SDL Y the left one.
-		That is what this port's own startup line prints: a:b1,b:b0,x:b3,y:b2.
+		POSITION: SDL B is the right-hand button (Nintendo's A), SDL A the
+		bottom one (Nintendo's B), SDL Y the top one (Nintendo's X) and
+		SDL X the left one (Nintendo's Y) - SDL's X/Y stand for the positions
+		Xbox's X/Y sit in, which on a Switch pad are Nintendo's Y/X.  Verified
+		on Eden 2026-10-06: its switch-X key arrives as SDL's Y, its switch-Y
+		as SDL's X.  That is what this port's own startup line prints:
+		a:b1,b:b0,x:b3,y:b2.
 
 		Return stays here even though the pad's A also *types* a CR: the two
 		serve different readers.  key_check() wants the character, but a few
@@ -403,10 +407,12 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo B (bottom): cancel is the Escape scancode above; second
 		layer: drink.													*/
 	{ SDL_CONTROLLER_BUTTON_A,			SW_NO_AXIS,							 0,  'q' },
-	/*	Nintendo X (top): action menu; second layer: pick up.				*/
-	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'z', 'g' },
-	/*	Nintendo Y (left): item menu; second layer: wear.				*/
-	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'x', 'w' },
+	/*	Nintendo X (top): action menu; second layer: pick up.  SDL's Y is
+		the top button (positional naming), so this entry uses BUTTON_Y.		*/
+	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'z', 'g' },
+	/*	Nintendo Y (left): item menu; second layer: wear.  SDL's X is the
+		left button.														*/
+	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w' },
 	/*	ZL fires, ZR casts.												*/
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f',  0 },
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v',  0 },
@@ -417,9 +423,10 @@ static const SW_CHARKEY sw_charkeys[] = {
 		already has a first-layer job.									*/
 	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', 'p' },
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
-	/*	Left stick press: read (X is the action menu now).  The right stick's press is the Space key
-		now - it is in sw_keymap() above, so it is not typed here.			*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r',  0 },
+	/*	Left stick press: read; second layer: switch ammo.  The right
+		stick's press is the Space key now - it is in sw_keymap() above, so
+		it is not typed here.												*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 'A' },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))
@@ -431,6 +438,11 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_DOWN	'<'
 #define SW_LSTICK_LEFT	'c'
 #define SW_LSTICK_RIGHT	'T'
+/*	Left stick second layer (R held): five utility actions.				*/
+#define SW_LSTICK_UP_ALT	'h'		/* jump over things			*/
+#define SW_LSTICK_DOWN_ALT	'D'		/* dig						*/
+#define SW_LSTICK_LEFT_ALT	'G'		/* give an item				*/
+#define SW_LSTICK_RIGHT_ALT	'C'		/* close a door				*/
 
 /*	Right stick: the four field actions that have no scancode (base layer).
 		The R layer swaps in four more actions below.								*/
@@ -498,10 +510,18 @@ int switch_input_take_keys( char *out, int max )
 		sw_char_state[i] = now;
 	}
 
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTX, &sw_lstick_x, SW_LSTICK_LEFT, SW_LSTICK_RIGHT );
-	if ( c != 0 && n < max ) out[n++] = c;
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTY, &sw_lstick_y, SW_LSTICK_UP, SW_LSTICK_DOWN );
-	if ( c != 0 && n < max ) out[n++] = c;
+	/*	Left stick picks its character from the active layer too: the base
+		layer keeps descend/ascend/sheet/throw, the R layer the utilities.	*/
+	{
+		char lup = layer ? SW_LSTICK_UP_ALT    : SW_LSTICK_UP;
+		char ldn = layer ? SW_LSTICK_DOWN_ALT  : SW_LSTICK_DOWN;
+		char llf = layer ? SW_LSTICK_LEFT_ALT  : SW_LSTICK_LEFT;
+		char lrt = layer ? SW_LSTICK_RIGHT_ALT : SW_LSTICK_RIGHT;
+		c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTX, &sw_lstick_x, llf, lrt );
+		if ( c != 0 && n < max ) out[n++] = c;
+		c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTY, &sw_lstick_y, lup, ldn );
+		if ( c != 0 && n < max ) out[n++] = c;
+	}
 	/*	Right stick picks its character from the active layer: base layer
 		keeps wand/search/ability/talk, R layer adds drop/open/journal/blend.	*/
 	{
