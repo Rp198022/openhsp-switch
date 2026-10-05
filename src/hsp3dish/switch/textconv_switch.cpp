@@ -1168,17 +1168,34 @@ decided by the same rule the drawing path uses - valid UTF-8 that is not a
 defined CP932 byte pair is already UTF-8 - which leaves plain ASCII alone. */
 extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz )
 {
-	int n;
-	if ( sw_is_utf8_text( in ) ) {
+	char clean[1024];
+	int i, n = 0;
+
+	/*	Strip control characters (0x01-0x1F, so above all CR and LF)
+		before any translation runs.  Elona builds the save folder from
+		the player's name, and the pad's confirm button also types a CR
+		into whatever text box has focus - a name committed that way ends
+		in "\r", the folder "sav_xxx\r" cannot be created and the game
+		stops at the save (seen as makedir errno=2 with 0x0d at the end
+		of the name).  Every path this port opens goes through here, so
+		the folder written and the folder read back still agree.	*/
+	for ( i = 0; in[i] != 0 && n < (int)sizeof( clean ) - 1; i++ ) {
+		unsigned char c = (unsigned char)in[i];
+		if ( c < 0x20 ) continue;
+		clean[n++] = (char)c;
+	}
+	clean[n] = 0;
+
+	if ( sw_is_utf8_text( clean ) ) {
 		n = 0;
-		while ( in[n] != 0 && n < outsz - 1 ) {
-			out[n] = in[n];
+		while ( clean[n] != 0 && n < outsz - 1 ) {
+			out[n] = clean[n];
 			n++;
 		}
 		out[n] = 0;
 		return n;
 	}
-	return cp932_to_utf8( in, out, outsz );
+	return cp932_to_utf8( clean, out, outsz );
 }
 
 int sw_utf8_to_cp932( const char *in, char *out, int outsz )
