@@ -403,8 +403,8 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo B (bottom): cancel is the Escape scancode above; second
 		layer: drink.													*/
 	{ SDL_CONTROLLER_BUTTON_A,			SW_NO_AXIS,							 0,  'q' },
-	/*	Nintendo X (top): pick up; second layer: read.				*/
-	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'g', 'r' },
+	/*	Nintendo X (top): action menu; second layer: pick up.				*/
+	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'z', 'g' },
 	/*	Nintendo Y (left): item menu; second layer: wear.				*/
 	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'x', 'w' },
 	/*	ZL fires, ZR casts.												*/
@@ -417,9 +417,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 		already has a first-layer job.									*/
 	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', 'p' },
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
-	/*	Left stick press: the action menu (X picks up now).  The right stick's press is the Space key
+	/*	Left stick press: read (X is the action menu now).  The right stick's press is the Space key
 		now - it is in sw_keymap() above, so it is not typed here.			*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'z',  0 },
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r',  0 },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))
@@ -432,13 +432,17 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_LEFT	'c'
 #define SW_LSTICK_RIGHT	'T'
 
-/*	Right stick: the four field actions that have no scancode.  They fire on
-		either layer - the stick is not the cursor any more, so there is no
-		first-layer job left for it to keep.								*/
+/*	Right stick: the four field actions that have no scancode (base layer).
+		The R layer swaps in four more actions below.								*/
 #define SW_RSTICK_UP	'Z'		/* whirl a wand (Shift+Z)	*/
 #define SW_RSTICK_DOWN	's'		/* search the ground		*/
 #define SW_RSTICK_LEFT	'a'		/* use a special ability	*/
 #define SW_RSTICK_RIGHT	'i'		/* talk to someone			*/
+/*	Right stick second layer (R held): four more field actions.			*/
+#define SW_RSTICK_UP_ALT	'd'		/* drop an item				*/
+#define SW_RSTICK_DOWN_ALT	'o'		/* open a container/door	*/
+#define SW_RSTICK_LEFT_ALT	'j'		/* open the journal/log		*/
+#define SW_RSTICK_RIGHT_ALT	'b'		/* blend/mix items			*/
 
 static Uint8	sw_char_state[SW_CHARKEY_N];
 static int		sw_lstick_x, sw_lstick_y, sw_rstick_x, sw_rstick_y;
@@ -498,10 +502,18 @@ int switch_input_take_keys( char *out, int max )
 	if ( c != 0 && n < max ) out[n++] = c;
 	c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTY, &sw_lstick_y, SW_LSTICK_UP, SW_LSTICK_DOWN );
 	if ( c != 0 && n < max ) out[n++] = c;
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTX, &sw_rstick_x, SW_RSTICK_LEFT, SW_RSTICK_RIGHT );
-	if ( c != 0 && n < max ) out[n++] = c;
-	c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTY, &sw_rstick_y, SW_RSTICK_UP, SW_RSTICK_DOWN );
-	if ( c != 0 && n < max ) out[n++] = c;
+	/*	Right stick picks its character from the active layer: base layer
+		keeps wand/search/ability/talk, R layer adds drop/open/journal/blend.	*/
+	{
+		char rup = layer ? SW_RSTICK_UP_ALT    : SW_RSTICK_UP;
+		char rdn = layer ? SW_RSTICK_DOWN_ALT  : SW_RSTICK_DOWN;
+		char rlf = layer ? SW_RSTICK_LEFT_ALT  : SW_RSTICK_LEFT;
+		char rrt = layer ? SW_RSTICK_RIGHT_ALT : SW_RSTICK_RIGHT;
+		c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTX, &sw_rstick_x, rlf, rrt );
+		if ( c != 0 && n < max ) out[n++] = c;
+		c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTY, &sw_rstick_y, rup, rdn );
+		if ( c != 0 && n < max ) out[n++] = c;
+	}
 
 	return n;
 }
