@@ -49,8 +49,8 @@ extern "C" int sw_texture2d_on( void );
 #define SW_OVL_KEY_X		8		/* key column					*/
 #define SW_OVL_DESC_X		80		/* description column			*/
 #define SW_OVL_TITLE_X		8		/* group titles start at the key column */
-#define SW_OVL_MARGIN		4		/* distance kept from the screen edge */
-#define SW_OVL_COL_GAP		6		/* gap between the measured columns */
+#define SW_OVL_MARGIN		2		/* distance kept from the screen edge */
+#define SW_OVL_COL_GAP		4		/* gap between the measured columns */
 
 typedef struct {
 	const char			*key;	/* NULL: the row is a group title		*/
@@ -195,20 +195,11 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 		key_x  = desc_x - SW_OVL_COL_GAP - max_key;
 		if ( key_x < SW_OVL_MARGIN ) key_x = SW_OVL_MARGIN;
 		if ( desc_x < SW_OVL_MARGIN ) desc_x = SW_OVL_MARGIN;
-		/*	the group title is drawn from the key column and is the widest
-			row of the panel; keep it inside the strip even after the block
-			has moved right.												*/
-		{
-			int tt = 0;
-			for ( k = 0; k < n; k++ ) {
-				if ( rows[k].key != NULL ) continue;
-				if ( TTF_SizeUTF8( sw_ovl_font, rows[k].desc, &tmp_w, &tmp_h ) == 0 && tmp_w > tt ) tt = tmp_w;
-			}
-			if ( tt > 0 && key_x + tt > strip_w - SW_OVL_MARGIN ) key_x = strip_w - SW_OVL_MARGIN - tt;
-			if ( key_x < SW_OVL_MARGIN ) key_x = SW_OVL_MARGIN;
-		}
 	}
-	title_x = key_x;
+	/*	Group titles hug the outer margin: they are the widest rows of
+		the panel and would otherwise squeeze the key column back towards
+		the middle of the strip.										*/
+	title_x = SW_OVL_MARGIN;
 	printf( "hsp3switch: overlay cols ix=%d k=%d d=%d at %d,%d\n", ix, max_key, max_desc, key_x, desc_x );
 	fflush( stdout );
 
