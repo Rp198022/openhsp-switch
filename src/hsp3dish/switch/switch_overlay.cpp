@@ -49,7 +49,8 @@ extern "C" int sw_texture2d_on( void );
 #define SW_OVL_KEY_X		8		/* key column					*/
 #define SW_OVL_DESC_X		80		/* description column			*/
 #define SW_OVL_TITLE_X		8		/* group titles start at the key column */
-#define SW_OVL_OUTWARD		5		/* pull columns towards the screen edge */
+#define SW_OVL_MARGIN		4		/* distance kept from the screen edge */
+#define SW_OVL_COL_GAP		6		/* gap between the measured columns */
 
 typedef struct {
 	const char			*key;	/* NULL: the row is a group title		*/
@@ -175,12 +176,41 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 	int h = n * SW_OVL_LINE_H + SW_OVL_PAD_Y * 2;
 	int i;
 	int key_x, desc_x, title_x;
+	int max_key = 0, max_desc = 0, tmp_w, tmp_h, k;
 
-	/*	Each panel belongs to one screen edge: pull its columns towards
-		that edge so the outer side of the strip is not left empty.		*/
-	key_x   = SW_OVL_KEY_X   + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
-	desc_x  = SW_OVL_DESC_X  + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
-	title_x = SW_OVL_TITLE_X + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
+	/*	Pin the block to its screen edge: measure the two column widths, then
+		start the left panel at the left margin and end the right panel's
+		description at the right margin, so the block rides the edge whatever
+		the font's real advance is.		*/
+	for ( k = 0; k < n; k++ ) {
+		if ( rows[k].key == NULL ) continue;
+		if ( TTF_SizeUTF8( sw_ovl_font, rows[k].key, &tmp_w, &tmp_h ) == 0 && tmp_w > max_key ) max_key = tmp_w;
+		if ( TTF_SizeUTF8( sw_ovl_font, rows[k].desc, &tmp_w, &tmp_h ) == 0 && tmp_w > max_desc ) max_desc = tmp_w;
+	}
+	if ( ix == 0 ) {
+		key_x  = SW_OVL_MARGIN;
+		desc_x = key_x + max_key + SW_OVL_COL_GAP;
+	} else {
+		desc_x = strip_w - SW_OVL_MARGIN - max_desc;
+		key_x  = desc_x - SW_OVL_COL_GAP - max_key;
+		if ( key_x < SW_OVL_MARGIN ) key_x = SW_OVL_MARGIN;
+		if ( desc_x < SW_OVL_MARGIN ) desc_x = SW_OVL_MARGIN;
+		/*	the group title is drawn from the key column and is the widest
+			row of the panel; keep it inside the strip even after the block
+			has moved right.												*/
+		{
+			int tt = 0;
+			for ( k = 0; k < n; k++ ) {
+				if ( rows[k].key != NULL ) continue;
+				if ( TTF_SizeUTF8( sw_ovl_font, rows[k].desc, &tmp_w, &tmp_h ) == 0 && tmp_w > tt ) tt = tmp_w;
+			}
+			if ( tt > 0 && key_x + tt > strip_w - SW_OVL_MARGIN ) key_x = strip_w - SW_OVL_MARGIN - tt;
+			if ( key_x < SW_OVL_MARGIN ) key_x = SW_OVL_MARGIN;
+		}
+	}
+	title_x = key_x;
+	printf( "hsp3switch: overlay cols ix=%d k=%d d=%d at %d,%d\n", ix, max_key, max_desc, key_x, desc_x );
+	fflush( stdout );
 
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
