@@ -403,8 +403,8 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo B (bottom): cancel is the Escape scancode above; second
 		layer: drink.													*/
 	{ SDL_CONTROLLER_BUTTON_A,			SW_NO_AXIS,							 0,  'q' },
-	/*	Nintendo X (top): action menu; second layer: read.				*/
-	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'z', 'r' },
+	/*	Nintendo X (top): pick up; second layer: read.				*/
+	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'g', 'r' },
 	/*	Nintendo Y (left): item menu; second layer: wear.				*/
 	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'x', 'w' },
 	/*	ZL fires, ZR casts.												*/
@@ -417,9 +417,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 		already has a first-layer job.									*/
 	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', 'p' },
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
-	/*	Left stick press: pick up.  The right stick's press is the Space key
+	/*	Left stick press: the action menu (X picks up now).  The right stick's press is the Space key
 		now - it is in sw_keymap() above, so it is not typed here.			*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'g',  0 },
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'z',  0 },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))

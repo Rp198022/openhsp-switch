@@ -49,6 +49,7 @@ extern "C" int sw_texture2d_on( void );
 #define SW_OVL_KEY_X		8		/* key column					*/
 #define SW_OVL_DESC_X		80		/* description column			*/
 #define SW_OVL_TITLE_X		8		/* group titles start at the key column */
+#define SW_OVL_OUTWARD		5		/* pull columns towards the screen edge */
 
 typedef struct {
 	const char			*key;	/* NULL: the row is a group title		*/
@@ -63,7 +64,7 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "左摇杆↓",	"上楼" },
 	{ "左摇杆←",	"角色情报" },
 	{ "左摇杆→",	"投掷" },
-	{ "左摇杆按",	"拾取" },
+	{ "左摇杆按",	"行动菜单" },
 	{ "ZL",			"射击" },
 	{ "减号",			"锁定目标" },
 	{ "L",			"切换标签" },
@@ -73,7 +74,7 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "A",			"确认/攻击" },
 	{ "B",			"取消/关闭" },
-	{ "X",			"行动菜单" },
+	{ "X",			"拾取" },
 	{ "Y",			"道具菜单" },
 	{ "R 按住",	"第二层" },
 	{ "ZR",			"咏唱魔法" },
@@ -173,6 +174,13 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 	SDL_Surface *panel;
 	int h = n * SW_OVL_LINE_H + SW_OVL_PAD_Y * 2;
 	int i;
+	int key_x, desc_x, title_x;
+
+	/*	Each panel belongs to one screen edge: pull its columns towards
+		that edge so the outer side of the strip is not left empty.		*/
+	key_x   = SW_OVL_KEY_X   + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
+	desc_x  = SW_OVL_DESC_X  + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
+	title_x = SW_OVL_TITLE_X + ( ( ix == 0 ) ? -SW_OVL_OUTWARD : SW_OVL_OUTWARD );
 
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
@@ -182,10 +190,10 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 		const SW_OVL_ROW *r = &rows[i];
 		int y = SW_OVL_PAD_Y + i * SW_OVL_LINE_H;
 		if ( r->key == NULL ) {
-			sw_ovl_blit_text( panel, r->desc, 205, SW_OVL_TITLE_X, y );
+			sw_ovl_blit_text( panel, r->desc, 205, title_x, y );
 		} else {
-			sw_ovl_blit_text( panel, r->key, 255, SW_OVL_KEY_X, y );
-			sw_ovl_blit_text( panel, r->desc, 230, SW_OVL_DESC_X, y );
+			sw_ovl_blit_text( panel, r->key, 255, key_x, y );
+			sw_ovl_blit_text( panel, r->desc, 230, desc_x, y );
 		}
 	}
 
