@@ -708,11 +708,16 @@ static int sw_textreg_probe = 0;
 
 static void glue_textreg_cs( const char *msg )
 {
+	int i, cjk = 0;
 	if ( watch_ctx == NULL ) return;
-	if ( sw_textreg_probe >= 6000 ) return;
+	if ( sw_textreg_probe >= 30000 ) return;
+	for ( i = 0; msg[i] != 0; i++ ) {
+		if ( (unsigned char)msg[i] >= 0x81 ) { cjk = 1; break; }
+	}
+	if ( !cjk ) return;
 	sw_textreg_probe++;
-	printf( "t25: #%d cs=%ld msg=%s\n", sw_textreg_probe,
-		(long)( code_getpcbak() - watch_ctx->mem_mcs ), msg );
+	printf( "t25: #%d cs=%ld tick=%d msg=%s\n", sw_textreg_probe,
+		(long)( code_getpcbak() - watch_ctx->mem_mcs ), (int)watch_ctx->lasttick, msg );
 	fflush( stdout );
 }
 
@@ -727,7 +732,6 @@ static void glue_text_log( const char *msg )
 		if ( now - glue_text_when[i] < GLUE_TEXT_REPEAT ) return;
 		glue_text_when[i] = now;
 		printf( "hsp3text: (r) %s\n", glue_text_seen[i] );
-			glue_textreg_cs( glue_text_seen[i] );
 		fflush( stdout );
 		return;
 	}
