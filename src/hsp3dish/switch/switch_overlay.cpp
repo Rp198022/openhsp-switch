@@ -138,7 +138,6 @@ static TTF_Font *sw_ovl_open_font( void )
 	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
 		TTF_Font *f = TTF_OpenFont( cand[i], SW_OVL_FONT_SIZE );
 		if ( f != NULL ) {
-			TTF_SetFontOutline( f, 1 );	/* thicken the thin 14px glyphs */
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
 			return f;
