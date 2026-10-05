@@ -1516,7 +1516,7 @@ int hgio_gsel( BMSCR *bm )
 	//
 	if ( bm == NULL ) return -1;
 	sw_colorbm = bm;
-	if ( sw_gsel_report < 64 ) {
+	if ( sw_gsel_report < 800 ) {
 		sw_gsel_report++;
 		sw_fbo_log( "hgio: gsel bm=%p type=%d %dx%d texid=%d\n",
 			(void *)bm, bm->type, bm->sx, bm->sy, bm->texid );
@@ -2942,7 +2942,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			buffers it keeps around (`gcopy BUFFER_MAP, ...`).  A source without
 			a texture drops the copy in silence and the region then keeps
 			whatever the last composition left on it.							*/
-		if ( sw_copy_skip_report < 300 ) {
+		if ( sw_copy_skip_report < 1200 ) {
 			sw_copy_skip_report++;
 			sw_fbo_log( "hgio: copy SKIP src bmsrc=%p texid=%d type=%d xy=%d,%d %dx%d -> dst tx=%d at %g,%g tick=%d\n",
 				(void *)bmsrc, ( bmsrc != NULL ) ? bmsrc->texid : -99,
@@ -2960,7 +2960,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		the trace does.														*/
 	{
 		long sw_copy_px = (long)srcsx * (long)srcsy;
-		if ( ( sw_copy_big_report < 300 ) && ( sw_copy_px >= 40000L ) ) {
+		if ( ( sw_copy_big_report < 3000 ) && ( sw_copy_px >= 40000L ) ) {
 			sw_copy_big_report++;
 			sw_fbo_log( "hgio: copy BIG %dx%d src tx=%d %d,%d -> dst tx=%d at %g,%g gm=%d tick=%d\n",
 				(int)srcsx, (int)srcsy, bmsrc->texid, (int)xx, (int)yy,
@@ -3683,6 +3683,66 @@ int hgio_font(char *fontname, int size, int style)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------------*/
+/*
+		t24 probe - where each drawn string lands
+
+		The scene routine repaints a whole text block when the story advances,
+		and the block's y comes from its line count, so the same string
+		landing at two different y values is what an overlapped screen looks
+		like in the log.  Keying on (buffer, x, y, string) tells that apart
+		from an ordinary redraw of an unchanged screen.
+*/
+/*-------------------------------------------------------------------------------*/
+
+#define SWTEXT_KEEP 256
+#define SWTEXT_MAX 7000
+#define SWTEXT_REPEAT_MS 1000
+
+typedef struct {
+	void		*bm;
+	int		x, y;
+	unsigned	tick;
+	unsigned	hash;
+} SWTEXTLAST;
+
+static SWTEXTLAST	sw_text_last[SWTEXT_KEEP];
+static int	sw_text_last_ix = 0;
+static int	sw_text_probe = 0;
+
+static unsigned sw_text_hash( const char *s )
+{
+	unsigned h = 5381;
+	while ( *s != 0 ) h = h * 33u + (unsigned char)*s++;
+	return h;
+}
+
+static void sw_text_draw_log( BMSCR *bm, const char *tag, int x, int y, const char *s )
+{
+	int i;
+	unsigned tick, h;
+
+	if ( sw_text_probe >= SWTEXT_MAX ) return;
+	tick = (unsigned)hgio_gettick();
+	h = sw_text_hash( s );
+	for ( i = 0; i < SWTEXT_KEEP; i++ ) {
+		if ( sw_text_last[i].bm != (void *)bm ) continue;
+		if ( sw_text_last[i].hash != h ) continue;
+		if ( sw_text_last[i].x != x || sw_text_last[i].y != y ) continue;
+		if ( tick - sw_text_last[i].tick < SWTEXT_REPEAT_MS ) return;
+	}
+	sw_text_last[sw_text_last_ix].bm = (void *)bm;
+	sw_text_last[sw_text_last_ix].x = x;
+	sw_text_last[sw_text_last_ix].y = y;
+	sw_text_last[sw_text_last_ix].hash = h;
+	sw_text_last[sw_text_last_ix].tick = tick;
+	sw_text_last_ix = ( sw_text_last_ix + 1 ) % SWTEXT_KEEP;
+	sw_text_probe++;
+	printf( "t24: %s #%d bm=%p tx=%d type=%d x=%d y=%d t=%u s=%s\n",
+		tag, sw_text_probe, (void *)bm, bm->texid, (int)bm->type, x, y, tick, s );
+	fflush( stdout );
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
@@ -3728,6 +3788,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 		bm->printoffsety = 0;
 	}
 
+	sw_text_draw_log( bm, "mes", bm->cx, bm->cy, msg );
 	hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 
 	if (xsize > bm->printsizex) bm->printsizex = xsize;
@@ -3825,6 +3886,7 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 			ysize = esy - y;
 			if (ysize <= 0) return -1;
 		}
+		sw_text_draw_log( bm, "mesx", x, y, tpos->getString() );
 		hgio_fontcopy(bm, x, y, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, tx, ty);
 	}
 
@@ -4093,6 +4155,14 @@ int hgio_redraw( BMSCR *bm, int flag )
 	hgio_screen( bm );
 
 	if ( flag & 1 ) {
+		{
+			static int sw_rd_probe = 0;
+			if ( sw_rd_probe < 6000 ) {
+				sw_rd_probe++;
+				printf( "t24: present t=%d\n", (int)hgio_gettick() );
+				fflush( stdout );
+			}
+		}
 		hgio_render_end();
 		sw_redraw_time( bm );
 	} else {

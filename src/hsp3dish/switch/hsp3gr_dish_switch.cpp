@@ -1356,7 +1356,7 @@ static int cmdfunc_extcmd( int cmd )
 		/*	t23 probe: is the picture-buffer restore (`gcopy BUFFER_MAP, 0, 0,
 			800, 500` before the name prompt) reaching the command at all?
 			Big copies only, with the resolved source.					*/
-		if ( ( p4 >= 256 ) && ( p5 >= 256 ) && ( sw_gcopy_report < 400 ) ) {
+		if ( ( p4 >= 256 ) && ( p5 >= 256 ) && ( sw_gcopy_report < 3000 ) ) {
 			sw_gcopy_report++;
 			printf( "t23: gcopy #%d srcid=%d src=%p dst=%p type=%d at %d,%d %dx%d"
 				" gmode=%d tick=%d\n",

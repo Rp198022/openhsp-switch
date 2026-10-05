@@ -687,7 +687,7 @@ static void glue_screen_op( const char *op, BMSCR *self, BMSCR *src,
 //	an automated run where the game is.  texmesManager::texmesRegist() is the
 //	choke point every drawn string passes through.
 //
-#define GLUE_TEXT_MAX		600
+#define GLUE_TEXT_MAX		4096
 #define GLUE_TEXT_LEN		200
 #define GLUE_TEXT_REPEAT	5			/* seconds before a string is shown again */
 
@@ -711,7 +711,7 @@ static void glue_text_log( const char *msg )
 		if ( strcmp( glue_text_seen[i], msg ) != 0 ) continue;
 		if ( now - glue_text_when[i] < GLUE_TEXT_REPEAT ) return;
 		glue_text_when[i] = now;
-		printf( "hsp3text: %s\n", glue_text_seen[i] );
+		printf( "hsp3text: (r) %s\n", glue_text_seen[i] );
 		fflush( stdout );
 		return;
 	}
@@ -722,7 +722,7 @@ static void glue_text_log( const char *msg )
 	glue_text_seen[glue_text_count][GLUE_TEXT_LEN] = 0;
 	glue_text_when[glue_text_count] = now;
 	glue_text_count++;
-	printf( "hsp3text: %s\n", glue_text_seen[glue_text_count - 1] );
+	printf( "hsp3text: #%d %s\n", glue_text_count - 1, glue_text_seen[glue_text_count - 1] );
 	fflush( stdout );
 }
 
