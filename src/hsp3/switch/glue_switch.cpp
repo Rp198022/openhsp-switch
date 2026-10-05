@@ -701,6 +701,21 @@ static int	glue_text_count = 0;
 //	was wherever the game had last produced *new* text, which is how a driver
 //	reading this log kept mistaking an old screen for the current one.
 //
+/*	P4: tie each registered string to the interpreter position that asked
+	for it.  A repeated registration of the same text from a different cs
+	is a second call site drawing it again.						*/
+static int sw_textreg_probe = 0;
+
+static void glue_textreg_cs( const char *msg )
+{
+	if ( watch_ctx == NULL ) return;
+	if ( sw_textreg_probe >= 6000 ) return;
+	sw_textreg_probe++;
+	printf( "t25: #%d cs=%ld msg=%s\n", sw_textreg_probe,
+		(long)( code_getpcbak() - watch_ctx->mem_mcs ), msg );
+	fflush( stdout );
+}
+
 static void glue_text_log( const char *msg )
 {
 	unsigned now = (unsigned)time( NULL );
@@ -712,6 +727,7 @@ static void glue_text_log( const char *msg )
 		if ( now - glue_text_when[i] < GLUE_TEXT_REPEAT ) return;
 		glue_text_when[i] = now;
 		printf( "hsp3text: (r) %s\n", glue_text_seen[i] );
+			glue_textreg_cs( glue_text_seen[i] );
 		fflush( stdout );
 		return;
 	}
@@ -723,6 +739,7 @@ static void glue_text_log( const char *msg )
 	glue_text_when[glue_text_count] = now;
 	glue_text_count++;
 	printf( "hsp3text: #%d %s\n", glue_text_count - 1, glue_text_seen[glue_text_count - 1] );
+	glue_textreg_cs( glue_text_seen[glue_text_count - 1] );
 	fflush( stdout );
 }
 
