@@ -3722,6 +3722,12 @@ static void sw_text_draw_log( BMSCR *bm, const char *tag, int x, int y, const ch
 	int i;
 	unsigned tick, h;
 
+		/* skip non-CJK strings to keep the probe log small */
+		{
+			const char *p = s;
+			while ( *p != 0 && (unsigned char)*p < 0x81 ) p++;
+			if ( *p == 0 ) return;
+		}
 	if ( sw_text_probe >= SWTEXT_MAX ) return;
 	tick = (unsigned)hgio_gettick();
 	h = sw_text_hash( s );
