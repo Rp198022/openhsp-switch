@@ -109,12 +109,12 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 		button drinks instead.  X and Y are typed, not scancoded.			*/
 	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm: pad A, right	*/
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
-	{ SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad R			*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad L			*/
 	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_SPACE },	/* wait: right stick click	*/
 	/*	Elona's save list deletes a save with BackSpace - system.hsp's
 		*game_title_selectID reads `getkey a, 8` and its hint bar says
 		"BackSpace [Delete]".  The pad has no button left over for it, so it is
-		the L + R combination, read in sw_entry_down() below.				*/
+		the R + L combination (R holding the layer), read in sw_entry_down() below.				*/
 	{ SW_NO_BUTTON,							SW_NO_AXIS,		SDL_SCANCODE_BACKSPACE },
 };
 
@@ -138,10 +138,10 @@ static unsigned int			sw_push_no;
 /*	Polling														  */
 /*----------------------------------------------------------------*/
 
-/*	True while L is held: the pad is on its second layer then.				*/
+/*	True while R is held: the pad is on its second layer then.				*/
 static int sw_layer_second( void )
 {
-	return SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER ) ? 1 : 0;
+	return SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER ) ? 1 : 0;
 }
 
 static int sw_entry_down( int i )
@@ -154,23 +154,23 @@ static int sw_entry_down( int i )
 		moment would throw the letter away.								*/
 	if ( e->sc == SDL_SCANCODE_ESCAPE && sw_layer_second() ) return 0;
 
-	/*	Delete is L + R, because R on its own is already Tab and every other
-		button has a first-layer job.  While the pair is held the Tab entry
-		must go quiet - otherwise one press reports two keys, which is the
-		mistake R48/R49 are about.										*/
+	/*	Delete is R + L: R is the second-layer shift now, L has taken the
+		Tab role, and every other button has a first-layer job.  While the
+		pair is held the Tab entry (L) goes quiet - otherwise one press
+		reports two keys, which is the mistake R48/R49 are about.										*/
 	if ( ( e->sc == SDL_SCANCODE_BACKSPACE ) || ( e->sc == SDL_SCANCODE_TAB ) ) {
 		int del = sw_layer_second()
-			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER );
+			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER );
 		if ( e->sc == SDL_SCANCODE_BACKSPACE ) return del ? 1 : 0;
 		if ( del ) return 0;
 	}
 
-	/*	R + right-stick click toggles the side-panel key hints.  While the
-		pair is held both of its members go quiet: R alone is Tab and the
-		stick click alone is Space (wait), so without this the same press
-		that flips the hints would also flip Elona's tab page and make the
-		character rest.  */
-	if ( ( e->sc == SDL_SCANCODE_TAB ) || ( e->sc == SDL_SCANCODE_SPACE ) ) {
+	/*	R + right-stick click toggles the side-panel key hints.  The stick
+		click alone is Space (wait), so while the pair is held it goes
+		quiet - otherwise the same press that flips the hints would also
+		make the character rest.  R itself types nothing (it is the second
+		layer's shift now), so only the click needs silencing.  */
+	if ( e->sc == SDL_SCANCODE_SPACE ) {
 		if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER )
 			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK ) ) return 0;
 	}
@@ -388,7 +388,7 @@ int switch_input_key_state( int scancode )
 	keybuf and hands them to the object with func_notice, one every SW_KEY_GAP
 	frames.  This module only says *which* character each press produces.
 
-	`alt` is the character while L is held - the pad's second layer.			*/
+	`alt` is the character while R is held - the pad's second layer.			*/
 typedef struct {
 	SDL_GameControllerButton	btn;	/* or SW_NO_BUTTON				*/
 	SDL_GameControllerAxis		axis;	/* SW_NO_AXIS when btn is used	*/

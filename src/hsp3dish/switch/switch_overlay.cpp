@@ -43,11 +43,11 @@
 	is the shim's own view of that switch.  */
 extern "C" int sw_texture2d_on( void );
 
-#define SW_OVL_FONT_SIZE	14
-#define SW_OVL_LINE_H		20
+#define SW_OVL_FONT_SIZE	16
+#define SW_OVL_LINE_H		22
 #define SW_OVL_PAD_Y		8
 #define SW_OVL_KEY_X		8		/* key column					*/
-#define SW_OVL_DESC_X		84		/* description column			*/
+#define SW_OVL_DESC_X		80		/* description column			*/
 #define SW_OVL_TITLE_X		8		/* group titles start at the key column */
 
 typedef struct {
@@ -63,10 +63,10 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "左摇杆↓",	"上楼" },
 	{ "左摇杆←",	"角色情报" },
 	{ "左摇杆→",	"投掷" },
-	{ "左摇杆按下",	"拾取" },
+	{ "左摇杆按",	"拾取" },
 	{ "ZL",			"射击" },
 	{ "减号",			"锁定目标" },
-	{ "L 按住",		"第二层" },
+	{ "L",			"切换标签" },
 };
 
 /*	Right Joy-Con, both layers.											*/
@@ -75,12 +75,12 @@ static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "B",			"取消/关闭" },
 	{ "X",			"行动菜单" },
 	{ "Y",			"道具菜单" },
-	{ "R",			"切换标签" },
+	{ "R 按住",	"第二层" },
 	{ "ZR",			"咏唱魔法" },
 	{ "右摇杆",		"锁定光标" },
-	{ "右摇杆按下",	"原地休息" },
+	{ "右摇杆按",	"原地休息" },
 	{ "加号",			"存档/设置" },
-	{ NULL,			"— 第二层（按住 L）—" },
+	{ NULL,			"— 第二层（按住 R）—" },
 	{ "A",			"吃" },
 	{ "B",			"喝" },
 	{ "Y",			"装备" },
@@ -89,7 +89,7 @@ static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "右摇杆↓",	"搜索周围" },
 	{ "右摇杆←",	"使用特技" },
 	{ "右摇杆→",	"对话" },
-	{ "右摇杆按下",	"丢弃" },
+	{ "右摇杆按",	"丢弃" },
 	{ "R+摇杆按",	"显示/隐藏" },
 };
 
