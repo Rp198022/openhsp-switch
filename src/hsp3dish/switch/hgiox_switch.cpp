@@ -3821,7 +3821,7 @@ void sw_printsub_whole( int x, int y, const char *s )
 	int i, brk = 0;
 	if ( s == NULL ) return;
 	if ( !( x >= 285 && x <= 300 && y >= 280 && y <= 470 ) ) return;
-	if ( n >= 200 ) return;
+	if ( n >= 1500 ) return;
 	n++;
 	for ( i = 0; s[i] != 0; i++ ) {
 		if ( s[i] == '\r' || s[i] == '\n' ) brk++;
@@ -3899,9 +3899,13 @@ int hgio_mes(BMSCR* bm, char* msg)
 		race description over the skill rows - show what string arrives.	*/
 	if ( bm->cx >= 285 && bm->cx <= 300 && bm->cy >= 280 && bm->cy <= 470 ) {
 		static int n31 = 0;
-		if ( n31 < 600 ) {
+		if ( n31 < 1500 ) {
 			int i31;
-			printf( "t31hex x=%d y=%d n=%d :", bm->cx, bm->cy, (int)strlen( msg ) );
+			{
+				extern void sw_probe_pc( const char *tag );
+				sw_probe_pc( "t33pc" );
+			}
+			printf( "t33hex #%d x=%d y=%d n=%d :", n31, bm->cx, bm->cy, (int)strlen( msg ) );
 			for ( i31 = 0; msg[i31] != 0 && i31 < 80; i31++ ) printf( " %02x", (unsigned char)msg[i31] );
 			printf( "\n" );
 			fflush( stdout );
