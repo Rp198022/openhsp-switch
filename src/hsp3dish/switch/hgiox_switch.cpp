@@ -2634,6 +2634,23 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
 	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
+
+	if ( ( disty >= 500.0f ) && ( disty < 620.0f ) ) {
+		/*	r141 diag: the message band.  t40 showed the script passes
+			correct coordinates, so this records where the blit actually
+			lands, with the size the glyph texture is sampled at and the
+			texture id in use.											*/
+		static int sw_fc_probe = 0;
+		if ( sw_fc_probe < 40000 ) {
+			sw_fc_probe++;
+			printf( "t42 #%d t=%u bm=%p scr=%dx%d cx=%d cy=%d dx=%d dy=%d sx=%d sy=%d base=%d,%d tex=%d pid=%d\n",
+				sw_fc_probe, (unsigned)hgio_gettick(), (void *)bm,
+				(int)bm->sx, (int)bm->sy, (int)bm->cx, (int)bm->cy,
+				(int)distx, (int)disty, srcsx, srcsy, basex, basey,
+				texid, (int)bm->texid );
+			fflush( stdout );
+		}
+	}
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
 	//		描画モードは3,100%、転送先はdistx,disty
