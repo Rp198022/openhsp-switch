@@ -584,8 +584,6 @@ extern "C" FILE *__real_fopen( const char *path, const char *mode );
 
 extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 {
-	static int shown = 0;
-	static int shown_w = 0;			/* write-mode opens, their own budget */
 	static char fixed[512];
 	const char *use = path;
 	FILE *fp;
@@ -625,16 +623,6 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	}
 	if ( fp == NULL ) {
 		printf( "hsp3file: FAIL '%s' (mode %s)\n", use, mode );
-		fflush( stdout );
-	} else if ( glue_fopen_writes( mode ) ) {
-		if ( shown_w < 300 ) {
-			shown_w++;
-			printf( "hsp3file: write '%s' (mode %s)\n", use, mode );
-			fflush( stdout );
-		}
-	} else if ( shown < 150 ) {
-		shown++;
-		printf( "hsp3file: ok   '%s'\n", use );
 		fflush( stdout );
 	}
 	return fp;
