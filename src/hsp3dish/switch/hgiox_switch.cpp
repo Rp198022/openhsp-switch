@@ -841,6 +841,43 @@ static int sw_scratch_ensure( int w, int h )
 	return 0;
 }
 
+/*	r153: stage a self-copy by reading the live framebuffer back.
+	Sampling a texture does not work for the main screen (r150 proved it:
+	the band went blank), but glReadPixels always sees what is on screen.
+	Both glReadPixels output and the scratch texture are bottom-up, so the
+	pixels go in as-is and match the UVs the staging path already uses.  */
+static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
+{
+	unsigned char *buf;
+	SWTARGET *st;
+	GLuint fbo;
+
+	if ( w <= 0 || h <= 0 ) return -1;
+	if ( sw_scratch_ensure( w, h ) != 0 ) return -1;
+
+	buf = (unsigned char *)mem_ini( w * h * 4 );
+	if ( buf == NULL ) return -1;
+
+	st = sw_find( bm );
+	fbo = ( st != NULL ) ? st->fbo : 0;
+	sw_bfb(  fbo );
+	glPixelStorei( GL_PACK_ALIGNMENT, 4 );
+	glReadPixels( xx, yy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
+
+	ChangeTex( -1 );
+	glBindTexture( GL_TEXTURE_2D, sw_scratch_tex );
+	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, w, h,
+		GL_RGBA, GL_UNSIGNED_BYTE, buf );
+	ChangeTex( -1 );
+
+	mem_bye( buf );
+
+	/*	Leave the target exactly as the caller expects to draw into it. */
+	sw_bfb(  fbo );
+	if ( st != NULL ) sw_apply_target( bm );
+	return 0;
+}
+
 static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 							   int xx, int yy, int w, int h )
 {
@@ -3092,7 +3129,30 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+	/*	r153: the main screen's overlapping self-copy is the message log
+		scrolling (src 532 -> dst 517, 664x45).  Stage it by reading the
+		live framebuffer back - r150 showed a texture sample comes out
+		blank here and erases the band.									*/
+	if ( ( bmsrc == bm ) && ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_ov != 0 ) ) {
+		int sw_rb = sw_scratch_readback( (int)xx, (int)yy, (int)srcsx, (int)srcsy, bm );
+		static int sw_main_rb_n = 0;
+		if ( sw_main_rb_n < 200 ) {
+			sw_main_rb_n++;
+			printf( "t51 main-readback %d,%d %dx%d -> %g,%g ret=%d\n",
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				(double)bm->cx, (double)bm->cy, sw_rb );
+			fflush( stdout );
+		}
+		if ( sw_rb == 0 ) {
+			sw_scratch_used = 1;
+			tx0 = 0.0f;
+			ty0 = 0.0f;
+			tx1 = (GLfloat)srcsx;
+			ty1 = (GLfloat)srcsy;
+			ratex = 1.0f / (float)sw_scratch_w;
+			ratey = 1.0f / (float)sw_scratch_h;
+		}
+	} else if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
