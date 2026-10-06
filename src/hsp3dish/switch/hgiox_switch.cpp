@@ -3859,15 +3859,31 @@ int hgio_mes(BMSCR* bm, char* msg)
 	int had_cr, clean_ok;
 	const char *use;
 
-	if ( !sw_drawable( bm ) ) return -1;
+	if ( !sw_drawable( bm ) ) {
+#ifdef __SWITCH__
+		printf( "t29: drop notdrawable |%s|\n", ( msg != NULL ) ? msg : "(null)" );
+		fflush( stdout );
+#endif
+		return -1;
+	}
 	if (drawflag == 0) hgio_render_start();
 
 	// print per line
 	if (bm->vp_flag == BMSCR_VPFLAG_NOUSE) {
-		if (bm->cy >= bm->sy) return -1;
+		if (bm->cy >= bm->sy) {
+#ifdef __SWITCH__
+			printf( "t29: drop vclip cy=%d sy=%d |%s|\n", bm->cy, bm->sy, ( msg != NULL ) ? msg : "(null)" );
+			fflush( stdout );
+#endif
+			return -1;
+		}
 	}
 
 	if (*msg == 0) {
+#ifdef __SWITCH__
+		printf( "t29: empty advance cy=%d\n", bm->cy );
+		fflush( stdout );
+#endif
 		ysize = tmes._fontsize;
 		bm->printsizey += ysize;
 		bm->cy += ysize;
@@ -3906,9 +3922,21 @@ int hgio_mes(BMSCR* bm, char* msg)
 	int id;
 	texmes* tex;
 	id = tmes.texmesRegist((char *)use);
-	if (id < 0) return -1;
+	if (id < 0) {
+#ifdef __SWITCH__
+		printf( "t29: drop regist id=%d |%s|\n", id, use );
+		fflush( stdout );
+#endif
+		return -1;
+	}
 	tex = tmes.texmesGet(id);
-	if (tex == NULL) return -1;
+	if (tex == NULL) {
+#ifdef __SWITCH__
+		printf( "t29: drop gettex id=%d |%s|\n", id, use );
+		fflush( stdout );
+#endif
+		return -1;
+	}
 
 	xsize = tex->sx;
 	ysize = tex->sy;
