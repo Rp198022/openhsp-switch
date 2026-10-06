@@ -1745,6 +1745,13 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 	/*	gmode 2 and gmode 4 carry the picture's colour key in the classic
 		runtime, so the key pixels must not be painted.  Every other path
 		(setBlendMode() below) turns the key back off. */
+	/*	r166: sticky, like the classic runtime.  chips.hsp create_pcpic
+		arms gmode 4 with the picture's own background (color 43,133,133),
+		copies with that key, tints the part, then copies it back with
+		gmode 2 - which in the classic runtime keeps the key that is
+		still armed.  Hard-coding black there dropped the PCC hair once
+		gfdec2 had driven it to 0,0,0 (colours 24/28/29).				*/
+	static unsigned int sw_ckey_sticky = 0x000000u;
 	setBlendMode( mode );
 	if ( mode == 2 ) {
 		/*	Colour-key copy: the classic runtime skips the key-coloured
@@ -1755,11 +1762,28 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 			title menu's per-row strip pick up the neighbouring row's text.
 																					*/
 		glDisable( GL_BLEND );
-		sw_glColorKey( 1, 0x000000u );
+		sw_glColorKey( 1, sw_ckey_sticky );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
-		sw_glColorKey( 1, (unsigned)bm->color & 0xffffffu );
+		sw_ckey_sticky = (unsigned)bm->color & 0xffffffu;
+		sw_glColorKey( 1, sw_ckey_sticky );
 	} else {
 		sw_glColorKey( 0, 0 );
+	}
+	/*	r166 diag: every distinct (mode, bm->color, sticky).				*/
+	{
+		static int sw_ck_last[3] = { -1, -1, -1 };
+		static int sw_ck_n = 0;
+		int sw_ck_col = ( bm != NULL ) ? (int)( bm->color & 0xffffffu ) : -1;
+		int sw_ck_sti = (int)( sw_ckey_sticky & 0xffffffu );
+		if ( ( sw_ck_n < 120 ) &&
+			 ( ( (int)mode != sw_ck_last[0] ) || ( sw_ck_col != sw_ck_last[1] ) ||
+			   ( sw_ck_sti != sw_ck_last[2] ) ) ) {
+			sw_ck_n++;
+			sw_ck_last[0] = (int)mode; sw_ck_last[1] = sw_ck_col; sw_ck_last[2] = sw_ck_sti;
+			sw_fbo_log( "hgio: ckey #%d mode=%d color=%06x sticky=%06x bm=%dx%d\n",
+				sw_ck_n, (int)mode, (unsigned)sw_ck_col, (unsigned)sw_ck_sti,
+				( bm != NULL ) ? (int)bm->sx : -1, ( bm != NULL ) ? (int)bm->sy : -1 );
+		}
 	}
     //ブレンドモード設定
 
