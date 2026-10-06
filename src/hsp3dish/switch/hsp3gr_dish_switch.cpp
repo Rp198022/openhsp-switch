@@ -616,6 +616,7 @@ static int	sw_kbd_empty_tries = 0;
 
 extern int switch_input_ask_text( char *out, int outsize );
 extern int sw_utf8_to_cp932( const char *in, char *out, int outsz );
+extern int sw_script_is_lead( unsigned char c );
 
 /*	Move the next chunk of keyboard text into the injection queue.			*/
 static int sw_kbd_take( void )
@@ -760,10 +761,13 @@ static void sw_key_tick( void )
 	}
 
 	c = (unsigned char)sw_key_buf[sw_key_pos];
-	/*	CP932 sizing: a lead byte carries one trail.  This used to read the
-		queue as UTF-8, which is what the keyboard used to put there.	*/
+	/*	Script-plane sizing: a lead byte carries one trail.  This used to
+		read the queue as UTF-8, and then as CP932 only - in GBK mode all
+		of 0x81-0xFE start a character, so the CP932 ranges split GBK names
+		and could pair a trail byte with the CR behind it (the prompt then
+		waited forever for its Enter).									*/
 	n = 1;
-	if ( ( c >= 0x81 && c <= 0x9f ) || ( c >= 0xe0 && c <= 0xfc ) ) n = 2;
+	if ( sw_script_is_lead( c ) ) n = 2;
 	if ( sw_key_pos + n > sw_key_len ) n = 1;
 	/*	Pick the window whose object should take the character.  The current
 		one is tried first; the satisfied-prompt screen switches between two

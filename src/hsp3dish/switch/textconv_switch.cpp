@@ -1145,6 +1145,20 @@ static int sw_utf8_len( const unsigned char *p )
 static int cp932_to_utf8( const char *in, char *out, int outsz );
 static int sw_is_utf8_text( const char *in );
 static int sw_all_cp932( const char *in );
+/*	Does this byte start a multi-byte character in the ACTIVE script
+	plane?  The injection queue is chunked into characters by this rule
+	(sw_key_tick), and the check used to be the CP932 table alone - while
+	in GBK mode a lead is anything from 0x81 to 0xFE.  A GBK name byte
+	like 0xB6 was therefore split off on its own, and its trail (0xF8)
+	then paired with the CR the system keyboard appends - which ate the
+	Enter and left the naming prompt waiting (2026-10-06, a Chinese name).	*/
+int sw_script_is_lead( unsigned char c )
+{
+	if ( c < 0x81 ) return 0;
+	if ( sw_charset_gbk() ) return ( c <= 0xFE ) ? 1 : 0;
+	return ( ( c <= 0x9F ) || ( c >= 0xE0 && c <= 0xFC ) ) ? 1 : 0;
+}
+
 int sw_utf8_to_cp932( const char *in, char *out, int outsz );
 extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz )
 {
