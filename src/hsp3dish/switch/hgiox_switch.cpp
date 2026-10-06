@@ -859,7 +859,26 @@ static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
 	if ( buf == NULL ) return -1;
 
 	st = sw_find( bm );
-	fbo = ( st != NULL ) ? st->fbo : 0;
+	/*	r154: the main screen is not in the target list, so sw_find()
+		returns NULL for it and fbo 0 (the 1280x720 window buffer) was
+		read instead - the band came out as garbage.  Use the main FBO,
+		the same one sw_dump_fbo() reads when it exports the screen.	*/
+	if ( st != NULL ) {
+		fbo = st->fbo;
+	} else if ( ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_main_ok == 1 ) ) {
+		fbo = sw_main_fbo;
+	} else {
+		fbo = 0;
+	}
+	{
+		static int sw_main_rb_log = 0;
+		if ( sw_main_rb_log < 40 ) {
+			sw_main_rb_log++;
+			printf( "t52 readback fbo=%u main_ok=%d st=%d %dx%d at %d,%d\n",
+				(unsigned)fbo, sw_main_ok, ( st != NULL ) ? 1 : 0, w, h, xx, yy );
+			fflush( stdout );
+		}
+	}
 	sw_bfb(  fbo );
 	/*	No glPixelStorei here: the GLES1 shim does not provide it and the
 		default pack alignment of 4 is already right for RGBA bytes.	*/
