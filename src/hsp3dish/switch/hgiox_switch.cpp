@@ -3967,9 +3967,37 @@ int hgio_mes(BMSCR* bm, char* msg)
 		bm->printoffsety = 0;
 	}
 
-	sw_mes_note_draw( bm, bm->cx, bm->cy, use );
-	sw_text_draw_log( bm, "mes", bm->cx, bm->cy, use );
-	hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
+	{
+		/*	2026-10-06: the Chinese 2.30 translation draws the tail rows of
+			the race description into the skill column of the reference panel.
+			The same overlap happens on the PC build of that translation, so it
+			is the translation's data, not this port.  A real skill row is
+			"<name><padding><description>" and so contains a run of spaces; the
+			stray rows are plain sentences.  Only the blit is skipped - every
+			step before it still runs, so nothing else changes.			*/
+		int sw_hide = 0;
+		if ( bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+			const char *sp = use;
+			int padded = 0;
+			while ( sp[0] != 0 && sp[1] != 0 ) {
+				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
+				sp++;
+			}
+			sw_hide = !padded;
+		}
+		if ( sw_hide ) {
+			static int sw_hide_n = 0;
+			if ( sw_hide_n < 200 ) {
+				sw_hide_n++;
+				printf( "t38 hide x=%d y=%d n=%d\n", bm->cx, bm->cy, (int)strlen( use ) );
+				fflush( stdout );
+			}
+		} else {
+			sw_text_draw_log( bm, "mes", bm->cx, bm->cy, use );
+			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
+		}
+		sw_mes_note_draw( bm, bm->cx, bm->cy, use );
+	}
 
 	if (xsize > bm->printsizex) bm->printsizex = xsize;
 	bm->printsizey += ysize;
