@@ -3764,6 +3764,27 @@ int hgio_mes(BMSCR* bm, char* msg)
 	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
 
+	{
+		/*	r138 diag: plain `mes` is the one text path that comes out
+			doubled / residual on the device, while the same strings drawn
+			through mestex are fine.  Log each draw once (capped) with the
+			tick, the target buffer and its size, the position and the first
+			bytes in hex, so the per-frame sequence can be rebuilt.			*/
+		static int sw_mes_probe = 0;
+		if ( sw_mes_probe < 8000 ) {
+			int k;
+			sw_mes_probe++;
+			printf( "t40 #%d t=%u bm=%p scr=%dx%d x=%d y=%d n=%d :", sw_mes_probe,
+				(unsigned)hgio_gettick(), (void *)bm, (int)bm->sx, (int)bm->sy,
+				(int)bm->cx, (int)bm->cy, (int)strlen( msg ) );
+			for ( k = 0; msg[k] != 0 && k < 12; k++ ) {
+				printf( " %02x", (unsigned char)msg[k] );
+			}
+			printf( "\n" );
+			fflush( stdout );
+		}
+	}
+
 	// print per line
 	if (bm->vp_flag == BMSCR_VPFLAG_NOUSE) {
 		if (bm->cy >= bm->sy) return -1;
