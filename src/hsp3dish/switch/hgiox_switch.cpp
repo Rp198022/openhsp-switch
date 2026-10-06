@@ -2429,20 +2429,6 @@ void hgio_line2( float x, float y )
 
 void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alphamode)
 {
-	/*	r149: clears that touch the message band.					*/
-	{
-		float sw_b_lo = ( y1 < y2 ) ? y1 : y2;
-		float sw_b_hi = ( y1 < y2 ) ? y2 : y1;
-		if ( ( sw_b_hi >= 500.0f ) && ( sw_b_lo <= 610.0f ) ) {
-			static int sw_band_B_n = 0;
-			if ( sw_band_B_n < 1500 ) {
-				sw_band_B_n++;
-				printf( "t48 clearA t=%d x=%.0f..%.0f y=%.0f..%.0f a=%d\n",
-					(int)hgio_gettick(), x1, x2, y1, y2, alphamode );
-				fflush( stdout );
-			}
-		}
-	}
 	//		矩形描画
 	//
 	if ( bm == NULL ) return;
@@ -2929,21 +2915,6 @@ extern "C" void sw_fcgraph_add( int r, int g, int b )
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
-	/*	r148 probe (log only, nothing is skipped): every copy that lands
-		in the message band, with its source identified.  A one-row scroll
-		would show up as bmsrc == bm (screen to itself).				*/
-	if ( ( bm != NULL ) && ( bm->cy >= 500 ) && ( bm->cy <= 600 ) ) {
-		static int sw_band_T_n = 0;
-		if ( sw_band_T_n < 3000 ) {
-			sw_band_T_n++;
-			printf( "t46 copy t=%d dst=%.0f,%.0f size=%.0fx%.0f src=%d,%d srcdim=%dx%d bmsrc=%dx%d self=%d gmode=%d\n",
-				(int)hgio_gettick(), (double)bm->cx, (double)bm->cy, s_psx, s_psy,
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy,
-				( bmsrc != NULL ) ? bmsrc->sx : -1, ( bmsrc != NULL ) ? bmsrc->sy : -1,
-				( bmsrc == bm ) ? 1 : 0, (int)bm->gmode );
-			fflush( stdout );
-		}
-	}
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
 	//		カレントポジション、描画モードはBMSCRから取得
@@ -3786,17 +3757,6 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 
 int hgio_mes(BMSCR* bm, char* msg)
 {
-	/*	r149: text draws that land in the message band.				*/
-	if ( ( bm != NULL ) && ( bm->cy >= 500.0f ) && ( bm->cy <= 610.0f ) ) {
-		static int sw_band_M_n = 0;
-		if ( sw_band_M_n < 1500 ) {
-			sw_band_M_n++;
-			printf( "t47 mes t=%d x=%.0f y=%.0f n=%d\n",
-				(int)hgio_gettick(), (double)bm->cx, (double)bm->cy,
-				( msg != NULL ) ? (int)strlen( msg ) : -1 );
-			fflush( stdout );
-		}
-	}
 	//		mes,print 文字表示
 	//
 	int xsize, ysize;
