@@ -846,6 +846,38 @@ static int sw_scratch_ensure( int w, int h )
 	the band went blank), but glReadPixels always sees what is on screen.
 	Both glReadPixels output and the scratch texture are bottom-up, so the
 	pixels go in as-is and match the UVs the staging path already uses.  */
+/*	r155: write a raw RGBA buffer as a 32-bit BMP (bottom-up, no flip). */
+static void sw_write_bmp_rgba( const char *name, const unsigned char *data,
+							   int w, int h )
+{
+	FILE *fp;
+	unsigned char hdr[54];
+	int i, rowsz, filesize;
+
+	if ( w <= 0 || h <= 0 || data == NULL ) return;
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+	fp = fopen( name, "wb" );
+	if ( fp == NULL ) return;
+	fwrite( hdr, 1, 54, fp );
+	fwrite( data, 1, (size_t)rowsz * h, fp );
+	fclose( fp );
+}
+
 static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
 {
 	unsigned char *buf;
@@ -884,6 +916,20 @@ static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
 		default pack alignment of 4 is already right for RGBA bytes.	*/
 	glReadPixels( xx, yy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
 
+	{
+		/*	r155: what did glReadPixels actually give us, and did it make
+			it into the scratch texture?								*/
+		static int sw_rb_dumped = 0;
+		if ( sw_rb_dumped < 3 ) {
+			char nm[48];
+			sw_rb_dumped++;
+			snprintf( nm, sizeof( nm ), "sdmc:/dump/rb%d_raw.bmp", sw_rb_dumped );
+			sw_write_bmp_rgba( nm, buf, w, h );
+			printf( "t53 dumped %s %dx%d from fbo=%u at %d,%d\n",
+				nm, w, h, (unsigned)fbo, xx, yy );
+			fflush( stdout );
+		}
+	}
 	ChangeTex( -1 );
 	glBindTexture( GL_TEXTURE_2D, sw_scratch_tex );
 	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, w, h,
