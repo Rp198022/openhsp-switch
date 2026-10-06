@@ -3897,15 +3897,15 @@ int hgio_mes(BMSCR* bm, char* msg)
 #ifdef __SWITCH__
 	/*	t31: the skill column of the reference panel (x ~ 292) drew the
 		race description over the skill rows - show what string arrives.	*/
-	if ( bm->cx >= 285 && bm->cx <= 300 && bm->cy >= 280 && bm->cy <= 470 ) {
+	if ( bm->cx >= 240 && bm->cx <= 340 && bm->cy >= 90 && bm->cy <= 520 ) {
 		static int n31 = 0;
-		if ( n31 < 1500 ) {
+		if ( n31 < 3000 ) {
 			int i31;
 			{
 				extern void sw_probe_pc( const char *tag );
 				sw_probe_pc( "t33pc" );
 			}
-			printf( "t33hex #%d x=%d y=%d n=%d :", n31, bm->cx, bm->cy, (int)strlen( msg ) );
+			printf( "t33hex #%d x=%d y=%d n=%d p=%p :", n31, bm->cx, bm->cy, (int)strlen( msg ), (void *)msg );
 			for ( i31 = 0; msg[i31] != 0 && i31 < 80; i31++ ) printf( " %02x", (unsigned char)msg[i31] );
 			printf( "\n" );
 			fflush( stdout );

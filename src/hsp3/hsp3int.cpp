@@ -1086,6 +1086,18 @@ static int cmdfunc_intcmd( int cmd )
 		aptr = code_getva( &pval );
 		p1 = code_getdi( 0 );
 		p = note.GetLineDirect( p1 );
+		{
+			static int sw_note_n = 0;
+			if ( sw_note_n < 3000 && ctx != NULL ) {
+				int sw_i;
+				sw_note_n++;
+				printf( "t34 noteget #%d cs=%ld line=%d n=%d :", sw_note_n,
+					(long)( code_getpcbak() - ctx->mem_mcs ), p1, (int)strlen( p ) );
+				for ( sw_i = 0; p[sw_i] != 0 && sw_i < 160; sw_i++ ) printf( " %02x", (unsigned char)p[sw_i] );
+				printf( "\n" );
+				fflush( stdout );
+			}
+		}
 		code_setva( pval, aptr, TYPE_STRING, p );
 		note.ResumeLineDirect();
 		break;
