@@ -139,7 +139,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r135\n" );
+		printf( "hsp3switch: build r136\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -265,18 +265,6 @@ static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 	//
 	if ( argc < 2 ) return 0;
 	word = ( args[0].ptr != NULL ) ? *(int *)args[0].ptr : args[0].ival;
-	{
-		//	P3 DIAGNOSTIC: which bit the script is asking about, and the answer.
-		//	Only bits that are set are printed, so one key press produces one
-		//	line - the index here is what selects jkey(n).
-		//
-		static int bit_trace = 0;
-		if ( bit_trace < 120 && ( ( word >> ( args[1].ival & 31 ) ) & 1 ) != 0 ) {
-			printf( "hsp3switch: ### bitcheck bit=%d word=0x%04x -> set\n", (int)args[1].ival, (unsigned)word );
-			fflush( stdout );
-			bit_trace++;
-		}
-	}
 	return ( ( word >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT */
 }
 
@@ -432,8 +420,6 @@ static int impl_RemoveDirectoryA( const DllArgValue *args, int argc )
 		fflush( stdout );
 		return 0;
 	}
-	printf( "hsp3switch: RemoveDirectory '%s'\n", use );
-	fflush( stdout );
 	return 1;
 }
 
@@ -587,9 +573,6 @@ static HspdaItem *hspda_dtmp = NULL;
 static PVal *hspda_note_pval = NULL;	//	xnotesel's target variable
 static APTR hspda_note_aptr = 0;
 
-static void hspda_probe( const char *who, const char *what );		// TEMPORARY P3 DIAGNOSTIC
-static void hspda_probe_args( const char *who, const DllArgValue *args, int argc );
-
 static void hspda_data_bye( void )
 {
 	if ( hspda_dtmp != NULL ) {
@@ -684,15 +667,8 @@ static void hspda_addline( PVal *pval, APTR aptr, int len, char *add )
 //
 static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 {
-	PVal *pval;
-	int maxnum;
-
-	pval = (PVal *)args[0].ptr;
-	maxnum = ( argc > 1 ) ? args[1].ival : 0;
-	if ( maxnum == 0 ) maxnum = 256;			// the plugin's default
-	printf( "hsp3switch: ## xnotesel pval=%d type=%d maxnum=%d\n",
-			( pval != NULL ), ( pval == NULL ) ? -1 : (int)pval->flag, maxnum );
-	fflush( stdout );
+	(void)args;
+	(void)argc;
 	return -1;					// no-op; see the note at the top of the file
 }
 
@@ -704,8 +680,6 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 	int size, line;
 
 	add = (char *)args[1].ptr;
-	printf( "hsp3switch: ## xnoteadd text='%.40s'\n", ( add == NULL ) ? "" : add );
-	fflush( stdout );
 	return -1;					// no-op; see the note at the top of the file
 
 	(void)add;
@@ -736,17 +710,8 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 	APTR aptr;
 	int order, i, count;
 
-	hspda_probe_args( "sortval", args, argc );		// TEMPORARY P3 DIAGNOSTIC
-	hspda_probe( "sortval", "entry" );
 	aptr = code_getva( &pval );
-	hspda_probe( "sortval", "arg0" );
-	printf( "hsp3switch: ### sortval arg0: flag=%d aptr=%d len1=%d\n",
-		( pval == NULL ) ? -1 : (int)pval->flag, aptr,
-		( pval == NULL ) ? -1 : (int)pval->len[1] );
 	order = code_getdi( -123456 );
-	hspda_probe( "sortval", "arg1" );
-	printf( "hsp3switch: ### sortval arg1: order=%d\n", order );
-	fflush( stdout );
 
 	return 0;		// TEMPORARY: the real sort returns once the shape is known
 
@@ -796,22 +761,8 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	char *buf, *p, *dst;
 	int order, i, count, size, len;
 
-	hspda_probe_args( "sortnote", args, argc );		// TEMPORARY P3 DIAGNOSTIC
-	hspda_probe( "sortnote", "entry" );
 	aptr = code_getva( &pval );
-	hspda_probe( "sortnote", "arg0" );
-	if ( pval != NULL && pval->flag == HSPVAR_FLAG_STR ) {
-		char *s = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
-		printf( "hsp3switch: ### sortnote arg0: STR aptr=%d size=%d head='%.60s'\n",
-			aptr, size, ( s == NULL ) ? "" : s );
-	} else {
-		printf( "hsp3switch: ### sortnote arg0: flag=%d aptr=%d\n",
-			( pval == NULL ) ? -1 : (int)pval->flag, aptr );
-	}
 	order = code_getdi( -123456 );
-	hspda_probe( "sortnote", "arg1" );
-	printf( "hsp3switch: ### sortnote arg1: order=%d\n", order );
-	fflush( stdout );
 
 	return 0;		// TEMPORARY: the real sort returns once the shape is known
 
@@ -884,49 +835,6 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	code_setva( pval, aptr, HSPVAR_FLAG_STR, dst );
 
 	return 0;
-}
-
-//	TEMPORARY P3 DIAGNOSTIC - remove once the hspda argument shapes are known.
-//
-//	Reading the arguments off the bytecode stream by hand only works if the
-//	entry really is the OLDDLL form assumed in the section above; if it is not,
-//	the reads desynchronise the stream and the next fetched word is executed as
-//	an instruction, which is a hard fault rather than an HSP error (p3s19 died
-//	exactly that way, without even reaching the teardown).
-//
-//	p3s20 tried to print the stream instead and added a worse fault: hspctx->mcs
-//	is NOT the interpreter's live code pointer - that is a file-static inside
-//	hsp3code.cpp, and the struct field is only ever maintained by hsp3cnv's
-//	converter (chsp3.cpp:162) - so the dump dereferenced stale memory and the
-//	run died before it named anything.
-//
-//	code_getpcbak() is the supported view: it returns the token the interpreter
-//	has just consumed, which is exactly the operand being reported.  Every read
-//	is therefore logged twice - the raw token words, decoded the way __code_next
-//	() does, and the value the runtime API returned for that same operand.
-//
-static void hspda_probe( const char *who, const char *what )
-{
-	unsigned short *pc = code_getpcbak();
-
-	printf( "hsp3switch: ### %s %s: token@%ld = %#06x %#06x %#06x [type=%d exflg=%x]\n",
-		who, what, (long)( pc - hspctx->mem_mcs ),
-		(unsigned)pc[0], (unsigned)pc[1], (unsigned)pc[2],
-		(int)( pc[0] & 0x0fff ), (int)( pc[0] & 0x6000 ) );
-	fflush( stdout );
-}
-
-static void hspda_probe_args( const char *who, const DllArgValue *args, int argc )
-{
-	int i;
-
-	printf( "hsp3switch: ### %s: argc=%d\n", who, argc );
-	for ( i = 0; i < argc; i++ ) {
-		printf( "   arg%d mptype=%d ival=%d dval=%g ptr=%p str='%.32s'\n",
-			i, args[i].type, args[i].ival, args[i].dval, args[i].ptr,
-			( args[i].ptr == NULL ) ? "" : (const char *)args[i].ptr );
-	}
-	fflush( stdout );
 }
 
 /*----------------------------------------------------------------*/
@@ -1191,10 +1099,6 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 	if ( slot == 0 ) { gzclose( gz ); *(int *)args[0].ptr = 0; return 0; }
 	*(int *)args[0].ptr = slot;
 	zlib_open_n++;
-	if ( zlib_open_n <= 40 ) {
-		printf( "hsp3switch: zOpen '%s' (mode %d) -> h=%d\n", path, mode, slot );
-		fflush( stdout );
-	}
 	return 0;
 }
 
@@ -1210,11 +1114,6 @@ static int impl_zlib_zread( const DllArgValue *args, int argc )
 	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
 	got = (size_t)gzread( gz, args[0].ptr, (unsigned)want );
 	zlib_read_n++;
-	if ( zlib_read_n <= 40 ) {
-		printf( "hsp3switch: zRead h=%d want=%u got=%u\n",
-			args[1].ival, (unsigned)want, (unsigned)got );
-		fflush( stdout );
-	}
 	return 0;
 }
 
@@ -1230,11 +1129,6 @@ static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
 	put = (size_t)gzwrite( gz, args[0].ptr, (unsigned)want );
 	zlib_write_n++;
-	if ( zlib_write_n <= 40 ) {
-		printf( "hsp3switch: zWrite h=%d want=%u put=%u\n",
-			args[1].ival, (unsigned)want, (unsigned)put );
-		fflush( stdout );
-	}
 	return 0;
 }
 
@@ -1251,10 +1145,6 @@ static int impl_zlib_zclose( const DllArgValue *args, int argc )
 		zlib_port[handle - 1] = NULL;
 	}
 	zlib_close_n++;
-	if ( zlib_close_n <= 40 ) {
-		printf( "hsp3switch: zClose h=%d\n", handle );
-		fflush( stdout );
-	}
 	return 0;
 }
 #else
@@ -1663,9 +1553,6 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 				answering NULL leaves the operand stream exactly where the call
 				wants to end.  The imm32 / menu / file-dialog stubs ignore the
 				value anyway.											*/
-			printf( "hsp3switch: ### %s: argument %d (sptr) absent -> NULL\n",
-				sw_dll_desc, sw_dll_argi );
-			fflush( stdout );
 			v->ival = 0;
 			v->ptr = NULL;
 			break;
