@@ -2294,6 +2294,17 @@ void hgio_pset( float x, float y )
 
 
 //矩形の描画
+/*	r145 diag: message band = bottom strip of the 800x600 screen.
+	A draw is "in the band" when its rectangle overlaps y 500..640.
+	sw_band_desc carries what was skipped, for the log.			*/
+static char sw_band_desc[80];
+static int sw_band_hit( float y1, float y2 )
+{
+	float lo = ( y1 < y2 ) ? y1 : y2;
+	float hi = ( y1 < y2 ) ? y2 : y1;
+	return ( hi >= 500.0f ) && ( lo <= 640.0f );
+}
+
 void hgio_rect( float x, float y, float w, float h )
 {
 	sw_trc( "rect", NULL, x, y, w, h );
@@ -2435,17 +2446,6 @@ void hgio_line2( float x, float y )
     glDrawArrays(GL_LINE_STRIP,0,2);
 }
 
-
-/*	r145 diag: message band = bottom strip of the 800x600 screen.
-	A draw is "in the band" when its rectangle overlaps y 500..640.
-	sw_band_desc carries what was skipped, for the log.			*/
-static char sw_band_desc[80];
-static int sw_band_hit( float y1, float y2 )
-{
-	float lo = ( y1 < y2 ) ? y1 : y2;
-	float hi = ( y1 < y2 ) ? y2 : y1;
-	return ( hi >= 500.0f ) && ( lo <= 640.0f );
-}
 
 void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alphamode)
 {
