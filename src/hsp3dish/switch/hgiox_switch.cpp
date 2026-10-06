@@ -4199,15 +4199,31 @@ int hgio_render_end( void )
 		static int sw_shot_n = 0;
 		static unsigned sw_shot_next = 0;
 		unsigned sw_now = (unsigned)hgio_gettick();
-		if ( sw_shot_n < 8 ) {
-			if ( sw_shot_next == 0 ) sw_shot_next = sw_now + 20000;
+		if ( sw_shot_n < 2 ) {
+			if ( sw_shot_next == 0 ) sw_shot_next = sw_now + 45000;
 			if ( sw_now >= sw_shot_next ) {
 				char pfx[24];
 				char wnm[40];
 				sw_shot_n++;
-				sw_shot_next = sw_now + 15000;
+				sw_shot_next = sw_now + 60000;
 				snprintf( pfx, sizeof( pfx ), "shot%d", sw_shot_n );
-				sw_dump_all( pfx );
+				snprintf( wnm, sizeof( wnm ), "%s_main.bmp", pfx );
+				sw_dump_fbo( wnm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+					(int)_bgsx, (int)_bgsy );
+				{
+					/*	only the big offscreen screen - the one the message
+						band is copied from.  Walking every target is what
+						made r142 unusable.								*/
+					int si;
+					for ( si = 0; si < sw_target_used; si++ ) {
+						if ( sw_targets[si].bm == NULL ) continue;
+						if ( sw_targets[si].bm->sx < 1000 ) continue;
+						snprintf( wnm, sizeof( wnm ), "%s_src.bmp", pfx );
+						sw_dump_fbo( wnm, sw_targets[si].fbo,
+							sw_targets[si].bm->sx, sw_targets[si].bm->sy );
+						break;
+					}
+				}
 				snprintf( wnm, sizeof( wnm ), "%s_win.bmp", pfx );
 				sw_dump_fbo( wnm, 0, (int)_sizex, (int)_sizey );
 				printf( "hsp3switch: shot %d at t=%u\n", sw_shot_n, sw_now );
