@@ -1745,6 +1745,12 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 	/*	gmode 2 and gmode 4 carry the picture's colour key in the classic
 		runtime, so the key pixels must not be painted.  Every other path
 		(setBlendMode() below) turns the key back off. */
+	/*	r163: sticky, like the classic ck1..ck3.  gmode 2 only gets the
+		COLKEY attribute there and keeps whatever key was set last; only
+		gmode 4 calls SetPolyColorKey().  Hard-coding black here dropped
+		pixels the classic runtime keeps - the PCC hair colours that tint
+		to 0,0,0 lost their hair.											*/
+	static unsigned int sw_ckey_sticky = 0x000000u;
 	setBlendMode( mode );
 	if ( mode == 2 ) {
 		/*	Colour-key copy: the classic runtime skips the key-coloured
@@ -1755,11 +1761,24 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 			title menu's per-row strip pick up the neighbouring row's text.
 																					*/
 		glDisable( GL_BLEND );
-		sw_glColorKey( 1, 0x000000u );
+		sw_glColorKey( 1, sw_ckey_sticky );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
-		sw_glColorKey( 1, (unsigned)bm->color & 0xffffffu );
+		sw_ckey_sticky = (unsigned)bm->color & 0xffffffu;
+		sw_glColorKey( 1, sw_ckey_sticky );
 	} else {
 		sw_glColorKey( 0, 0 );
+	}
+	/*	r163 diag: which key each gmode actually used.					*/
+	{
+		static int sw_ck_last[2] = { -1, -1 };
+		int sw_ck_now = (int)( sw_ckey_sticky & 0xffffffu );
+		int sw_ck_col = ( bm != NULL ) ? (int)( bm->color & 0xffffffu ) : -1;
+		if ( ( (int)mode != sw_ck_last[0] ) || ( sw_ck_now != sw_ck_last[1] ) ) {
+			sw_ck_last[0] = (int)mode;
+			sw_ck_last[1] = sw_ck_now;
+			sw_fbo_log( "hgio: ckey mode=%d sticky=%06x color=%06x\n",
+				(int)mode, (unsigned)sw_ck_now, (unsigned)sw_ck_col );
+		}
 	}
     //ブレンドモード設定
 
