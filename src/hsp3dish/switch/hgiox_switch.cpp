@@ -861,7 +861,8 @@ static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
 	st = sw_find( bm );
 	fbo = ( st != NULL ) ? st->fbo : 0;
 	sw_bfb(  fbo );
-	glPixelStorei( GL_PACK_ALIGNMENT, 4 );
+	/*	No glPixelStorei here: the GLES1 shim does not provide it and the
+		default pack alignment of 4 is already right for RGBA bytes.	*/
 	glReadPixels( xx, yy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
 
 	ChangeTex( -1 );
