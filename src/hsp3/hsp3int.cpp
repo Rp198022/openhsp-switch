@@ -1314,16 +1314,31 @@ static int cmdfunc_intcmd( int cmd )
 		APTR ap;
 
 		ap = code_getva( &pv );		// パラメータ1:変数
-		p = (char*)HspVarCorePtrAPTR(pv, ap);
-
 		sflag = code_getdi( 0 );	// パラメータ2:数値
 
+		/*	Only a string note can be sorted here.  The game also calls this
+			with an empty note (userNpc_update) - the original threw on that
+			and the run died with err=3, so anything unusable is left alone,
+			which is what the previous no-op did anyway.				*/
+		if ( pv->flag != HSPVAR_FLAG_STR ) break;
+		p = (char*)HspVarCorePtrAPTR(pv, ap);
+		if ( p == NULL ) break;
+
 		i = GetNoteLines(p);
-		if ( i <= 0 ) throw HSPERR_ILLEGAL_FUNCTION;
+		{
+			static int sw_sortnote_n = 0;
+			if ( sw_sortnote_n < 60 && ctx != NULL ) {
+				sw_sortnote_n++;
+				printf( "t36 sortnote #%d cs=%ld flag=%d lines=%d\n", sw_sortnote_n,
+					(long)( code_getpcbak() - ctx->mem_mcs ), (int)pv->flag, i );
+				fflush( stdout );
+			}
+		}
+		if ( i <= 0 ) break;
 
 		DataIni( i );
 		i = NoteToData( p, dtmp, i );	// bounded: never writes past DataIni()
-		if ( i <= 0 ) throw HSPERR_ILLEGAL_FUNCTION;
+		if ( i <= 0 ) break;
 		if (sflag == 0) {
 			std::sort(dtmp, dtmp + i, less_str_1);
 		}
