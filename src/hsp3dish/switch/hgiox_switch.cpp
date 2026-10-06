@@ -3087,39 +3087,13 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				( (int)srcsx == (int)psx ) && ( (int)srcsy == (int)psy );
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
-				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );
-		/*	r151 diag: why a self-copy does or does not take the scratch path. */
-		if ( bmsrc == bm ) {
-			static int sw_sc_probe = 0;
-			if ( sw_sc_probe < 200 ) {
-				sw_sc_probe++;
-				printf( "t50 selfcopy bmtex=%d srctex=%d main=%d same=%d ov=%d "
-					"src=%d,%d %dx%d dst=%d,%d ps=%gx%g\n",
-					(int)bm->texid, (int)bmsrc->texid,
-					( bm->type == HSPWND_TYPE_MAIN ) ? 1 : 0, sw_same, sw_ov,
-					sx0, sy0, (int)srcsx, (int)srcsy, dx0, dy0,
-					(double)psx, (double)psy );
-				fflush( stdout );
-			}
-		}
-	}
-	/*	r150: the main screen used to be excluded here, which is why the
-		message log's 664x45 self-copy was read back row-by-row and came
-		out one row behind.  An EXACT self-copy (sw_same, e.g. the title
-		screen's full 800x600) is still kept on the direct path by sw_ov
-		being 0 - staging that one made the screen black.					*/
-	if ( ( bm->texid == bmsrc->texid ) &&
+				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );	}
+	/*	r152: r150 tried to let the main screen stage its overlapping
+		self-copies and wiped the message log instead, so the main screen
+		is excluded again.  Whatever fixes the band has to work without
+		relying on the main screen's texture holding live pixels.			*/
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
-		if ( bm->type == HSPWND_TYPE_MAIN ) {
-			static int sw_main_scrat_n = 0;
-			if ( sw_main_scrat_n < 200 ) {
-				sw_main_scrat_n++;
-				printf( "t49 main-scratch %d,%d %dx%d -> %g,%g ov=%d\n",
-					(int)xx, (int)yy, (int)srcsx, (int)srcsy,
-					(double)bm->cx, (double)bm->cy, sw_ov );
-				fflush( stdout );
-			}
-		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
