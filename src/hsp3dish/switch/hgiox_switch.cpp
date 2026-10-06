@@ -3813,6 +3813,25 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
 }
 
+/*	r125 diag: the whole mes argument (hex) for draws in the skill column,
+	with the number of line breaks it carries.						*/
+void sw_printsub_whole( int x, int y, const char *s )
+{
+	static int n = 0;
+	int i, brk = 0;
+	if ( s == NULL ) return;
+	if ( !( x >= 285 && x <= 300 && y >= 280 && y <= 470 ) ) return;
+	if ( n >= 200 ) return;
+	n++;
+	for ( i = 0; s[i] != 0; i++ ) {
+		if ( s[i] == '\r' || s[i] == '\n' ) brk++;
+	}
+	printf( "t32hex #%d x=%d y=%d n=%d brk=%d :", n, x, y, (int)strlen( s ), brk );
+	for ( i = 0; s[i] != 0 && i < 200; i++ ) printf( " %02x", (unsigned char)s[i] );
+	printf( "\n" );
+	fflush( stdout );
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
