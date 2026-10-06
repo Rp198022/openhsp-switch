@@ -2429,6 +2429,20 @@ void hgio_line2( float x, float y )
 
 void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alphamode)
 {
+	/*	r149: clears that touch the message band.					*/
+	{
+		float sw_b_lo = ( y1 < y2 ) ? y1 : y2;
+		float sw_b_hi = ( y1 < y2 ) ? y2 : y1;
+		if ( ( sw_b_hi >= 500.0f ) && ( sw_b_lo <= 610.0f ) ) {
+			static int sw_band_B_n = 0;
+			if ( sw_band_B_n < 1500 ) {
+				sw_band_B_n++;
+				printf( "t48 clearA t=%d x=%.0f..%.0f y=%.0f..%.0f a=%d\n",
+					(int)hgio_gettick(), x1, x2, y1, y2, alphamode );
+				fflush( stdout );
+			}
+		}
+	}
 	//		矩形描画
 	//
 	if ( bm == NULL ) return;
@@ -3769,6 +3783,17 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 
 int hgio_mes(BMSCR* bm, char* msg)
 {
+	/*	r149: text draws that land in the message band.				*/
+	if ( ( bm != NULL ) && ( bm->cy >= 500.0f ) && ( bm->cy <= 610.0f ) ) {
+		static int sw_band_M_n = 0;
+		if ( sw_band_M_n < 1500 ) {
+			sw_band_M_n++;
+			printf( "t47 mes t=%d x=%.0f y=%.0f n=%d\n",
+				(int)hgio_gettick(), (double)bm->cx, (double)bm->cy,
+				( msg != NULL ) ? (int)strlen( msg ) : -1 );
+			fflush( stdout );
+		}
+	}
 	//		mes,print 文字表示
 	//
 	int xsize, ysize;
