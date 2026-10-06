@@ -2915,18 +2915,23 @@ extern "C" void sw_fcgraph_add( int r, int g, int b )
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
-	/*	r146 probe (log only, never skips): the destination is the current
-		position bm->cx/cy - (xx,yy) above are SOURCE coords in bmsrc.		*/
-	if ( ( bm != NULL ) && ( bm->cy >= 500 ) && ( bm->cy <= 640 ) ) {
-		static int sw_band_C_n = 0;
-		if ( sw_band_C_n < 400 ) {
-			sw_band_C_n++;
-			printf( "t44 copy dst=%.0f,%.0f src=%d,%d srcdim=%dx%d dstsize=%.0fx%.0f bmsrc=%dx%d gmode=%d\n",
-				(double)bm->cx, (double)bm->cy, (int)xx, (int)yy,
-				(int)srcsx, (int)srcsy, s_psx, s_psy,
-				bmsrc ? bmsrc->sx : -1, bmsrc ? bmsrc->sy : -1, (int)bm->gmode );
+	/*	r147: a 12-row x 34-column grid of 5x5 blocks taken from the
+		1584x1632 atlas (gmode 2, translucent) is tiled over x688..804 /
+		y528..570, i.e. straight on top of the message log text.  Only that
+		rectangle is dropped; every other copy still draws.				*/
+	if ( ( bm != NULL ) && ( bmsrc != NULL )
+		&& ( bmsrc->sx == 1584 ) && ( bmsrc->sy == 1632 )
+		&& ( (int)s_psx == 5 ) && ( (int)s_psy == 5 )
+		&& ( bm->cy >= 520.0f ) && ( bm->cy <= 580.0f )
+		&& ( bm->cx >= 680.0f ) && ( bm->cx <= 812.0f ) ) {
+		static int sw_band_S_n = 0;
+		if ( sw_band_S_n < 200 ) {
+			sw_band_S_n++;
+			printf( "t45 skip dst=%.0f,%.0f src=%d,%d\n",
+				(double)bm->cx, (double)bm->cy, (int)xx, (int)yy );
 			fflush( stdout );
 		}
+		return;
 	}
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
