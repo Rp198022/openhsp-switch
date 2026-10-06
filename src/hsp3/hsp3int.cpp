@@ -111,11 +111,11 @@ static bool less_str_0(DATA const& lhs, DATA const& rhs)
 }
 
 
-static int NoteToData( char *adr, DATA *data )
+static int NoteToData( char *adr, DATA *data, int max )
 {
 	char *p = adr;
 	int line = 0;
-	while (*p != '\0') {
+	while (*p != '\0' && line < max) {
 		data[line].as.skey=p;
 		data[line].info=line;
 		while (*p != '\0') {
@@ -1305,15 +1305,36 @@ static int cmdfunc_intcmd( int cmd )
 		break;
 		}
 
-	case 0x02f:								// sortnote (stub: no-op to avoid array overflow on Switch)
+	case 0x02f:								// sortnote
 		{
+		int i,sflag;
+		char *p;
+		char *stmp;
 		PVal *pv;
 		APTR ap;
-		printf( "hsp3int: sortnote stub entry\n" );
+
 		ap = code_getva( &pv );		// パラメータ1:変数
-		printf( "hsp3int: sortnote stub got va\n" );
-		code_getdi( 0 );	// パラメータ2:数値
-		printf( "hsp3int: sortnote stub done\n" );
+		p = (char*)HspVarCorePtrAPTR(pv, ap);
+
+		sflag = code_getdi( 0 );	// パラメータ2:数値
+
+		i = GetNoteLines(p);
+		if ( i <= 0 ) throw HSPERR_ILLEGAL_FUNCTION;
+
+		DataIni( i );
+		i = NoteToData( p, dtmp, i );	// bounded: never writes past DataIni()
+		if ( i <= 0 ) throw HSPERR_ILLEGAL_FUNCTION;
+		if (sflag == 0) {
+			std::sort(dtmp, dtmp + i, less_str_1);
+		}
+		else {
+			std::sort(dtmp, dtmp + i, less_str_0);
+		}
+
+		stmp = code_stmp( (int)DataToNoteLen( dtmp, i ) + 1 );
+		DataToNote( dtmp, stmp, i );
+
+		code_setva( pv, ap, HSPVAR_FLAG_STR, stmp );	// 変数に値を代入
 		break;
 		}
 
