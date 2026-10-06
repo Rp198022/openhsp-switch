@@ -884,12 +884,11 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 }
 
 
-#define SW_DUMP_MAX_PIXELS 500000L
+#define SW_DUMP_MAX_PIXELS 2000000L
 
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
-	if ( !SW_FBO_HEAVY ) return;
 	if ( !SWITCH_DIAG ) return;
 	unsigned char *p;
 	FILE *fp;
@@ -4191,6 +4190,31 @@ int hgio_render_end( void )
 		the swap has not happened yet, so this is the point to draw them.  */
 	switch_overlay_draw( (int)_sizex, (int)_sizey, (int)_originX,
 		(int)( _bgsx * _scaleX ) );
+
+	/*	r142 diag: a few snapshots during the first minutes, so a device
+		run can be inspected pixel by pixel.  Main screen, window, and
+		every offscreen screen (including the 1440x800 one the message
+		band is copied from) all land in sdmc:/dump/.					*/
+	{
+		static int sw_shot_n = 0;
+		static unsigned sw_shot_next = 0;
+		unsigned sw_now = (unsigned)hgio_gettick();
+		if ( sw_shot_n < 8 ) {
+			if ( sw_shot_next == 0 ) sw_shot_next = sw_now + 20000;
+			if ( sw_now >= sw_shot_next ) {
+				char pfx[24];
+				char wnm[40];
+				sw_shot_n++;
+				sw_shot_next = sw_now + 15000;
+				snprintf( pfx, sizeof( pfx ), "shot%d", sw_shot_n );
+				sw_dump_all( pfx );
+				snprintf( wnm, sizeof( wnm ), "%s_win.bmp", pfx );
+				sw_dump_fbo( wnm, 0, (int)_sizex, (int)_sizey );
+				printf( "hsp3switch: shot %d at t=%u\n", sw_shot_n, sw_now );
+				fflush( stdout );
+			}
+		}
+	}
 
 
 #if defined(HSPRASPBIAN) || defined(HSPNDK)
