@@ -2892,6 +2892,27 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 		the sample lands - the failure shows up as un-subtracted or missing
 		PCC parts.  Eden renders on the host GPU too, so it needs the stall. */
 	glFinish();
+	/*	r165 diag: what did that pass actually leave behind?  Read the
+		centre of the tinted rectangle straight back.					*/
+	{
+		static int sw_fc_back_n = 0;
+		if ( sw_fc_back_n < 60 ) {
+			unsigned char px[4];
+			int rx = sw_fc_lock_px + ( w / 2 );
+			int ry = sw_fc_lock_py + ( h / 2 );
+			int dh2 = (int)bm->sy;
+			if ( dh2 <= 0 ) dh2 = 600;
+			if ( rx < 0 ) rx = 0;
+			if ( ry < 0 ) ry = 0;
+			px[0] = px[1] = px[2] = px[3] = 0;
+			glReadPixels( rx, dh2 - 1 - ry, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px );
+			sw_fc_back_n++;
+			sw_fbo_log( "hgio: fcback n=%d %s rgb=%d,%d,%d at %d,%d size=%dx%d px=%d,%d,%d,%d\n",
+				sw_fc_back_n, add ? "inc" : "sub", r, g, b,
+				sw_fc_lock_px, sw_fc_lock_py, w, h,
+				px[0], px[1], px[2], px[3] );
+		}
+	}
 	if ( eq_ok != 0 ) glBlendEquation( GL_FUNC_ADD );
 	if ( tex2d_was ) glEnable( GL_TEXTURE_2D );
 
