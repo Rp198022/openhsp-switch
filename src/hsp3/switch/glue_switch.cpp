@@ -610,6 +610,20 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		use = fixed;
 	}
 
+	/*	The card's config.txt is read-only in this build.  Elona's
+		environment-settings menu rewrites it with notesave(), and a screen
+		size or a drawing option this backend cannot honour hangs the
+		console on the next start.  Divert the write to a file nothing reads
+		so the call still reports success; reads come through here untouched.	*/
+	if ( glue_fopen_writes( mode ) ) {
+		size_t pl = strlen( use );
+		if ( ( pl >= 11 ) && ( strcmp( use + pl - 11, "/config.txt" ) == 0 ) ) {
+			printf( "hsp3file: config.txt is read-only, write discarded\n" );
+			fflush( stdout );
+			return __real_fopen( "sdmc:/switch/openhsp/tmp/config.ro", mode );
+		}
+	}
+
 	fp = __real_fopen( use, mode );
 	if ( fp == NULL && glue_fopen_writes( mode ) ) {
 		/*	A write cannot create its own folders, and the card run that

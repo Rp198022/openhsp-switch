@@ -269,7 +269,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 1			/* P3: on while the fcgraph colour pass is traced */
+#define SWITCH_DIAG 0			/* shipping build: probes compiled out */
 #endif
 
 /*	The three heavy diagnostics: the SD-card copy of every log line, the
@@ -1745,13 +1745,6 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 	/*	gmode 2 and gmode 4 carry the picture's colour key in the classic
 		runtime, so the key pixels must not be painted.  Every other path
 		(setBlendMode() below) turns the key back off. */
-	/*	r166: sticky, like the classic runtime.  chips.hsp create_pcpic
-		arms gmode 4 with the picture's own background (color 43,133,133),
-		copies with that key, tints the part, then copies it back with
-		gmode 2 - which in the classic runtime keeps the key that is
-		still armed.  Hard-coding black there dropped the PCC hair once
-		gfdec2 had driven it to 0,0,0 (colours 24/28/29).				*/
-	static unsigned int sw_ckey_sticky = 0x000000u;
 	setBlendMode( mode );
 	if ( mode == 2 ) {
 		/*	Colour-key copy: the classic runtime skips the key-coloured
@@ -1764,31 +1757,9 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		glDisable( GL_BLEND );
 		sw_glColorKey( 1, 0x000000u );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
-		sw_ckey_sticky = (unsigned)bm->color & 0xffffffu;
-		sw_glColorKey( 1, sw_ckey_sticky );
+		sw_glColorKey( 1, (unsigned)bm->color & 0xffffffu );
 	} else {
 		sw_glColorKey( 0, 0 );
-	}
-	/*	r166 diag: every distinct (mode, bm->color, sticky).				*/
-	{
-		static int sw_ck_last[3] = { -1, -1, -1 };
-		static int sw_ck_n = 0;
-		int sw_ck_col = ( bm != NULL ) ? (int)( bm->color & 0xffffffu ) : -1;
-		int sw_ck_sti = (int)( sw_ckey_sticky & 0xffffffu );
-		/*	r167: only the PCC sheet (384x198) and its 128-wide tint
-			rectangle - the menu filled the old cap before create_pcpic
-			runs, so nothing useful was ever logged.						*/
-		int sw_ck_pcc = ( bm != NULL ) &&
-			( ( (int)bm->sx == 384 ) || ( (int)bm->sx == 128 ) );
-		if ( sw_ck_pcc && ( sw_ck_n < 400 ) &&
-			 ( ( (int)mode != sw_ck_last[0] ) || ( sw_ck_col != sw_ck_last[1] ) ||
-			   ( sw_ck_sti != sw_ck_last[2] ) ) ) {
-			sw_ck_n++;
-			sw_ck_last[0] = (int)mode; sw_ck_last[1] = sw_ck_col; sw_ck_last[2] = sw_ck_sti;
-			sw_fbo_log( "hgio: ckey #%d mode=%d color=%06x sticky=%06x bm=%dx%d\n",
-				sw_ck_n, (int)mode, (unsigned)sw_ck_col, (unsigned)sw_ck_sti,
-				( bm != NULL ) ? (int)bm->sx : -1, ( bm != NULL ) ? (int)bm->sy : -1 );
-		}
 	}
     //ブレンドモード設定
 
@@ -2815,8 +2786,6 @@ static BMSCR	*sw_fc_lock_bm = NULL;		/* only meaningful on this screen	*/
 extern "C" int sw_glBlendEquationAvailable( void );
 extern "C" int sw_texture2d_on( void );
 
-static int sw_fcsub_trace = 0;
-
 extern "C" void sw_fcgraph_lock( int xs, int ys )
 {
 	/*	gfini: the lock is opened on the screen that is current right now,
@@ -2838,22 +2807,6 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 	GLfloat cols[16];
 	BMSCR *bm = sw_fc_lock_bm;
 	int i, w, h;
-	/*	r162: one line per DISTINCT tint.  The hair colour picks no file -
-		the PCC parts are fixed (pcc_hair_2.bmp every time) - so this triple
-		is the whole of it.  Printing every call filled the old cap with
-		repeats before the user changed anything.							*/
-	{
-		static int sw_fc_last[5] = { -99999, -99999, -99999, -1, -1 };
-		if ( ( r != sw_fc_last[0] ) || ( g != sw_fc_last[1] ) || ( b != sw_fc_last[2] ) ||
-			 ( (int)sw_fc_lock_x != sw_fc_last[3] ) || ( (int)sw_fc_lock_y != sw_fc_last[4] ) ) {
-			sw_fc_last[0] = r; sw_fc_last[1] = g; sw_fc_last[2] = b;
-			sw_fc_last[3] = (int)sw_fc_lock_x; sw_fc_last[4] = (int)sw_fc_lock_y;
-			sw_fbo_log( "hgio: fc%s raw=%d,%d,%d at %d,%d size=%dx%d bm=%p cur=%p\n",
-				add ? "inc" : "sub", r, g, b,
-				sw_fc_lock_px, sw_fc_lock_py, sw_fc_lock_x, sw_fc_lock_y,
-				(void *)bm, (void *)sw_cur );
-		}
-	}
 	float x1, y1, x2, y2, cr, cg, cb;
 	int eq_ok;
 
@@ -2927,40 +2880,6 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 		the sample lands - the failure shows up as un-subtracted or missing
 		PCC parts.  Eden renders on the host GPU too, so it needs the stall. */
 	glFinish();
-	/*	r165 diag: what did that pass actually leave behind?  Read the
-		centre of the tinted rectangle straight back.					*/
-	{
-		static int sw_fc_back_n = 0;
-		/*	r168: only the PCC tint (its locked rectangle is 128x198).
-			Sample a few rows and keep the brightest pixel: the middle of
-			the part may sit on the transparent background, which is 0
-			either way and would hide the answer.						*/
-		if ( ( sw_fc_lock_x == 128 ) && ( sw_fc_lock_y == 198 ) &&
-			 ( sw_fc_back_n < 300 ) ) {
-			unsigned char px[4];
-			unsigned char best[3];
-			int rx = sw_fc_lock_px;
-			int ry = sw_fc_lock_py;
-			int dh2 = (int)bm->sy;
-			int k;
-			if ( dh2 <= 0 ) dh2 = 600;
-			if ( rx < 0 ) rx = 0;
-			if ( ry < 0 ) ry = 0;
-			best[0] = best[1] = best[2] = 0;
-			for ( k = 0; k < 8; k++ ) {
-				px[0] = px[1] = px[2] = px[3] = 0;
-				glReadPixels( rx + 64, dh2 - 1 - ( ry + 20 * k ), 1, 1,
-					GL_RGBA, GL_UNSIGNED_BYTE, px );
-				if ( ( px[0] + px[1] + px[2] ) > ( best[0] + best[1] + best[2] ) ) {
-					best[0] = px[0]; best[1] = px[1]; best[2] = px[2];
-				}
-			}
-			sw_fc_back_n++;
-			sw_fbo_log( "hgio: fcPCC n=%d %s rgb=%d,%d,%d brightest=%d,%d,%d\n",
-				sw_fc_back_n, add ? "inc" : "sub", r, g, b,
-				best[0], best[1], best[2] );
-		}
-	}
 	if ( eq_ok != 0 ) glBlendEquation( GL_FUNC_ADD );
 	if ( tex2d_was ) glEnable( GL_TEXTURE_2D );
 
