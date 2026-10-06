@@ -3871,6 +3871,28 @@ int hgio_mes(BMSCR* bm, char* msg)
 		}
 	}
 
+#ifdef __SWITCH__
+	/*	t31: the skill column of the reference panel (x ~ 292) drew the
+		race description over the skill rows - show what string arrives.	*/
+	if ( bm->cx >= 280 && bm->cx <= 310 ) {
+		static int n31 = 0;
+		if ( n31 < 400 ) {
+			char b31[220];
+			int o31 = 0, i31;
+			for ( i31 = 0; msg[i31] != 0 && i31 < 96 && o31 < 210; i31++ ) {
+				unsigned char c31 = (unsigned char)msg[i31];
+				if ( c31 == 0x0D ) { b31[o31++] = '\\'; b31[o31++] = 'r'; }
+				else if ( c31 == 0x0A ) { b31[o31++] = '\\'; b31[o31++] = 'n'; }
+				else if ( c31 < 0x20 ) { b31[o31++] = '.'; }
+				else b31[o31++] = (char)c31;
+			}
+			b31[o31] = 0;
+			printf( "t31: col x=%d y=%d n=%d |%s|\n", bm->cx, bm->cy, (int)strlen( msg ), b31 );
+			fflush( stdout );
+			n31++;
+		}
+	}
+#endif
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
 	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
 
