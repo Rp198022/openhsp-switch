@@ -3089,8 +3089,23 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );
 	}
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+	/*	r150: the main screen used to be excluded here, which is why the
+		message log's 664x45 self-copy was read back row-by-row and came
+		out one row behind.  An EXACT self-copy (sw_same, e.g. the title
+		screen's full 800x600) is still kept on the direct path by sw_ov
+		being 0 - staging that one made the screen black.					*/
+	if ( ( bm->texid == bmsrc->texid ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
+		if ( bm->type == HSPWND_TYPE_MAIN ) {
+			static int sw_main_scrat_n = 0;
+			if ( sw_main_scrat_n < 200 ) {
+				sw_main_scrat_n++;
+				printf( "t49 main-scratch %d,%d %dx%d -> %g,%g ov=%d\n",
+					(int)xx, (int)yy, (int)srcsx, (int)srcsy,
+					(double)bm->cx, (double)bm->cy, sw_ov );
+				fflush( stdout );
+			}
+		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
