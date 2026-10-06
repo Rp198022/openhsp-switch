@@ -841,109 +841,6 @@ static int sw_scratch_ensure( int w, int h )
 	return 0;
 }
 
-/*	r153: stage a self-copy by reading the live framebuffer back.
-	Sampling a texture does not work for the main screen (r150 proved it:
-	the band went blank), but glReadPixels always sees what is on screen.
-	Both glReadPixels output and the scratch texture are bottom-up, so the
-	pixels go in as-is and match the UVs the staging path already uses.  */
-/*	r155: write a raw RGBA buffer as a 32-bit BMP (bottom-up, no flip). */
-static void sw_write_bmp_rgba( const char *name, const unsigned char *data,
-							   int w, int h )
-{
-	FILE *fp;
-	unsigned char hdr[54];
-	int i, rowsz, filesize;
-
-	if ( w <= 0 || h <= 0 || data == NULL ) return;
-	rowsz = w * 4;
-	filesize = 54 + rowsz * h;
-	for ( i = 0; i < 54; i++ ) hdr[i] = 0;
-	hdr[0] = 'B'; hdr[1] = 'M';
-	hdr[2] = (unsigned char)( filesize & 0xff );
-	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
-	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
-	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
-	hdr[10] = 54;
-	hdr[14] = 40;
-	hdr[18] = (unsigned char)( w & 0xff );
-	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
-	hdr[22] = (unsigned char)( h & 0xff );
-	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
-	hdr[26] = 1;
-	hdr[28] = 32;
-	fp = fopen( name, "wb" );
-	if ( fp == NULL ) return;
-	fwrite( hdr, 1, 54, fp );
-	fwrite( data, 1, (size_t)rowsz * h, fp );
-	fclose( fp );
-}
-
-static int sw_scratch_readback( int xx, int yy, int w, int h, BMSCR *bm )
-{
-	unsigned char *buf;
-	SWTARGET *st;
-	GLuint fbo;
-
-	if ( w <= 0 || h <= 0 ) return -1;
-	if ( sw_scratch_ensure( w, h ) != 0 ) return -1;
-
-	buf = (unsigned char *)mem_ini( w * h * 4 );
-	if ( buf == NULL ) return -1;
-
-	st = sw_find( bm );
-	/*	r154: the main screen is not in the target list, so sw_find()
-		returns NULL for it and fbo 0 (the 1280x720 window buffer) was
-		read instead - the band came out as garbage.  Use the main FBO,
-		the same one sw_dump_fbo() reads when it exports the screen.	*/
-	if ( st != NULL ) {
-		fbo = st->fbo;
-	} else if ( ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_main_ok == 1 ) ) {
-		fbo = sw_main_fbo;
-	} else {
-		fbo = 0;
-	}
-	{
-		static int sw_main_rb_log = 0;
-		if ( sw_main_rb_log < 40 ) {
-			sw_main_rb_log++;
-			printf( "t52 readback fbo=%u main_ok=%d st=%d %dx%d at %d,%d\n",
-				(unsigned)fbo, sw_main_ok, ( st != NULL ) ? 1 : 0, w, h, xx, yy );
-			fflush( stdout );
-		}
-	}
-	sw_bfb(  fbo );
-	/*	No glPixelStorei here: the GLES1 shim does not provide it and the
-		default pack alignment of 4 is already right for RGBA bytes.	*/
-	glReadPixels( xx, yy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf );
-
-	{
-		/*	r155: what did glReadPixels actually give us, and did it make
-			it into the scratch texture?								*/
-		static int sw_rb_dumped = 0;
-		if ( sw_rb_dumped < 3 ) {
-			char nm[48];
-			sw_rb_dumped++;
-			snprintf( nm, sizeof( nm ), "sdmc:/dump/rb%d_raw.bmp", sw_rb_dumped );
-			sw_write_bmp_rgba( nm, buf, w, h );
-			printf( "t53 dumped %s %dx%d from fbo=%u at %d,%d\n",
-				nm, w, h, (unsigned)fbo, xx, yy );
-			fflush( stdout );
-		}
-	}
-	ChangeTex( -1 );
-	glBindTexture( GL_TEXTURE_2D, sw_scratch_tex );
-	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, w, h,
-		GL_RGBA, GL_UNSIGNED_BYTE, buf );
-	ChangeTex( -1 );
-
-	mem_bye( buf );
-
-	/*	Leave the target exactly as the caller expects to draw into it. */
-	sw_bfb(  fbo );
-	if ( st != NULL ) sw_apply_target( bm );
-	return 0;
-}
-
 static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 							   int xx, int yy, int w, int h )
 {
@@ -3195,30 +3092,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
-	/*	r153: the main screen's overlapping self-copy is the message log
-		scrolling (src 532 -> dst 517, 664x45).  Stage it by reading the
-		live framebuffer back - r150 showed a texture sample comes out
-		blank here and erases the band.									*/
-	if ( ( bmsrc == bm ) && ( bm->type == HSPWND_TYPE_MAIN ) && ( sw_ov != 0 ) ) {
-		int sw_rb = sw_scratch_readback( (int)xx, (int)yy, (int)srcsx, (int)srcsy, bm );
-		static int sw_main_rb_n = 0;
-		if ( sw_main_rb_n < 200 ) {
-			sw_main_rb_n++;
-			printf( "t51 main-readback %d,%d %dx%d -> %g,%g ret=%d\n",
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy,
-				(double)bm->cx, (double)bm->cy, sw_rb );
-			fflush( stdout );
-		}
-		if ( sw_rb == 0 ) {
-			sw_scratch_used = 1;
-			tx0 = 0.0f;
-			ty0 = 0.0f;
-			tx1 = (GLfloat)srcsx;
-			ty1 = (GLfloat)srcsy;
-			ratex = 1.0f / (float)sw_scratch_w;
-			ratey = 1.0f / (float)sw_scratch_h;
-		}
-	} else if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
