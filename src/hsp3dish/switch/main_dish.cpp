@@ -175,7 +175,19 @@ int main( int argc, char *argv[] )
 		freopen() would close the very socket it is listening on - that is what
 		made an earlier hardware run go silent the moment it booted.  Only fall
 		back to the on-card log when there is nobody listening.			*/
-	if ( nxlink_fd < 0 ) sw_log_open();
+	/*	The on-card log writes to the SD card and flushes after every line,
+		while the draw paths log on every frame - started from the menu that
+		is most of the stutter this build shows, and the reason the same nro
+		is smooth under Eden (whose stdout is a console).  Leave it off
+		unless asked for: drop an empty file named "log_on" next to the .nro,
+		or attach nxlink, whose socket takes stdout instead.				*/
+	if ( nxlink_fd < 0 ) {
+		FILE *logask = fopen( HSP3SWITCH_APPDIR "/log_on", "rb" );
+		if ( logask != NULL ) {
+			fclose( logask );
+			sw_log_open();
+		}
+	}
 	sw_say( "hsp3dish: boot (nxlink fd = %d)\n", nxlink_fd );
 	sw_say( "hsp3dish: HOME=%s\n", getenv( "HOME" ) ? getenv( "HOME" ) : "(null)" );
 
