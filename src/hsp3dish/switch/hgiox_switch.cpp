@@ -3088,6 +3088,20 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );
+		/*	r151 diag: why a self-copy does or does not take the scratch path. */
+		if ( bmsrc == bm ) {
+			static int sw_sc_probe = 0;
+			if ( sw_sc_probe < 200 ) {
+				sw_sc_probe++;
+				printf( "t50 selfcopy bmtex=%d srctex=%d main=%d same=%d ov=%d "
+					"src=%d,%d %dx%d dst=%d,%d ps=%gx%g\n",
+					(int)bm->texid, (int)bmsrc->texid,
+					( bm->type == HSPWND_TYPE_MAIN ) ? 1 : 0, sw_same, sw_ov,
+					sx0, sy0, (int)srcsx, (int)srcsy, dx0, dy0,
+					(double)psx, (double)psy );
+				fflush( stdout );
+			}
+		}
 	}
 	/*	r150: the main screen used to be excluded here, which is why the
 		message log's 664x45 self-copy was read back row-by-row and came
