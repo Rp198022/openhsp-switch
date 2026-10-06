@@ -3813,6 +3813,43 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
 }
 
+/*--------------------------------------------------------------------*/
+/*	r116 DIAGNOSTIC - the wrapped-text buffer as it reaches the line
+	splitter.  mes carries a multi-line string when the game wrapped it
+	(talk_conv); logging those shows whether the buffer already lost a
+	line or the splitter dropped one.  Single-line draws are ignored, so
+	the log only holds the wrapped blocks.								*/
+/*--------------------------------------------------------------------*/
+void sw_printsub_probe( const char *s )
+{
+	static unsigned last_h = 0;
+	static unsigned last_tick = 0;
+	static int n = 0;
+	unsigned h, tick;
+	char buf[800];
+	int i, o = 0;
+
+	if ( s == NULL ) return;
+	if ( strchr( s, '\r' ) == NULL && strchr( s, '\n' ) == NULL ) return;
+	if ( n >= 200 ) return;
+	h = sw_text_hash( s );
+	tick = (unsigned)hgio_gettick();
+	if ( h == last_h && tick - last_tick < 1000 ) return;
+	last_h = h;
+	last_tick = tick;
+	n++;
+	for ( i = 0; s[i] != 0 && i < 320 && o < 700; i++ ) {
+		unsigned char c = (unsigned char)s[i];
+		if ( c == 0x0D ) { buf[o++] = '\\'; buf[o++] = 'r'; }
+		else if ( c == 0x0A ) { buf[o++] = '\\'; buf[o++] = 'n'; }
+		else if ( c < 0x20 ) { buf[o++] = '.'; }
+		else buf[o++] = (char)c;
+	}
+	buf[o] = 0;
+	printf( "t27: wrap #%d len=%d |%s|\n", n, (int)strlen( s ), buf );
+	fflush( stdout );
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示

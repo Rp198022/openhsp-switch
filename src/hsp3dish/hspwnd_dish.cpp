@@ -745,6 +745,13 @@ int Bmscr::PrintSubMul(char *mes, int x, int y, int px, int py, int times)
 
 int Bmscr::PrintSub( char *mes )
 {
+#ifdef __SWITCH__
+	/*	r116 diagnostic: the wrapped buffer, before it is split into lines	*/
+	{
+		extern void sw_printsub_probe( const char *s );
+		sw_printsub_probe( mes );
+	}
+#endif
 	int spcur;
 	int px;
 	unsigned char* p;
