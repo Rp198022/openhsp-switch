@@ -3850,6 +3850,32 @@ void sw_printsub_probe( const char *s )
 	fflush( stdout );
 }
 
+/*	r120 diag: PrintSub splits a multi-line mes into segments and hands
+	each one to hgio_mes.  Log them (with the cursor they start at) so a
+	segment that never arrives, and a stray segment drawn at the wrong
+	place, both become visible.							*/
+void sw_printsub_seg( int x, int y, const char *whole, const char *seg )
+{
+	static int n = 0;
+	char buf[300];
+	int i, o = 0;
+
+	if ( whole == NULL || seg == NULL ) return;
+	if ( strchr( whole, '\r' ) == NULL && strchr( whole, '\n' ) == NULL ) return;
+	if ( n >= 3000 ) return;
+	n++;
+	for ( i = 0; seg[i] != 0 && i < 70 && o < 280; i++ ) {
+		unsigned char c = (unsigned char)seg[i];
+		if ( c == 0x0D ) { buf[o++] = '\\'; buf[o++] = 'r'; }
+		else if ( c == 0x0A ) { buf[o++] = '\\'; buf[o++] = 'n'; }
+		else if ( c < 0x20 ) { buf[o++] = '.'; }
+		else buf[o++] = (char)c;
+	}
+	buf[o] = 0;
+	printf( "t30: seg #%d x=%d y=%d n=%d |%s|\n", n, x, y, (int)strlen( seg ), buf );
+	fflush( stdout );
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
