@@ -156,6 +156,9 @@ static TTF_Font *sw_ovl_open_font( void )
 	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
 		TTF_Font *f = TTF_OpenFont( cand[i], SW_OVL_FONT_SIZE );
 		if ( f != NULL ) {
+			/*	r173: the hints are drawn over the game's own artwork and
+				the regular weight was hard to make out on the small screen. */
+			TTF_SetFontStyle( f, TTF_STYLE_BOLD );
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
 			return f;
