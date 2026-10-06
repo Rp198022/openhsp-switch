@@ -2925,21 +2925,34 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 		centre of the tinted rectangle straight back.					*/
 	{
 		static int sw_fc_back_n = 0;
-		if ( sw_fc_back_n < 60 ) {
+		/*	r168: only the PCC tint (its locked rectangle is 128x198).
+			Sample a few rows and keep the brightest pixel: the middle of
+			the part may sit on the transparent background, which is 0
+			either way and would hide the answer.						*/
+		if ( ( sw_fc_lock_x == 128 ) && ( sw_fc_lock_y == 198 ) &&
+			 ( sw_fc_back_n < 300 ) ) {
 			unsigned char px[4];
-			int rx = sw_fc_lock_px + ( w / 2 );
-			int ry = sw_fc_lock_py + ( h / 2 );
+			unsigned char best[3];
+			int rx = sw_fc_lock_px;
+			int ry = sw_fc_lock_py;
 			int dh2 = (int)bm->sy;
+			int k;
 			if ( dh2 <= 0 ) dh2 = 600;
 			if ( rx < 0 ) rx = 0;
 			if ( ry < 0 ) ry = 0;
-			px[0] = px[1] = px[2] = px[3] = 0;
-			glReadPixels( rx, dh2 - 1 - ry, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px );
+			best[0] = best[1] = best[2] = 0;
+			for ( k = 0; k < 8; k++ ) {
+				px[0] = px[1] = px[2] = px[3] = 0;
+				glReadPixels( rx + 64, dh2 - 1 - ( ry + 20 * k ), 1, 1,
+					GL_RGBA, GL_UNSIGNED_BYTE, px );
+				if ( ( px[0] + px[1] + px[2] ) > ( best[0] + best[1] + best[2] ) ) {
+					best[0] = px[0]; best[1] = px[1]; best[2] = px[2];
+				}
+			}
 			sw_fc_back_n++;
-			sw_fbo_log( "hgio: fcback n=%d %s rgb=%d,%d,%d at %d,%d size=%dx%d px=%d,%d,%d,%d\n",
+			sw_fbo_log( "hgio: fcPCC n=%d %s rgb=%d,%d,%d brightest=%d,%d,%d\n",
 				sw_fc_back_n, add ? "inc" : "sub", r, g, b,
-				sw_fc_lock_px, sw_fc_lock_py, w, h,
-				px[0], px[1], px[2], px[3] );
+				best[0], best[1], best[2] );
 		}
 	}
 	if ( eq_ok != 0 ) glBlendEquation( GL_FUNC_ADD );
