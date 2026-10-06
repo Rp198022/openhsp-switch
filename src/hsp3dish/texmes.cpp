@@ -408,18 +408,6 @@ unsigned char* texmesManager::texmesGetFont(char* msg, int* out_sx, int* out_sy,
 
 	hgio_fontsystem_exec(msg, NULL, 0, &sx, &sy, info);
 
-#ifdef __SWITCH__
-	/*	r118 diag: a zero measurement is the one remaining way a line is
-		dropped, and it arrives as a silent return - show what the string
-		actually holds when it happens.						*/
-	if ((sx == 0) || (sy == 0)) {
-		int di;
-		printf( "t28: measure fail font=%d/%d hex:", _fontsize, _fontstyle );
-		for ( di = 0; msg[di] != 0 && di < 48; di++ ) printf( " %02x", (unsigned char)msg[di] );
-		printf( " len=%d |%s|\n", (int)strlen( msg ), msg );
-		fflush( stdout );
-	}
-#endif
 	if ((sx == 0) || (sy == 0)) return NULL;
 
 	tsx = Get2N(sx);

@@ -3813,69 +3813,6 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
 }
 
-/*--------------------------------------------------------------------*/
-/*	r116 DIAGNOSTIC - the wrapped-text buffer as it reaches the line
-	splitter.  mes carries a multi-line string when the game wrapped it
-	(talk_conv); logging those shows whether the buffer already lost a
-	line or the splitter dropped one.  Single-line draws are ignored, so
-	the log only holds the wrapped blocks.								*/
-/*--------------------------------------------------------------------*/
-void sw_printsub_probe( const char *s )
-{
-	static unsigned last_h = 0;
-	static unsigned last_tick = 0;
-	static int n = 0;
-	unsigned h, tick;
-	char buf[800];
-	int i, o = 0;
-
-	if ( s == NULL ) return;
-	if ( strchr( s, '\r' ) == NULL && strchr( s, '\n' ) == NULL ) return;
-	if ( n >= 200 ) return;
-	h = sw_text_hash( s );
-	tick = (unsigned)hgio_gettick();
-	if ( h == last_h && tick - last_tick < 1000 ) return;
-	last_h = h;
-	last_tick = tick;
-	n++;
-	for ( i = 0; s[i] != 0 && i < 320 && o < 700; i++ ) {
-		unsigned char c = (unsigned char)s[i];
-		if ( c == 0x0D ) { buf[o++] = '\\'; buf[o++] = 'r'; }
-		else if ( c == 0x0A ) { buf[o++] = '\\'; buf[o++] = 'n'; }
-		else if ( c < 0x20 ) { buf[o++] = '.'; }
-		else buf[o++] = (char)c;
-	}
-	buf[o] = 0;
-	printf( "t27: wrap #%d len=%d |%s|\n", n, (int)strlen( s ), buf );
-	fflush( stdout );
-}
-
-/*	r120 diag: PrintSub splits a multi-line mes into segments and hands
-	each one to hgio_mes.  Log them (with the cursor they start at) so a
-	segment that never arrives, and a stray segment drawn at the wrong
-	place, both become visible.							*/
-void sw_printsub_seg( int x, int y, const char *whole, const char *seg )
-{
-	static int n = 0;
-	char buf[300];
-	int i, o = 0;
-
-	if ( whole == NULL || seg == NULL ) return;
-	if ( strchr( whole, '\r' ) == NULL && strchr( whole, '\n' ) == NULL ) return;
-	if ( n >= 3000 ) return;
-	n++;
-	for ( i = 0; seg[i] != 0 && i < 70 && o < 280; i++ ) {
-		unsigned char c = (unsigned char)seg[i];
-		if ( c == 0x0D ) { buf[o++] = '\\'; buf[o++] = 'r'; }
-		else if ( c == 0x0A ) { buf[o++] = '\\'; buf[o++] = 'n'; }
-		else if ( c < 0x20 ) { buf[o++] = '.'; }
-		else buf[o++] = (char)c;
-	}
-	buf[o] = 0;
-	printf( "t30: seg #%d x=%d y=%d n=%d |%s|\n", n, x, y, (int)strlen( seg ), buf );
-	fflush( stdout );
-}
-
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
@@ -3885,35 +3822,53 @@ int hgio_mes(BMSCR* bm, char* msg)
 	int had_cr, clean_ok;
 	const char *use;
 
-	if ( !sw_drawable( bm ) ) {
-#ifdef __SWITCH__
-		printf( "t29: drop notdrawable |%s|\n", ( msg != NULL ) ? msg : "(null)" );
-		fflush( stdout );
-#endif
-		return -1;
-	}
+	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
 
 	// print per line
 	if (bm->vp_flag == BMSCR_VPFLAG_NOUSE) {
-		if (bm->cy >= bm->sy) {
-#ifdef __SWITCH__
-			printf( "t29: drop vclip cy=%d sy=%d |%s|\n", bm->cy, bm->sy, ( msg != NULL ) ? msg : "(null)" );
-			fflush( stdout );
-#endif
-			return -1;
-		}
+		if (bm->cy >= bm->sy) return -1;
 	}
 
 	if (*msg == 0) {
-#ifdef __SWITCH__
-		printf( "t29: empty advance cy=%d\n", bm->cy );
-		fflush( stdout );
-#endif
 		ysize = tmes._fontsize;
 		bm->printsizey += ysize;
 		bm->cy += ysize;
 		return 0;
+	}
+
+	/*	fork: a mes can arrive carrying its own line breaks.  Upstream leaves
+		the splitting to PrintSub, but on the 2.30 build a wrapped block
+		reached this function with an embedded CR/LF (seen as a 126-byte
+		segment holding two lines): the renderer then drew only up to the
+		break and advanced a single row, so the rest of the panel shifted up
+		and read as overlapping text.  Split it here as well - every line in
+		the string is drawn and its row advanced, whatever the caller did.	*/
+	{
+		const char *q = msg;
+		while ( *q != 0 ) {
+			if ( *q == '\r' || *q == '\n' ) break;
+			q++;
+		}
+		if ( *q != 0 ) {
+			char seg[SWMES_CLEAN_MAX];
+			const char *s = msg;
+			int rc = 0;
+			while ( *s != 0 ) {
+				const char *e = s;
+				int n;
+				while ( *e != 0 && *e != '\r' && *e != '\n' ) e++;
+				n = (int)( e - s );
+				if ( n > SWMES_CLEAN_MAX - 1 ) n = SWMES_CLEAN_MAX - 1;
+				memcpy( seg, s, n );
+				seg[n] = 0;
+				if ( hgio_mes( bm, seg ) < 0 ) rc = -1;
+				s = e;
+				if ( *s == '\r' ) s++;
+				if ( *s == '\n' ) s++;
+			}
+			return rc;
+		}
 	}
 
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
@@ -3948,21 +3903,9 @@ int hgio_mes(BMSCR* bm, char* msg)
 	int id;
 	texmes* tex;
 	id = tmes.texmesRegist((char *)use);
-	if (id < 0) {
-#ifdef __SWITCH__
-		printf( "t29: drop regist id=%d |%s|\n", id, use );
-		fflush( stdout );
-#endif
-		return -1;
-	}
+	if (id < 0) return -1;
 	tex = tmes.texmesGet(id);
-	if (tex == NULL) {
-#ifdef __SWITCH__
-		printf( "t29: drop gettex id=%d |%s|\n", id, use );
-		fflush( stdout );
-#endif
-		return -1;
-	}
+	if (tex == NULL) return -1;
 
 	xsize = tex->sx;
 	ysize = tex->sy;

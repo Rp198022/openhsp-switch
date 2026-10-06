@@ -745,13 +745,6 @@ int Bmscr::PrintSubMul(char *mes, int x, int y, int px, int py, int times)
 
 int Bmscr::PrintSub( char *mes )
 {
-#ifdef __SWITCH__
-	/*	r116 diagnostic: the wrapped buffer, before it is split into lines	*/
-	{
-		extern void sw_printsub_probe( const char *s );
-		sw_printsub_probe( mes );
-	}
-#endif
 	int spcur;
 	int px;
 	unsigned char* p;
@@ -772,12 +765,6 @@ int Bmscr::PrintSub( char *mes )
 		if (a1 == 0) break;
 		if (a1 == 13) {
 			bak_a1 = a1; *p = 0;		// 終端を仮設定
-			#ifdef __SWITCH__
-			{
-				extern void sw_printsub_seg( int x, int y, const char *whole, const char *seg );
-				sw_printsub_seg( (int)((BMSCR *)this)->cx, (int)((BMSCR *)this)->cy, mes, (const char *)st );
-			}
-#endif
 			hgio_mes((BMSCR *)this, (char*)st);
 			*p = bak_a1;
 			p++; st = p; spcur = 0;		// 終端を戻す
@@ -787,12 +774,6 @@ int Bmscr::PrintSub( char *mes )
 		}
 		if (a1 == 10) {
 			bak_a1 = a1; *p = 0;		// 終端を仮設定
-			#ifdef __SWITCH__
-			{
-				extern void sw_printsub_seg( int x, int y, const char *whole, const char *seg );
-				sw_printsub_seg( (int)((BMSCR *)this)->cx, (int)((BMSCR *)this)->cy, mes, (const char *)st );
-			}
-#endif
 			hgio_mes((BMSCR *)this, (char*)st);
 			*p = bak_a1;
 			p++; st = p; spcur = 0;		// 終端を戻す
@@ -824,13 +805,7 @@ int Bmscr::PrintSub( char *mes )
 	}
 
 //	if (spcur > 0) {
-		#ifdef __SWITCH__
-			{
-				extern void sw_printsub_seg( int x, int y, const char *whole, const char *seg );
-				sw_printsub_seg( (int)((BMSCR *)this)->cx, (int)((BMSCR *)this)->cy, mes, (const char *)st );
-			}
-#endif
-			hgio_mes((BMSCR *)this, (char*)st);
+		hgio_mes((BMSCR *)this, (char*)st);
 //	}
 
 	return printsizex;
