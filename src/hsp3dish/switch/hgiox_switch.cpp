@@ -2910,11 +2910,17 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 	sw_glColorKey( 0, 0 );
 	glEnable( GL_BLEND );
 	if ( add == 0 ) {
-		glBlendEquation( GL_FUNC_REVERSE_SUBTRACT );
-	} else if ( eq_ok != 0 ) {
+		/*	r169: multiply, do not saturate.  dst * (255-c)/255 keeps 0
+			at 0 (the transparent background and the key still work) but
+			leaves a grey pixel small rather than clamping it to 0, so a
+			tinted-to-black PCC part stays distinguishable from the void
+			instead of being discarded as the colour key.				*/
+		glBlendEquation( GL_FUNC_ADD );
+		glBlendFunc( GL_ZERO, GL_ONE_MINUS_SRC_COLOR );
+	} else {
 		glBlendEquation( GL_FUNC_ADD );			/* the default anyway	*/
+		glBlendFunc( GL_ONE, GL_ONE );
 	}
-	glBlendFunc( GL_ONE, GL_ONE );
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 	/*	Restored: the gcopy that follows samples the very texture this quad
 		just wrote, so the tint has to be out of the pipeline before
