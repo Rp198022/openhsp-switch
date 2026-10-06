@@ -3129,6 +3129,17 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		ratey = tex->ratey;
 	}
 
+	/*	r157: an overlapping self-copy reads rows the previous draws
+		wrote.  On an immediate-mode GPU (Eden) those pixels are already
+		in the texture; on a TBDR part they may still sit in the tile
+		buffer, so the copy lifts stale rows and the message band lands
+		one line off.  Same cure as the fcsub tint above - resolve the
+		pending tiles before sampling them.							*/
+	if ( ( !sw_scratch_used ) && ( bmsrc != NULL ) &&
+		 ( bm->texid == bmsrc->texid ) && ( sw_ov != 0 ) ) {
+		glFinish();
+	}
+
     flp = uvf2D;
 
     tx0 *= ratex;
