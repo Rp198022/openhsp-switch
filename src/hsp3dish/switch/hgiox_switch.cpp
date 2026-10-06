@@ -3913,6 +3913,29 @@ int hgio_mes(BMSCR* bm, char* msg)
 		}
 	}
 #endif
+	/*	2026-10-06: the Chinese 2.30 translation draws the tail rows of the
+		race description into the skill column of the reference panel - the
+		same overlap appears on the PC build, so it is the translation's data,
+		not this port.  A real skill row is "<name><padding><description>"
+		and therefore carries a run of spaces; the stray rows are plain
+		sentences.  Skip those draws (the row advance is kept) so the panel
+		reads correctly.										*/
+	{
+		const char *sp = msg;
+		int padded = 0;
+		if ( bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+			while ( sp[0] != 0 && sp[1] != 0 ) {
+				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
+				sp++;
+			}
+			if ( !padded ) {
+				ysize = tmes._fontsize;
+				bm->printsizey += ysize;
+				bm->cy += ysize;
+				return 0;
+			}
+		}
+	}
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
 	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
 
