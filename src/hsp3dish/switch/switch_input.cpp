@@ -424,13 +424,14 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	ZL fires, ZR casts; second layer: help and the message log.		*/
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', '?' },
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v', '/' },
-	/*	- locks the target on; + opens the save/settings menu (Shift+S).	*/
-	/*	The minus button's second layer is the appearance editor: Elona opens
-		it from the character sheet with a literal 'p' key
-		(command.hsp:10312, `*com_charainfo` page 0), and every other button
-		already has a first-layer job.									*/
-	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', 'p' },
-	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S',  0 },
+	/*	- locks the target on; + opens the save/settings menu (Shift+S).
+		Second layer: the two list-paging keys.  Elona pages item and
+		equipment lists with '+'/'-' (config.txt key_pageup/key_pagedown),
+		and without them anything past the first page cannot be reached.
+		The old 'p' here was a duplicate of the d-pad's second layer - the
+		appearance/prayer key - so it moved there alone.					*/
+	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', '-' },
+	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S', '+' },
 	/*	Left stick press: read; second layer: switch ammo.  The right
 		stick's press is the Space key now - it is in sw_keymap() above, so
 		it is not typed here.												*/

@@ -81,6 +81,8 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "十字键→",	"特性" },
 	{ "ZL",			"帮助" },
 	{ "ZR",			"消息记录" },
+	{ "加号",		"翻页上" },
+	{ "减号",		"翻页下" },
 };
 
 /*	Right Joy-Con, both layers.											*/
