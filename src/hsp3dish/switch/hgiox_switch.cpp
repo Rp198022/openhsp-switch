@@ -3874,9 +3874,9 @@ int hgio_mes(BMSCR* bm, char* msg)
 #ifdef __SWITCH__
 	/*	t31: the skill column of the reference panel (x ~ 292) drew the
 		race description over the skill rows - show what string arrives.	*/
-	if ( bm->cx >= 280 && bm->cx <= 310 ) {
+	if ( bm->cx >= 285 && bm->cx <= 300 && bm->cy >= 280 && bm->cy <= 470 ) {
 		static int n31 = 0;
-		if ( n31 < 400 ) {
+		if ( n31 < 2000 ) {
 			char b31[220];
 			int o31 = 0, i31;
 			for ( i31 = 0; msg[i31] != 0 && i31 < 96 && o31 < 210; i31++ ) {
