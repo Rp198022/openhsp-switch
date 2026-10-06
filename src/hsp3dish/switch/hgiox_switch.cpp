@@ -3088,11 +3088,14 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );	}
-	/*	r152: r150 tried to let the main screen stage its overlapping
-		self-copies and wiped the message log instead, so the main screen
-		is excluded again.  Whatever fixes the band has to work without
-		relying on the main screen's texture holding live pixels.			*/
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+	/*	r158: the main screen takes the staged path too.  r157's glFinish
+		showed that ordering the commands is not enough - what makes the
+		copy undefined on a TBDR part is that the source texture is still
+		the framebuffer's colour attachment while the copy samples it.
+		Staging through the scratch takes the source out of that state.
+		r150 removed this exclusion but never restored the main screen's
+		FBO after the capture; that is fixed just below.					*/
+	if ( ( bm->texid == bmsrc->texid ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
@@ -3105,16 +3108,12 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				(unsigned)sw_glGetError() );
 		}
 		if ( scret == 0 ) {
-			/*	sw_bind_target() may return early when sw_cur already names this
-				screen, which would leave the scratch bound and every later draw
-				going into it.  Restore the target outright. */
-			{
-				SWTARGET *st2 = sw_find( bm );
-				if ( st2 != NULL ) {
-					sw_bfb(  st2->fbo );
-					sw_apply_target( bm );
-				}
-			}
+			/*	r158: this used sw_find(), which is NULL for the MAIN screen, so
+				the scratch stayed bound and the copy painted it into itself -
+				r150 erased the message band that way.  sw_bind_target() resolves
+				the main screen to sw_main_fbo and restores the viewport the
+				capture overwrote, so use it instead.						*/
+			sw_bind_target( bm );
 			sw_scratch_used = 1;
 			tx0 = 0.0f;
 			ty0 = 0.0f;
