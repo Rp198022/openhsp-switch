@@ -3826,6 +3826,10 @@ void sw_printsub_whole( int x, int y, const char *s )
 	for ( i = 0; s[i] != 0; i++ ) {
 		if ( s[i] == '\r' || s[i] == '\n' ) brk++;
 	}
+	{
+		extern void sw_probe_pc( const char *tag );
+		sw_probe_pc( "t32pc" );
+	}
 	printf( "t32hex #%d x=%d y=%d n=%d brk=%d :", n, x, y, (int)strlen( s ), brk );
 	for ( i = 0; s[i] != 0 && i < 200; i++ ) printf( " %02x", (unsigned char)s[i] );
 	printf( "\n" );
