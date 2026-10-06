@@ -2294,17 +2294,6 @@ void hgio_pset( float x, float y )
 
 
 //矩形の描画
-/*	r145 diag: message band = bottom strip of the 800x600 screen.
-	A draw is "in the band" when its rectangle overlaps y 500..640.
-	sw_band_desc carries what was skipped, for the log.			*/
-static char sw_band_desc[80];
-static int sw_band_hit( float y1, float y2 )
-{
-	float lo = ( y1 < y2 ) ? y1 : y2;
-	float hi = ( y1 < y2 ) ? y2 : y1;
-	return ( hi >= 500.0f ) && ( lo <= 640.0f );
-}
-
 void hgio_rect( float x, float y, float w, float h )
 {
 	sw_trc( "rect", NULL, x, y, w, h );
@@ -2418,15 +2407,6 @@ void hgio_line( BMSCR *bm, float x, float y )
 //ラインの描画
 void hgio_line2( float x, float y )
 {
-	if ( sw_band_hit( y, y ) ) {
-		static int sw_band_L_n = 0;
-		if ( sw_band_L_n < 400 ) {
-			sw_band_L_n++;
-			printf( "t43 line2 x=%.0f y=%.0f\n", x, y );
-			fflush( stdout );
-		}
-		return;
-	}
 	//		ライン描画
 	//		(hgio_lineで開始後に必要な回数呼ぶ、hgio_line(NULL)で終了すること)
 	//
@@ -2449,17 +2429,6 @@ void hgio_line2( float x, float y )
 
 void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alphamode)
 {
-	snprintf( sw_band_desc, sizeof( sw_band_desc ), "boxfAlpha x=%.0f..%.0f y=%.0f..%.0f a=%d",
-		x1, x2, y1, y2, alphamode );
-	if ( sw_band_hit( y1, y2 ) ) {
-		static int sw_band_A_n = 0;
-		if ( sw_band_A_n < 400 ) {
-			sw_band_A_n++;
-			printf( "t43 boxfAlpha %s\n", sw_band_desc );
-			fflush( stdout );
-		}
-		return;
-	}
 	//		矩形描画
 	//
 	if ( bm == NULL ) return;
@@ -2500,17 +2469,6 @@ void hgio_boxfAlpha(BMSCR *bm, float x1, float y1, float x2, float y2, int alpha
 
 void hgio_boxf( BMSCR *bm, float x1, float y1, float x2, float y2 )
 {
-	snprintf( sw_band_desc, sizeof( sw_band_desc ), "boxf x=%.0f..%.0f y=%.0f..%.0f",
-		x1, x2, y1, y2 );
-	if ( sw_band_hit( y1, y2 ) ) {
-		static int sw_band_B_n = 0;
-		if ( sw_band_B_n < 400 ) {
-			sw_band_B_n++;
-			printf( "t43 boxf %s\n", sw_band_desc );
-			fflush( stdout );
-		}
-		return;
-	}
 	hgio_boxfAlpha(bm, x1, y1, x2, y2, 0);
 }
 
@@ -2957,16 +2915,18 @@ extern "C" void sw_fcgraph_add( int r, int g, int b )
 
 void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *bmsrc, float s_psx, float s_psy )
 {
-	if ( sw_band_hit( yy, yy + s_psy ) ) {
+	/*	r146 probe (log only, never skips): the destination is the current
+		position bm->cx/cy - (xx,yy) above are SOURCE coords in bmsrc.		*/
+	if ( ( bm != NULL ) && ( bm->cy >= 500 ) && ( bm->cy <= 640 ) ) {
 		static int sw_band_C_n = 0;
 		if ( sw_band_C_n < 400 ) {
 			sw_band_C_n++;
-			printf( "t43 copy x=%d y=%d src=%d,%d size=%.0fx%.0f bmsrc=%dx%d\n",
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy, s_psx, s_psy,
-				bmsrc ? bmsrc->sx : -1, bmsrc ? bmsrc->sy : -1 );
+			printf( "t44 copy dst=%.0f,%.0f src=%d,%d srcdim=%dx%d dstsize=%.0fx%.0f bmsrc=%dx%d gmode=%d\n",
+				(double)bm->cx, (double)bm->cy, (int)xx, (int)yy,
+				(int)srcsx, (int)srcsy, s_psx, s_psy,
+				bmsrc ? bmsrc->sx : -1, bmsrc ? bmsrc->sy : -1, (int)bm->gmode );
 			fflush( stdout );
 		}
-		return;
 	}
 	//		画像コピー
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に(psx,psy)サイズでコピー
@@ -3468,21 +3428,6 @@ void hgio_square( BMSCR *bm, int *posx, int *posy, int *color )
 
 int hgio_celputmulti( BMSCR *bm, int *xpos, int *ypos, int *cel, int count, BMSCR *bmsrc )
 {
-	{
-		int sw_band_i;
-		for ( sw_band_i = 0; sw_band_i < count; sw_band_i++ ) {
-			if ( sw_band_hit( (float)ypos[sw_band_i], (float)ypos[sw_band_i] ) ) {
-				static int sw_band_D_n = 0;
-				if ( sw_band_D_n < 400 ) {
-					sw_band_D_n++;
-					printf( "t43 celput x=%d y=%d cel=%d\n",
-						xpos[sw_band_i], ypos[sw_band_i], cel[sw_band_i] );
-					fflush( stdout );
-				}
-				return 0;
-			}
-		}
-	}
 	sw_trc( "celputm", bm, 0.0f, 0.0f, 0.0f, 0.0f );
 	//		マルチ画像コピー
 	//		int配列内のX,Y,CelIDを元に等倍コピーを行なう(count=個数)
