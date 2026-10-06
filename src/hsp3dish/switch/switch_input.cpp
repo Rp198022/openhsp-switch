@@ -169,6 +169,14 @@ static int sw_entry_down( int i )
 		if ( del ) return 0;
 	}
 
+	/*	The d-pad is a second-layer key source now (chars for the four
+		directions live in sw_charkeys).  While R is held the movement
+		scancodes go quiet, or one press would both walk and type.		*/
+	if ( sw_layer_second() ) {
+		if ( e->sc == SDL_SCANCODE_LEFT || e->sc == SDL_SCANCODE_RIGHT ||
+			 e->sc == SDL_SCANCODE_UP || e->sc == SDL_SCANCODE_DOWN ) return 0;
+	}
+
 	/*	R + right-stick click toggles the side-panel key hints.  The stick
 		click alone is Space (wait), so while the pair is held it goes
 		quiet - otherwise the same press that flips the hints would also
@@ -413,9 +421,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo Y (left): item menu; second layer: wear.  SDL's X is the
 		left button.														*/
 	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w' },
-	/*	ZL fires, ZR casts.												*/
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f',  0 },
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v',  0 },
+	/*	ZL fires, ZR casts; second layer: help and the message log.		*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', '?' },
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v', '/' },
 	/*	- locks the target on; + opens the save/settings menu (Shift+S).	*/
 	/*	The minus button's second layer is the appearance editor: Elona opens
 		it from the character sheet with a literal 'p' key
@@ -427,6 +435,15 @@ static const SW_CHARKEY sw_charkeys[] = {
 		stick's press is the Space key now - it is in sw_keymap() above, so
 		it is not typed here.												*/
 	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 'A' },
+	/*	The d-pad joins the second layer: on the base layer it is pure
+		movement (its scancodes live in sw_keymap), and R turns the four
+		directions into four more utility keys - appearance/prayer, offer,
+		dip, traits.  Their scancodes are silenced while R is held in
+		sw_entry_down(), so one press never moves and types at once.		*/
+	{ SDL_CONTROLLER_BUTTON_DPAD_UP,	SW_NO_AXIS,							 0, 'p' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_DOWN,	SW_NO_AXIS,							 0, 'O' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_LEFT,	SW_NO_AXIS,							 0, 'B' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT,	SW_NO_AXIS,							 0, 'F' },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))
