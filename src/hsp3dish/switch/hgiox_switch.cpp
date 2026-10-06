@@ -3771,7 +3771,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 			tick, the target buffer and its size, the position and the first
 			bytes in hex, so the per-frame sequence can be rebuilt.			*/
 		static int sw_mes_probe = 0;
-		if ( sw_mes_probe < 8000 ) {
+		if ( sw_mes_probe < 30000 ) {
 			int k;
 			sw_mes_probe++;
 			printf( "t40 #%d t=%u bm=%p scr=%dx%d x=%d y=%d n=%d :", sw_mes_probe,
@@ -3920,6 +3920,29 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 	int esx, esy;
 	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
+
+	{
+		/*	r139 diag: the texmesPos path.  r138 only traced hgio_mes and
+			missed the message log entirely, so this one carries the string
+			as well as the geometry and the texture id it draws with.		*/
+		static int sw_mestex_probe = 0;
+		if ( sw_mestex_probe < 20000 ) {
+			const char *pstr = tpos->getString();
+			int k;
+			sw_mestex_probe++;
+			printf( "t41 #%d t=%u bm=%p scr=%dx%d x=%d y=%d tid=%d n=%d :",
+				sw_mestex_probe, (unsigned)hgio_gettick(), (void *)bm,
+				(int)bm->sx, (int)bm->sy, (int)bm->cx, (int)bm->cy,
+				(int)tpos->texid, ( pstr == NULL ) ? -1 : (int)strlen( pstr ) );
+			if ( pstr != NULL ) {
+				for ( k = 0; pstr[k] != 0 && k < 12; k++ ) {
+					printf( " %02x", (unsigned char)pstr[k] );
+				}
+			}
+			printf( "\n" );
+			fflush( stdout );
+		}
+	}
 
 	// print per line
 	orgx = bm->cx;
