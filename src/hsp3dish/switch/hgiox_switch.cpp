@@ -3771,7 +3771,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 			tick, the target buffer and its size, the position and the first
 			bytes in hex, so the per-frame sequence can be rebuilt.			*/
 		static int sw_mes_probe = 0;
-		if ( sw_mes_probe < 30000 ) {
+		if ( ( sw_mes_probe < 40000 ) && ( strlen( msg ) >= 8 ) ) {
 			int k;
 			sw_mes_probe++;
 			printf( "t40 #%d t=%u bm=%p scr=%dx%d x=%d y=%d n=%d :", sw_mes_probe,
@@ -3926,8 +3926,8 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 			missed the message log entirely, so this one carries the string
 			as well as the geometry and the texture id it draws with.		*/
 		static int sw_mestex_probe = 0;
-		if ( sw_mestex_probe < 20000 ) {
-			const char *pstr = tpos->getString();
+		const char *pstr = tpos->getString();
+		if ( ( sw_mestex_probe < 20000 ) && ( pstr != NULL ) && ( strlen( pstr ) >= 8 ) ) {
 			int k;
 			sw_mestex_probe++;
 			printf( "t41 #%d t=%u bm=%p scr=%dx%d x=%d y=%d tid=%d n=%d :",
