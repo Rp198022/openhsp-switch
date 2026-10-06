@@ -70,7 +70,7 @@ LIBS        := -lnx -lm
 # T2.3 graphics target
 #---------------------------------------------------------------------------------
 TARGET_DISH := hsp3dish
-APP_TITLE_DISH := OpenHSP dish
+APP_TITLE_DISH := Elona Plus
 
 #	-DHSPDISH selects the hsp3dish command set (hsp3gr.h / hspwnd.h dispatch,
 #	HSPSTAT_DISH) and enables the switch_input.cpp hook in glue_switch.cpp.
@@ -242,7 +242,7 @@ $(TARGET_DISH).nacp:
 
 $(TARGET_DISH).nro: $(TARGET_DISH).elf $(TARGET_DISH).nacp
 	@echo creating ... $@
-	@$(ELF2NRO) $(TARGET_DISH).elf $@ --nacp=$(TARGET_DISH).nacp
+	@$(ELF2NRO) $(TARGET_DISH).elf $@ --nacp=$(TARGET_DISH).nacp --icon=switch_icon.jpg
 
 #	console target objects
 %.swo: %.cpp
