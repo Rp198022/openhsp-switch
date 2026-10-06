@@ -3876,18 +3876,11 @@ int hgio_mes(BMSCR* bm, char* msg)
 		race description over the skill rows - show what string arrives.	*/
 	if ( bm->cx >= 285 && bm->cx <= 300 && bm->cy >= 280 && bm->cy <= 470 ) {
 		static int n31 = 0;
-		if ( n31 < 2000 ) {
-			char b31[220];
-			int o31 = 0, i31;
-			for ( i31 = 0; msg[i31] != 0 && i31 < 96 && o31 < 210; i31++ ) {
-				unsigned char c31 = (unsigned char)msg[i31];
-				if ( c31 == 0x0D ) { b31[o31++] = '\\'; b31[o31++] = 'r'; }
-				else if ( c31 == 0x0A ) { b31[o31++] = '\\'; b31[o31++] = 'n'; }
-				else if ( c31 < 0x20 ) { b31[o31++] = '.'; }
-				else b31[o31++] = (char)c31;
-			}
-			b31[o31] = 0;
-			printf( "t31: col x=%d y=%d n=%d |%s|\n", bm->cx, bm->cy, (int)strlen( msg ), b31 );
+		if ( n31 < 600 ) {
+			int i31;
+			printf( "t31hex x=%d y=%d n=%d :", bm->cx, bm->cy, (int)strlen( msg ) );
+			for ( i31 = 0; msg[i31] != 0 && i31 < 80; i31++ ) printf( " %02x", (unsigned char)msg[i31] );
+			printf( "\n" );
 			fflush( stdout );
 			n31++;
 		}
