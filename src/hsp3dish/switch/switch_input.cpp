@@ -421,9 +421,10 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo Y (left): item menu; second layer: wear.  SDL's X is the
 		left button.														*/
 	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w' },
-	/*	ZL fires, ZR casts; second layer: help and the message log.		*/
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', '?' },
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v', '/' },
+	/*	ZL fires, ZR casts.  Second layer: the two inventory screens the
+		action menu has no entry for - item detail ('X') and materials.	*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'X' },
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v', 'm' },
 	/*	- locks the target on; + opens the save/settings menu (Shift+S).
 		Second layer: the two list-paging keys.  Elona pages item and
 		equipment lists with '+'/'-' (config.txt key_pageup/key_pagedown),
@@ -435,7 +436,7 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Left stick press: read; second layer: switch ammo.  The right
 		stick's press is the Space key now - it is in sw_keymap() above, so
 		it is not typed here.												*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 'A' },
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 't' },
 	/*	The d-pad joins the second layer: on the base layer it is pure
 		movement (its scancodes live in sw_keymap), and R turns the four
 		directions into four more utility keys - appearance/prayer, offer,
@@ -458,7 +459,7 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_RIGHT	'T'
 /*	Left stick second layer (R held): five utility actions.				*/
 #define SW_LSTICK_UP_ALT	'h'		/* jump over things			*/
-#define SW_LSTICK_DOWN_ALT	'D'		/* dig						*/
+#define SW_LSTICK_DOWN_ALT	'*'		/* select a target			*/
 #define SW_LSTICK_LEFT_ALT	'G'		/* give an item				*/
 #define SW_LSTICK_RIGHT_ALT	'C'		/* close a door				*/
 
@@ -472,7 +473,7 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_RSTICK_UP_ALT	'd'		/* drop an item				*/
 #define SW_RSTICK_DOWN_ALT	'o'		/* open a container/door	*/
 #define SW_RSTICK_LEFT_ALT	'j'		/* open the journal/log		*/
-#define SW_RSTICK_RIGHT_ALT	'b'		/* blend/mix items			*/
+#define SW_RSTICK_RIGHT_ALT	'['		/* alter the terrain		*/
 
 static Uint8	sw_char_state[SW_CHARKEY_N];
 static int		sw_lstick_x, sw_lstick_y, sw_rstick_x, sw_rstick_y;
