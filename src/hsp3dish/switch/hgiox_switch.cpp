@@ -1762,7 +1762,7 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 			title menu's per-row strip pick up the neighbouring row's text.
 																					*/
 		glDisable( GL_BLEND );
-		sw_glColorKey( 1, sw_ckey_sticky );
+		sw_glColorKey( 1, 0x000000u );
 	} else if ( ( mode == 4 ) && ( bm != NULL ) ) {
 		sw_ckey_sticky = (unsigned)bm->color & 0xffffffu;
 		sw_glColorKey( 1, sw_ckey_sticky );
@@ -1775,7 +1775,12 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		static int sw_ck_n = 0;
 		int sw_ck_col = ( bm != NULL ) ? (int)( bm->color & 0xffffffu ) : -1;
 		int sw_ck_sti = (int)( sw_ckey_sticky & 0xffffffu );
-		if ( ( sw_ck_n < 120 ) &&
+		/*	r167: only the PCC sheet (384x198) and its 128-wide tint
+			rectangle - the menu filled the old cap before create_pcpic
+			runs, so nothing useful was ever logged.						*/
+		int sw_ck_pcc = ( bm != NULL ) &&
+			( ( (int)bm->sx == 384 ) || ( (int)bm->sx == 128 ) );
+		if ( sw_ck_pcc && ( sw_ck_n < 400 ) &&
 			 ( ( (int)mode != sw_ck_last[0] ) || ( sw_ck_col != sw_ck_last[1] ) ||
 			   ( sw_ck_sti != sw_ck_last[2] ) ) ) {
 			sw_ck_n++;
