@@ -889,6 +889,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
+	if ( !SW_FBO_HEAVY ) return;
 	if ( !SWITCH_DIAG ) return;
 	unsigned char *p;
 	FILE *fp;
@@ -2633,23 +2634,6 @@ void hgio_fcopy( float distx, float disty, short xx, short yy, short srcsx, shor
 void hgio_fontcopy( BMSCR *bm, float distx, float disty, float ratex, float ratey, int srcsx, int srcsy, int texid, int basex, int basey )
 {
 	sw_trc_ex( "fontcopy", bm, distx, disty, (float)srcsx, (float)srcsy, texid, basex, basey, (int)srcsx, (int)srcsy );
-
-	if ( ( disty >= 500.0f ) && ( disty < 620.0f ) ) {
-		/*	r141 diag: the message band.  t40 showed the script passes
-			correct coordinates, so this records where the blit actually
-			lands, with the size the glyph texture is sampled at and the
-			texture id in use.											*/
-		static int sw_fc_probe = 0;
-		if ( sw_fc_probe < 40000 ) {
-			sw_fc_probe++;
-			printf( "t42 #%d t=%u bm=%p scr=%dx%d cx=%d cy=%d dx=%d dy=%d sx=%d sy=%d base=%d,%d tex=%d pid=%d\n",
-				sw_fc_probe, (unsigned)hgio_gettick(), (void *)bm,
-				(int)bm->sx, (int)bm->sy, (int)bm->cx, (int)bm->cy,
-				(int)distx, (int)disty, srcsx, srcsy, basex, basey,
-				texid, (int)bm->texid );
-			fflush( stdout );
-		}
-	}
 	//		画像コピー(フォント用)
 	//		texid内の(xx,yy)-(xx+srcsx,yy+srcsy)を現在の画面に等倍でコピー
 	//		描画モードは3,100%、転送先はdistx,disty
@@ -3780,27 +3764,6 @@ int hgio_mes(BMSCR* bm, char* msg)
 	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
 
-	{
-		/*	r138 diag: plain `mes` is the one text path that comes out
-			doubled / residual on the device, while the same strings drawn
-			through mestex are fine.  Log each draw once (capped) with the
-			tick, the target buffer and its size, the position and the first
-			bytes in hex, so the per-frame sequence can be rebuilt.			*/
-		static int sw_mes_probe = 0;
-		if ( ( sw_mes_probe < 40000 ) && ( strlen( msg ) >= 8 ) ) {
-			int k;
-			sw_mes_probe++;
-			printf( "t40 #%d t=%u bm=%p scr=%dx%d x=%d y=%d n=%d :", sw_mes_probe,
-				(unsigned)hgio_gettick(), (void *)bm, (int)bm->sx, (int)bm->sy,
-				(int)bm->cx, (int)bm->cy, (int)strlen( msg ) );
-			for ( k = 0; msg[k] != 0 && k < 12; k++ ) {
-				printf( " %02x", (unsigned char)msg[k] );
-			}
-			printf( "\n" );
-			fflush( stdout );
-		}
-	}
-
 	// print per line
 	if (bm->vp_flag == BMSCR_VPFLAG_NOUSE) {
 		if (bm->cy >= bm->sy) return -1;
@@ -3936,29 +3899,6 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 	int esx, esy;
 	if ( !sw_drawable( bm ) ) return -1;
 	if (drawflag == 0) hgio_render_start();
-
-	{
-		/*	r139 diag: the texmesPos path.  r138 only traced hgio_mes and
-			missed the message log entirely, so this one carries the string
-			as well as the geometry and the texture id it draws with.		*/
-		static int sw_mestex_probe = 0;
-		const char *pstr = tpos->getString();
-		if ( ( sw_mestex_probe < 20000 ) && ( pstr != NULL ) && ( strlen( pstr ) >= 8 ) ) {
-			int k;
-			sw_mestex_probe++;
-			printf( "t41 #%d t=%u bm=%p scr=%dx%d x=%d y=%d tid=%d n=%d :",
-				sw_mestex_probe, (unsigned)hgio_gettick(), (void *)bm,
-				(int)bm->sx, (int)bm->sy, (int)bm->cx, (int)bm->cy,
-				(int)tpos->texid, ( pstr == NULL ) ? -1 : (int)strlen( pstr ) );
-			if ( pstr != NULL ) {
-				for ( k = 0; pstr[k] != 0 && k < 12; k++ ) {
-					printf( " %02x", (unsigned char)pstr[k] );
-				}
-			}
-			printf( "\n" );
-			fflush( stdout );
-		}
-	}
 
 	// print per line
 	orgx = bm->cx;
@@ -4190,47 +4130,6 @@ int hgio_render_end( void )
 		the swap has not happened yet, so this is the point to draw them.  */
 	switch_overlay_draw( (int)_sizex, (int)_sizey, (int)_originX,
 		(int)( _bgsx * _scaleX ) );
-
-	/*	r142 diag: a few snapshots during the first minutes, so a device
-		run can be inspected pixel by pixel.  Main screen, window, and
-		every offscreen screen (including the 1440x800 one the message
-		band is copied from) all land in sdmc:/dump/.					*/
-	{
-		static int sw_shot_n = 0;
-		static unsigned sw_shot_next = 0;
-		unsigned sw_now = (unsigned)hgio_gettick();
-		if ( sw_shot_n < 2 ) {
-			if ( sw_shot_next == 0 ) sw_shot_next = sw_now + 45000;
-			if ( sw_now >= sw_shot_next ) {
-				char pfx[24];
-				char wnm[40];
-				sw_shot_n++;
-				sw_shot_next = sw_now + 60000;
-				snprintf( pfx, sizeof( pfx ), "shot%d", sw_shot_n );
-				snprintf( wnm, sizeof( wnm ), "%s_main.bmp", pfx );
-				sw_dump_fbo( wnm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-					(int)_bgsx, (int)_bgsy );
-				{
-					/*	only the big offscreen screen - the one the message
-						band is copied from.  Walking every target is what
-						made r142 unusable.								*/
-					int si;
-					for ( si = 0; si < sw_target_used; si++ ) {
-						if ( sw_targets[si].bm == NULL ) continue;
-						if ( sw_targets[si].bm->sx < 1000 ) continue;
-						snprintf( wnm, sizeof( wnm ), "%s_src.bmp", pfx );
-						sw_dump_fbo( wnm, sw_targets[si].fbo,
-							sw_targets[si].bm->sx, sw_targets[si].bm->sy );
-						break;
-					}
-				}
-				snprintf( wnm, sizeof( wnm ), "%s_win.bmp", pfx );
-				sw_dump_fbo( wnm, 0, (int)_sizex, (int)_sizey );
-				printf( "hsp3switch: shot %d at t=%u\n", sw_shot_n, sw_now );
-				fflush( stdout );
-			}
-		}
-	}
 
 
 #if defined(HSPRASPBIAN) || defined(HSPNDK)
