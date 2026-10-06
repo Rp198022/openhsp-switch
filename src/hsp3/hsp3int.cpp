@@ -1325,15 +1325,6 @@ static int cmdfunc_intcmd( int cmd )
 		if ( p == NULL ) break;
 
 		i = GetNoteLines(p);
-		{
-			static int sw_sortnote_n = 0;
-			if ( sw_sortnote_n < 60 && ctx != NULL ) {
-				sw_sortnote_n++;
-				printf( "t36 sortnote #%d cs=%ld flag=%d lines=%d\n", sw_sortnote_n,
-					(long)( code_getpcbak() - ctx->mem_mcs ), (int)pv->flag, i );
-				fflush( stdout );
-			}
-		}
 		if ( i <= 0 ) break;
 
 		DataIni( i );

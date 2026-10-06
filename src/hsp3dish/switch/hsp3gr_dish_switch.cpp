@@ -503,7 +503,6 @@ static int	sw_key_len = 0;
 static int	sw_key_pos = 0;
 static int	sw_key_wait = 0;
 static int	sw_key_target = 0;
-static int	sw_keyobj_report = 0;	/* t23 probe: why the object check said no */
 static int	sw_objsel_id = 0;		/* last object the script picked with objsel	*/
 
 static void sw_key_read( void )
@@ -582,19 +581,7 @@ static HSPOBJINFO *sw_key_object( Bmscr *bm )
 		else if ( p->owmode & HSPOBJ_OPTION_LAYEROBJ ) why = 6;
 		else return p;
 	}
-	/*	t23 probe: every injected key came back found=0; name the
-		condition that refused it, and where the object really lives
-		when the window disagrees.									*/
-	if ( sw_keyobj_report < 300 ) {
-		sw_keyobj_report++;
-		printf( "t23: keyobj reject why=%d bm=%p wid=%d type=%d objmax=%d target=%d"
-			" obj=%p pbm=%p owmode=%d tick=%d\n",
-			why, (void *)bm, ( bm != NULL ) ? bm->wid : -1,
-			( bm != NULL ) ? bm->type : -1, ( bm != NULL ) ? bm->objmax : -1,
-			sw_key_target, (void *)p, ( p != NULL ) ? p->bm : NULL,
-			( p != NULL ) ? (int)p->owmode : -1, (int)hgio_gettick() );
-		fflush( stdout );
-	}
+	(void)why;
 	return NULL;
 }
 
@@ -1115,19 +1102,6 @@ static int cmdfunc_extcmd( int cmd )
 		break;
 	case 0x13:								// cls
 		p1 = code_getdi( 0 );
-		{
-			/*	t23 probe: Elona clears its screens by painting over them, not
-				with `cls` (the whole script has two of them).  If this counter
-				stays at zero, the clear has to come from the composition.  */
-			static int sw_cls_n = 0;
-			if ( sw_cls_n < 300 ) {
-				sw_cls_n++;
-				printf( "t23: cls #%d mode=%d bm=%p type=%d texid=%d tick=%d\n",
-					sw_cls_n, p1, (void *)bmscr, bmscr->type, bmscr->texid,
-					(int)hgio_gettick() );
-				fflush( stdout );
-			}
-		}
 		bmscr->Cls( p1 );
 		break;
 	case 0x14:								// font
@@ -1202,20 +1176,6 @@ static int cmdfunc_extcmd( int cmd )
 		Bmscr *src;
 		int bgtex;
 		p1 = code_getdi( 1 );
-		/*	fork: temporary - which screen does the game present, and how
-			often?  One line a second is enough to tell a live window from
-			a stale one.												*/
-		{
-			static int sw_t23_rd = -1000;
-			int sw_t23_now = ( SWITCH_DIAG ? hgio_gettick() : 0 );
-			if ( SWITCH_DIAG && sw_t23_now - sw_t23_rd >= 1000 ) {
-				sw_t23_rd = sw_t23_now;
-				printf( "t23: redraw flag=%d type=%d id=%d cur_window=%d max=%d\n",
-					p1, bmscr->type, bmscr->wid, cur_window,
-					wnd->GetBmscrMax() );
-				fflush( stdout );
-			}
-		}
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( 0 );
 		p4 = code_getdi( 0 );
@@ -1309,16 +1269,6 @@ static int cmdfunc_extcmd( int cmd )
 			fflush( stdout );
 			p1 = 0;
 		}
-		{
-			static int sw_t23_gs = -1000;
-			int sw_t23_now = ( SWITCH_DIAG ? hgio_gettick() : 0 );
-			if ( SWITCH_DIAG && sw_t23_now - sw_t23_gs >= 1000 ) {
-				sw_t23_gs = sw_t23_now;
-				printf( "t23: gsel id=%d\n", p1 );
-				fflush( stdout );
-			}
-		}
-
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
 		bmscr->Select( p2 );
@@ -1350,24 +1300,12 @@ static int cmdfunc_extcmd( int cmd )
 	case 0x1e:								// gcopy
 		{
 		Bmscr *src;
-		static int sw_gcopy_report = 0;	/* t23 probe: the command layer's view */
 		p1 = code_getdi( 0 );
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( 0 );
 		p4 = code_getdi( bmscr->gx );
 		p5 = code_getdi( bmscr->gy );
 		src = wnd->GetBmscrSafe( p1 );
-		/*	t23 probe: is the picture-buffer restore (`gcopy BUFFER_MAP, 0, 0,
-			800, 500` before the name prompt) reaching the command at all?
-			Big copies only, with the resolved source.					*/
-		if ( ( p4 >= 256 ) && ( p5 >= 256 ) && ( sw_gcopy_report < 3000 ) ) {
-			sw_gcopy_report++;
-			printf( "t23: gcopy #%d srcid=%d src=%p dst=%p type=%d at %d,%d %dx%d"
-				" gmode=%d tick=%d\n",
-				sw_gcopy_report, p1, (void *)src, (void *)bmscr, bmscr->type,
-				p2, p3, p4, p5, bmscr->gmode, (int)hgio_gettick() );
-			fflush( stdout );
-		}
 		if ( bmscr->Copy( src, p2, p3, p4, p5 ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
 		break;
 		}
@@ -1620,16 +1558,6 @@ static int cmdfunc_extcmd( int cmd )
 				screen (hgio_set_help / sw_main_overlay).  The main screen still
 				presents every frame, so the window cannot freeze the way it did
 				when id 20 was given a screen the presenter never showed.		*/
-			{
-				static int sw_t23_sc = -1000;
-				int sw_t23_now = ( SWITCH_DIAG ? hgio_gettick() : 0 );
-				if ( SWITCH_DIAG && sw_t23_now - sw_t23_sc >= 1000 ) {
-					sw_t23_sc = sw_t23_now;
-					printf( "t23: screen cmd=%#x id=%d sx=%d sy=%d\n",
-						cmd, p1, p2, p3 );
-					fflush( stdout );
-				}
-			}
 			if (p1 != 0) {
 				/*	GetBmscr() reads the screen table by index with no bound
 					check, and Elona's second screen is id 20 while the table
@@ -2255,17 +2183,6 @@ static int cmdfunc_extcmd( int cmd )
 		p1 = code_getdi( 0 );
 		p2 = code_getdi( 0 );
 		p3 = code_getdi( -1 );
-		{
-			/*	t23 probe: `setcls` steers how the next `cls` clears.  The
-				engine sets it once at start-up, so anything here is the script.*/
-			static int sw_setcls_n = 0;
-			if ( sw_setcls_n < 200 ) {
-				sw_setcls_n++;
-				printf( "t23: setcls #%d mode=%d color=%06x tex=%d tick=%d\n",
-					sw_setcls_n, p1, p2 & 0xffffff, p3, (int)hgio_gettick() );
-				fflush( stdout );
-			}
-		}
 		hgio_clsmode( p1, p2, p3 );
 		break;
 

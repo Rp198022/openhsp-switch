@@ -59,7 +59,7 @@
 #include "switch_overlay.h"
 /*	Switch diagnostics.  0 = shipping build.						*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 1
+#define SWITCH_DIAG 0
 #endif
 
 

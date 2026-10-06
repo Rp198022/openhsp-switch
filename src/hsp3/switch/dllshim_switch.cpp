@@ -56,7 +56,7 @@ static PVal **pmpval = NULL;		// Master PVal (points at code_get's temp var)
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 1			/* P3: on while the fcgraph colour pass is traced */
+#define SWITCH_DIAG 0			/* shipping build: probes and traces off */
 #endif
 
 #define DLLSHIM_MAX_ARGS 16
@@ -139,7 +139,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r102 (t25 new CJK only, tick, cap 30000)\n" );
+		printf( "hsp3switch: build r135\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}

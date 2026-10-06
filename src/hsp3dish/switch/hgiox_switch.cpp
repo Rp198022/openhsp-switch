@@ -3684,72 +3684,12 @@ int hgio_font(char *fontname, int size, int style)
 	return 0;
 }
 
-/*-------------------------------------------------------------------------------*/
-/*
-		t24 probe - where each drawn string lands
-
-		The scene routine repaints a whole text block when the story advances,
-		and the block's y comes from its line count, so the same string
-		landing at two different y values is what an overlapped screen looks
-		like in the log.  Keying on (buffer, x, y, string) tells that apart
-		from an ordinary redraw of an unchanged screen.
-*/
-/*-------------------------------------------------------------------------------*/
-
-#define SWTEXT_KEEP 256
-#define SWTEXT_MAX 7000
-#define SWTEXT_REPEAT_MS 1000
-
-typedef struct {
-	void		*bm;
-	int		x, y;
-	unsigned	tick;
-	unsigned	hash;
-} SWTEXTLAST;
-
-static SWTEXTLAST	sw_text_last[SWTEXT_KEEP];
-static int	sw_text_last_ix = 0;
-static int	sw_text_probe = 0;
-
 static unsigned sw_text_hash( const char *s )
 {
 	unsigned h = 5381;
 	while ( *s != 0 ) h = h * 33u + (unsigned char)*s++;
 	return h;
 }
-
-static void sw_text_draw_log( BMSCR *bm, const char *tag, int x, int y, const char *s )
-{
-	int i;
-	unsigned tick, h;
-
-		/* skip non-CJK strings to keep the probe log small */
-		{
-			const char *p = s;
-			while ( *p != 0 && (unsigned char)*p < 0x81 ) p++;
-			if ( *p == 0 ) return;
-		}
-	if ( sw_text_probe >= SWTEXT_MAX ) return;
-	tick = (unsigned)hgio_gettick();
-	h = sw_text_hash( s );
-	for ( i = 0; i < SWTEXT_KEEP; i++ ) {
-		if ( sw_text_last[i].bm != (void *)bm ) continue;
-		if ( sw_text_last[i].hash != h ) continue;
-		if ( sw_text_last[i].x != x || sw_text_last[i].y != y ) continue;
-		if ( tick - sw_text_last[i].tick < SWTEXT_REPEAT_MS ) return;
-	}
-	sw_text_last[sw_text_last_ix].bm = (void *)bm;
-	sw_text_last[sw_text_last_ix].x = x;
-	sw_text_last[sw_text_last_ix].y = y;
-	sw_text_last[sw_text_last_ix].hash = h;
-	sw_text_last[sw_text_last_ix].tick = tick;
-	sw_text_last_ix = ( sw_text_last_ix + 1 ) % SWTEXT_KEEP;
-	sw_text_probe++;
-	printf( "t24: %s #%d bm=%p tx=%d type=%d x=%d y=%d t=%u s=%s\n",
-		tag, sw_text_probe, (void *)bm, bm->texid, (int)bm->type, x, y, tick, s );
-	fflush( stdout );
-}
-
 /*-------------------------------------------------------------------------------*/
 /*
 		r104: drop the spurious second copy of a story line
@@ -3781,7 +3721,6 @@ typedef struct {
 
 static SWMESDRAWN sw_mes_drawn[SWMES_DRAWN_KEEP];
 static int sw_mes_drawn_ix = 0;
-static int sw_mes_skip_reports = 0;
 
 /*	Copy msg, trimming any line-ending CR/LF from the tail.  *had_cr tells
 	whether the original ended with one (that is the spurious-copy marker),
@@ -3811,29 +3750,6 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn[sw_mes_drawn_ix].tick = (unsigned)hgio_gettick();
 	sw_mes_drawn[sw_mes_drawn_ix].hash = sw_text_hash( s );
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
-}
-
-/*	r125 diag: the whole mes argument (hex) for draws in the skill column,
-	with the number of line breaks it carries.						*/
-void sw_printsub_whole( int x, int y, const char *s )
-{
-	static int n = 0;
-	int i, brk = 0;
-	if ( s == NULL ) return;
-	if ( !( x >= 285 && x <= 300 && y >= 280 && y <= 470 ) ) return;
-	if ( n >= 1500 ) return;
-	n++;
-	for ( i = 0; s[i] != 0; i++ ) {
-		if ( s[i] == '\r' || s[i] == '\n' ) brk++;
-	}
-	{
-		extern void sw_probe_pc( const char *tag );
-		sw_probe_pc( "t32pc" );
-	}
-	printf( "t32hex #%d x=%d y=%d n=%d brk=%d :", n, x, y, (int)strlen( s ), brk );
-	for ( i = 0; s[i] != 0 && i < 200; i++ ) printf( " %02x", (unsigned char)s[i] );
-	printf( "\n" );
-	fflush( stdout );
 }
 
 int hgio_mes(BMSCR* bm, char* msg)
@@ -3893,26 +3809,6 @@ int hgio_mes(BMSCR* bm, char* msg)
 			return rc;
 		}
 	}
-
-#ifdef __SWITCH__
-	/*	t31: the skill column of the reference panel (x ~ 292) drew the
-		race description over the skill rows - show what string arrives.	*/
-	if ( bm->cx >= 240 && bm->cx <= 340 && bm->cy >= 90 && bm->cy <= 520 ) {
-		static int n31 = 0;
-		if ( n31 < 3000 ) {
-			int i31;
-			{
-				extern void sw_probe_pc( const char *tag );
-				sw_probe_pc( "t33pc" );
-			}
-			printf( "t33hex #%d x=%d y=%d n=%d :", n31, bm->cx, bm->cy, (int)strlen( msg ) );
-			for ( i31 = 0; msg[i31] != 0 && i31 < 80; i31++ ) printf( " %02x", (unsigned char)msg[i31] );
-			printf( "\n" );
-			fflush( stdout );
-			n31++;
-		}
-	}
-#endif
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
 	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
 
@@ -3929,12 +3825,6 @@ int hgio_mes(BMSCR* bm, char* msg)
 			dy = bm->cy - sw_mes_drawn[i].y;
 			if ( dy < 6 || dy > 48 ) continue;
 			if ( tick - sw_mes_drawn[i].tick > 5 ) continue;
-			if ( sw_mes_skip_reports < 300 ) {
-				sw_mes_skip_reports++;
-				printf( "t26: skip dup bm=%p x=%d y=%d t=%u s=%s\n",
-					(void *)bm, bm->cx, bm->cy, tick, use );
-				fflush( stdout );
-			}
 			ysize = tmes._fontsize;
 			bm->printsizey += ysize;
 			bm->cy += ysize;
@@ -3985,15 +3875,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 			}
 			sw_hide = !padded;
 		}
-		if ( sw_hide ) {
-			static int sw_hide_n = 0;
-			if ( sw_hide_n < 200 ) {
-				sw_hide_n++;
-				printf( "t38 hide x=%d y=%d n=%d\n", bm->cx, bm->cy, (int)strlen( use ) );
-				fflush( stdout );
-			}
-		} else {
-			sw_text_draw_log( bm, "mes", bm->cx, bm->cy, use );
+		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
 		sw_mes_note_draw( bm, bm->cx, bm->cy, use );
@@ -4094,7 +3976,6 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 			ysize = esy - y;
 			if (ysize <= 0) return -1;
 		}
-		sw_text_draw_log( bm, "mesx", x, y, tpos->getString() );
 		hgio_fontcopy(bm, x, y, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, tx, ty);
 	}
 
@@ -4227,31 +4108,11 @@ int hgio_render_start( void )
 }
 
 
-/*	t23 perf: the whole of hgio_render_end() - texmesProc, the main-screen
-	blit and the frame swap, which is where the emulator runs the draws the
-	frame queued.  Printed on the once-per-second diagnostic line.		*/
-static unsigned			sw_render_ms = 0;
-static unsigned			sw_render_frames = 0;
-
 int hgio_render_end( void )
 {
 	int res;
 	res = 0;
-	unsigned t_re = (unsigned)hgio_gettick();
 	if ( drawflag == 0 ) return 0;
-	{
-		static int sw_t23_pr = -1000;
-		int sw_t23_now = hgio_gettick();
-		if ( sw_t23_now - sw_t23_pr >= 1000 ) {
-			sw_t23_pr = sw_t23_now;
-			printf( "t23: present sw_cur=%p type=%d mainbm=%p ok=%d render=%u ms over %u frames\n",
-				(void *)sw_cur, ( sw_cur != NULL ) ? sw_cur->type : -1,
-				(void *)mainbm, sw_main_ok, sw_render_ms, sw_render_frames );
-			sw_render_ms = 0;
-			sw_render_frames = 0;
-			fflush( stdout );
-		}
-	}
 #ifdef HSPIOS
     gb_render_end();
 #endif
@@ -4302,9 +4163,6 @@ int hgio_render_end( void )
 	//SDL_GL_SwapBuffers();
 #endif
 #endif
-
-	sw_render_ms += (unsigned)hgio_gettick() - t_re;
-	sw_render_frames++;
 
 	drawflag = 0;
 	return res;
@@ -4370,14 +4228,6 @@ int hgio_redraw( BMSCR *bm, int flag )
 	hgio_screen( bm );
 
 	if ( flag & 1 ) {
-		{
-			static int sw_rd_probe = 0;
-			if ( sw_rd_probe < 6000 ) {
-				sw_rd_probe++;
-				printf( "t24: present t=%d\n", (int)hgio_gettick() );
-				fflush( stdout );
-			}
-		}
 		hgio_render_end();
 		sw_redraw_time( bm );
 	} else {

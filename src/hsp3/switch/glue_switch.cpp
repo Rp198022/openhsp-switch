@@ -704,32 +704,6 @@ static int	glue_text_count = 0;
 /*	P4: tie each registered string to the interpreter position that asked
 	for it.  A repeated registration of the same text from a different cs
 	is a second call site drawing it again.						*/
-/*	r126 diag: the interpreter position of the call site, for the probe
-	that watches the skill column of the reference panel.				*/
-void sw_probe_pc( const char *tag )
-{
-	if ( watch_ctx == NULL ) return;
-	printf( "%s cs=%ld\n", tag, (long)( code_getpcbak() - watch_ctx->mem_mcs ) );
-	fflush( stdout );
-}
-
-static int sw_textreg_probe = 0;
-
-static void glue_textreg_cs( const char *msg )
-{
-	int i, cjk = 0;
-	if ( watch_ctx == NULL ) return;
-	if ( sw_textreg_probe >= 30000 ) return;
-	for ( i = 0; msg[i] != 0; i++ ) {
-		if ( (unsigned char)msg[i] >= 0x81 ) { cjk = 1; break; }
-	}
-	if ( !cjk ) return;
-	sw_textreg_probe++;
-	printf( "t25: #%d cs=%ld tick=%d msg=%s\n", sw_textreg_probe,
-		(long)( code_getpcbak() - watch_ctx->mem_mcs ), (int)watch_ctx->lasttick, msg );
-	fflush( stdout );
-}
-
 static void glue_text_log( const char *msg )
 {
 	unsigned now = (unsigned)time( NULL );
@@ -752,7 +726,6 @@ static void glue_text_log( const char *msg )
 	glue_text_when[glue_text_count] = now;
 	glue_text_count++;
 	printf( "hsp3text: #%d %s\n", glue_text_count - 1, glue_text_seen[glue_text_count - 1] );
-	glue_textreg_cs( glue_text_seen[glue_text_count - 1] );
 	fflush( stdout );
 }
 

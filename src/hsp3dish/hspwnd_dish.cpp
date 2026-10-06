@@ -745,12 +745,6 @@ int Bmscr::PrintSubMul(char *mes, int x, int y, int px, int py, int times)
 
 int Bmscr::PrintSub( char *mes )
 {
-#ifdef __SWITCH__
-	{
-		extern void sw_printsub_whole( int x, int y, const char *s );
-		sw_printsub_whole( (int)((BMSCR *)this)->cx, (int)((BMSCR *)this)->cy, mes );
-	}
-#endif
 	int spcur;
 	int px;
 	unsigned char* p;
