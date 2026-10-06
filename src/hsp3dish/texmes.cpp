@@ -206,6 +206,23 @@ texmes* texmesManager::addTexmes(void)
 	for (i = 0; i < _maxtexmes; i++) {
 		if (_texmes[i].flag == 0) return &_texmes[i];
 	}
+	/*	fork: every slot is still cached.  Returning NULL here made
+		texmesRegist() answer -1, and hgio_mes() then drew nothing and did
+		not advance the line at all - a long block of text (the race
+		detail panel on the 2.30 build) lost a row and the lines below
+		slid up, which is what the overlap on screen is made of.  Hand
+		back the entry closest to expiry instead, so text is never
+		dropped just because the cache got full.						*/
+	{
+		texmes *oldest = NULL;
+		for (i = 0; i < _maxtexmes; i++) {
+			if (oldest == NULL || _texmes[i].life < oldest->life) oldest = &_texmes[i];
+		}
+		if (oldest != NULL) {
+			oldest->clear();
+			return oldest;
+		}
+	}
 	return NULL;
 }
 
