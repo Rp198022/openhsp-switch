@@ -43,8 +43,8 @@
 	is the shim's own view of that switch.  */
 extern "C" int sw_texture2d_on( void );
 
-#define SW_OVL_FONT_SIZE	20
-#define SW_OVL_LINE_H		27
+#define SW_OVL_FONT_SIZE	18
+#define SW_OVL_LINE_H		24
 #define SW_OVL_PAD_Y		8
 #define SW_OVL_KEY_X		8		/* key column					*/
 #define SW_OVL_DESC_X		80		/* description column			*/
