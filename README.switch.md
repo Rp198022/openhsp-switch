@@ -56,9 +56,17 @@ Layout on the SD card:
 /switch/openhsp/              the game directory
 ```
 
-Launch `hsp3dish` from the Homebrew Menu - hold **R** while opening the
-Album.  If you would rather not go through the Homebrew Menu every time,
-build an NSP forwarder that points at `/switch/hsp3dish.nro` (for example
+Launch `hsp3dish` from the Homebrew Menu in **full-memory mode** - not from
+the Album.  The Album opens the menu as an applet, which only gets a few
+hundred megabytes, and that is not enough for this game.
+
+To get full-memory mode: highlight any installed game tile on the home
+menu, hold **R**, and press **A**.  The game does not start - the Homebrew
+Menu opens in its place, with the full memory budget.  Pick `hsp3dish`
+there.
+
+If you would rather not go through the Homebrew Menu every time, build an
+NSP forwarder that points at `/switch/hsp3dish.nro` (for example
 [switch-nsp-forwarder](https://github.com/TooTallNate/switch-nsp-forwarder))
 and install it: the game then starts straight from the home menu.
 
