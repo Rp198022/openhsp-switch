@@ -1,5 +1,10 @@
 # OpenHSP/Hot Soup Processor(HSP3)
 
+> **This fork is the Nintendo Switch port.**  See
+> **[README.switch.md](README.switch.md)** for how to build it and how to
+> run a game, and **[PORT_NOTES.md](PORT_NOTES.md)** for the development
+> log.  Everything below is upstream's own README, unchanged.
+
 OpenHSP/Hot Soup Processor (HSP3) is a scripting language system that anyone can easily use. You can easily build applications such as game programs, screen savers, tools and practical software using images just by writing a text script.
 HSP3 can run the development environment on Microsoft Windows, Linux / Raspberry Pi . For detailed installation and usage, refer to the manual for each platform.
 
