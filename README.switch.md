@@ -56,7 +56,13 @@ Layout on the SD card:
 /switch/openhsp/              the game directory
 ```
 
-Launch `hsp3dish` from the Homebrew Menu.  The game directory needs:
+Launch `hsp3dish` from the Homebrew Menu - hold **R** while opening the
+Album.  If you would rather not go through the Homebrew Menu every time,
+build an NSP forwarder that points at `/switch/hsp3dish.nro` (for example
+[switch-nsp-forwarder](https://github.com/TooTallNate/switch-nsp-forwarder))
+and install it: the game then starts straight from the home menu.
+
+The game directory needs:
 
 | File | Why |
 |---|---|
