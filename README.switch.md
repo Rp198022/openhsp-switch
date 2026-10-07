@@ -80,6 +80,9 @@ a CP932 title in the same directory - they share that one setting.
 
 ## Known issues
 
+- **A freshly created character pauses on a blank screen for a few seconds**
+  before the opening scene appears.  Only happens straight after character
+  creation; loading a save is instant.  Known, left as is.
 - **Message log text overlaps** - real hardware only; the same NRO and the same
   GL call sequence render correctly in the Eden emulator.  Suspected Tegra TBDR
   behaviour around read-while-write on one texture.  Unresolved; see
