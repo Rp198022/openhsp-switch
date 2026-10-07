@@ -61,7 +61,7 @@ the Album.  The Album opens the menu as an applet, which only gets a few
 hundred megabytes, and that is not enough for this game.
 
 To get full-memory mode: highlight any installed game tile on the home
-menu, hold **R**, and press **A**.  The game does not start - the Homebrew
+menu, hold **R**, and press **Y**.  The game does not start - the Homebrew
 Menu opens in its place, with the full memory budget.  Pick `hsp3dish`
 there.
 
