@@ -105,6 +105,12 @@ a CP932 title in the same directory - they share that one setting.
 - **Entering a Chinese character name can crash.**  Use a Latin or kana name.
 - Do not resize the window.
 
+## Testing status
+
+This port has only been smoke-tested.  It plays, but there are certainly
+bugs left - bug reports are welcome in the issue tracker, and the author
+will get to them when time allows.  Patches are welcome too.
+
 ## License
 
 The port follows upstream OpenHSP's BSD-3-Clause license; see [LICENSE](LICENSE).
