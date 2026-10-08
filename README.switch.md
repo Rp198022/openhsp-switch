@@ -75,7 +75,7 @@ The game directory needs:
 | File | Why |
 |---|---|
 | the game itself (e.g. Elona+'s `start.ax` and its data folders) | not shipped here |
-| `ipaexg.ttf` | font. **A CJK-complete font is required** - the port draws a Chinese key-hint column, and the IPAex font Elona ships has no Simplified Chinese glyphs.  Noto Sans (SIL OFL) works. |
+| `ipaexg.ttf` | font. **A CJK-complete font is required** - the port draws a Chinese key-hint column, and the IPAex font Elona ships has no Simplified Chinese glyphs.  Noto Sans (SIL OFL) works.  (The `ipaexg.ttf` at this repository's root is the stock IPAex file kept from upstream - it is **not** a suitable pick for a Chinese title.) |
 | `timidity.cfg` + `timidity/instruments/` | only if you want BGM (SDL_mixer renders MIDI through TiMidity) |
 | `config.txt` | `music` must be `"2"` (SDL audio); `"1"` selects a Windows-only backend and is silent here |
 
@@ -91,6 +91,7 @@ a CP932 title in the same directory - they share that one setting.
   stick click)
 - BGM through SDL_mixer + TiMidity
 - Save-file I/O
+- An optional frame cap: put a number (e.g. `30`) in `<game dir>/fps.txt` and each frame is slept down to that rate; with no such file the loop runs flat out
 
 ## Known issues
 
@@ -102,14 +103,22 @@ a CP932 title in the same directory - they share that one setting.
   behaviour around read-while-write on one texture.  Unresolved; see
   `PORT_NOTES.md` appendix H.
 - **One story scene renders its text misplaced** (two layouts at once).
-- **Entering a Chinese character name can crash.**  Use a Latin or kana name.
 - Do not resize the window.
 
 ## Testing status
 
-This port has only been smoke-tested.  It plays, but there are certainly
-bugs left - bug reports are welcome in the issue tracker, and the author
-will get to them when time allows.  Patches are welcome too.
+The game has been played through on real hardware (Atmosphere, full-memory
+mode): title, character creation, save/load, world map.  The crashes met
+during that testing - including one that killed the process on any file
+event, and one that hit a NULL `calloc` in the texture path - are fixed as of
+**r178**.  Bugs certainly remain: reports are welcome in the issue tracker,
+and patches too.
+
+## Revision
+
+The port is developed revision by revision.  The banner printed at boot
+(`hsp3switch: build rNNN`) and `PORT_NOTES.md` both name the revision an NRO
+was built from; the current source is **r179**.
 
 ## License
 

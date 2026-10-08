@@ -6,19 +6,22 @@
 
 ---
 
-## 0. 一句话状态
-
-**2.30 汉化版已完整可玩（Eden 全流程 + 真机）；键位定稿 r111 已真机实测；建角「种族面板」右栏文字重叠已修复（r134），诊断探针与 P3/文件访问日志已全部清除（r135~r137，CI 成功）**。r137 已推真机，待复验。
-r110b（提示文案修正："混调"→"砸开"）为 r110 与 r111 之间的过渡提交。
-2.32 官方版为已可玩基线（标题 → 建角/读档 → 世界地图）。
-
-> ✅ **已结案**：建角「种族面板」右栏文字重叠——r134 修复（判定规则 + 完整证据链见文末 **附录 G**）；`sortnote` 真实缺陷一并修掉（r131/r132）。剧情文本重叠的排查链见附录 A/E/F。
-> ⚠️ **剧情文本重叠（附录 A）**：`{1}` 场景「两套坐标重绘」的问题（r104 仅拦下 CR 副本、未根治）**状态未变**，r137 后待复验。
-> ⚠️ 次要：`{1}` 场景偶发"停在等待按键但渲染帧全停"（卡死）。
-> ⚠️ 待查（附录 D）：中文名闪退（用户报告"又会闪退"；r110 真机日志中无此尝试，疑为 SD 旧副本或另一次运行，需向用户确认）；命名键盘"弹两次"已查明＝游戏"重名重问"机制，非 bug。
-
----
-
+## 0. 一句话状态
+
+**真机运行中闪退已根治（r178）：根因是 HSP 引擎 typeinfo 表的「空档条目」从未被初始化，`call_eventfunc()` 从那个空槽开始遍历时调用了堆里的垃圾函数指针。2.30 汉化版与 2.32 官方版共用这套移植层，均已受益。**
+当前源码 **r179**；真机已验证 **r178**（用户确认「没问题了」）。
+
+> ✅ **已结案（2026-10-08）**
+> - 真机运行中闪退（fatal 2168-0001，`PC=fee63a00fee53a00`）→ **r178**（完整根因与证据链见 **附录 L**）
+> - r175 运行中崩溃（`memcpy` 撞 NULL）→ **r176**（`RegistTexMem` 的 `calloc` NULL 检查，附录 L.2）
+> - 此前记为「待查」的**中文名闪退**：根因就是同一个 typeinfo 缺陷（中文名会让存档路径走文件事件），**r178 一并修掉**
+> - 黑边键位提示字号 → **r179** 回到 16pt / 行高 22（v1 兼容层 r169 所用的尺寸）
+> - 建角「种族面板」右栏重叠 → r134（附录 G）；`sortnote` → r131/r132
+> - 黑屏 / 中文显示 / PCC 发色 / 真机卡顿 / BGM 无声 / config 被改坏 → 见 §8 勿回退清单
+> ⚠️ **仍遗留**：消息栏（冒险日志）真机文字重叠（附录 H）、剧情某段文字错位（附录 A）、新建角色后停顿约半分钟
+
+---
+
 ## 1. 项目速览
 
 | 项 | 值 |
@@ -28,12 +31,12 @@ r110b（提示文案修正："混调"→"砸开"）为 r110 与 r111 之间的�
 | 双版本 | ① **2.32 官方原版**（Shift-JIS，基线）② **2.30 汉化版**（GBK，当前主线） |
 | 引擎仓库 | `github.com/Rp198022/openhsp-switch`，分支 master，本地在 `<主工程>\openhsp\` |
 | CI | GitHub Actions `Build switch NRO`（devkitpro/devkita64 容器，45-60 秒）；产物 `hsp3dish.nro` + `.elf` + `.map` |
-| 构建号体系 | p3sNNN（2.32 线，至 p3s193+）→ r76~r137（2.30 线，当前 **r137**） |
+| 构建号体系 | p3sNNN（2.32 线，至 p3s193+）→ r76~r179（2.30 线，当前 **r179**） |
 | 合规 | 产物只含引擎；游戏资产用户自备，个人使用不二次分发 |
 
 ---
 
-## 2. 当前现场（2026-10-06）
+## 2. 当前现场（以下为 2026-10-06 快照；**最新状态见 §0 与附录 L / M**）
 
 ### 2.30 汉化版（主线）
 
@@ -53,7 +56,9 @@ r110b（提示文案修正："混调"→"砸开"）为 r110 与 r111 之间的�
 
 ---
 
-## 3. 下一步任务（按优先级）
+## 3. 下一步任务（按优先级）
+
+> ⏫ **2026-10-08 更新**：第 1 项已由后续版本取代（当前 r179）；第 2 项「中文名闪退」**根因已查明并修复**（见附录 L）。下述列表保留为当时快照。
 
 0. ✅ **（已完成）种族面板右栏重叠**：r134 修复（技能列 x 286~298 / y 385~520 内「无连续两个半角空格」的行 = 说明副本 → **只跳过 blit**）；r135 清除全部探针；用户确认画面正常。详见 **附录 G**。
 1. **r111 推送 + 键位手感反馈收集**（向用户）：
@@ -925,3 +930,90 @@ Startup failed.
 | `timidity_音色库_SD卡直接可用.zip` | 同上 |
 | `nsp-forwarder_生成主菜单图标用.nro` | 同上 |
 | 源码 | https://github.com/Rp198022/openhsp-switch |
+
+---
+
+## 附录 L：真机运行中闪退 —— 根因定位与修复（2026-10-08，r176~r178 · 已结案）
+
+### L.1 症状
+- **不放 `log_on`（全速）**时游戏运行中闪退；**放上 `log_on`（每帧写 SD 卡）就一切正常**。
+- 用户先后描述为「闪退回主界面」「由于发生错误，软件已关闭」；2.30 汉化版与 2.32 官方版**都**会出现。
+
+### L.2 第一步：r176 挡住了一个真实崩溃（不是主因）
+r175 真机崩溃报告（`0x4A8` Data Abort，`Address=0`）用 CI 产物的 `hsp3dish.map` 符号化：
+
+| 数据 | 含义 |
+|---|---|
+| `PC = hsp3dish + 0x6708a8` | map 里 `0x6707c0` 是 **`memcpy`**，+0xE8 → 崩在 memcpy 内部 |
+| `LR = hsp3dish + 0x29a54` | `RegistTexMem` 范围 `0x29970..0x29b78` → **调用者就是 `RegistTexMem`** |
+| `Address = 0` | 参数为 NULL |
+
+⇒ `hgtex.cpp` 的 `RegistTexMem()` 里 `mem_ini()`（= `calloc`）分配 2N 补边缓冲（最大 2048×2048×4 = 16 MB）失败返回 NULL，紧接着 `memcpy` 写 NULL。
+**r176** 加了 NULL 检查（失败即放弃该图、返回 -1，游戏继续），`RegistTex` 同样加固。
+
+### L.3 第二步：r177 的限帧验证了「慢=正常」，但没解决
+规律非常稳定：**慢 = 正常，快 = 出问题**。这也解释了更早的疑问「为什么以前的版本都能跑」——**r170 及以前日志是默认常开的**，游戏一直很慢。
+
+**r177** 在 `hgio_render_end()` 末尾加了可选限帧：`<appdir>/fps.txt` 写一个数字（如 `30`）即生效，无该文件＝不限帧；用「睡眠」替代「写 SD 卡减速」，不磨损卡、日志也不增长。
+**结果：仍然闪退** ⇒ 根因不是帧率。
+
+### L.4 第三步：r178 找到真正根因（HSP typeinfo 表空档未初始化）
+真机 `atmosphere/crash_reports/` 中 **38 份**报告特征**完全一致**，且跨 r171 / r175 / r176 / r177（不同 build-id）不变：
+
+| 数据 | 含义 |
+|---|---|
+| `Result = 0x2A8` | Instruction Abort（2168-0001） |
+| `PC = fee63a00fee53a00` | 不是代码地址，是**从内存读出的垃圾值** |
+| `LR = hsp3dish + 0xba50` | 落在 **`code_event()`**（`0xb9c0..0xbcf0`）内；`call_eventfunc()` 是 static 且 -O2 内联 ⇒ **就是那条 `blr`** |
+| `X0 = 5` | `HSPEVENT_FNAME`（「设置文件名」事件） |
+| `X3` | 指向正在打开的文件路径（寄存器里能拼出 `sdmc:/switch/openhsp\config.txt`） |
+| `X8 = 0x0101010101010101` | newlib 字符串例程的字长技巧 |
+
+**根因链**：
+1. `hsp3code.cpp` 的 `code_gettypeinfo(TYPE_USERDEF+1)` 把 typeinfo 表扩到 20 项，但**只对被请求的 id 19 调了 `hsp3typeinit_default()`**；
+2. 中间的空档 **id 18（`HSP3_TYPE_USER`）保留了 `BlockRealloc` 留下的堆垃圾**；
+3. `call_eventfunc()` 的循环是 `for (i = HSP3_TYPE_USER; i < tinfo_cur; i++)` —— **从 id 18 开始**，先读垃圾 `option`（与事件类别相交即通过），**再调用垃圾 `eventfunc`** → 跳向垃圾地址；
+4. 早先移植时已发现这个空档会让**退出时**（`code_termfunc` 遍历）崩溃，于是只清了 `info[-1].termfunc` —— **`option` / `eventfunc` 漏了**。
+
+**为什么「开日志就正常」**：`sw_log_open()` 的 `freopen` 会分配 stdio 缓冲、改变堆布局，那块内存恰好是 0 → 垃圾变 NULL 被跳过。旧注释里那句 "heap-content dependent" 说的正是这个。
+
+**r178 修复**（`glue_switch.cpp` 的 `hsp3typeinit_sock_extcmd`）：
+```c
+memset( (void *)( info - 1 ), 0, sizeof( HSP3TYPEINFO ) );   /* 空档条目整体清零 */
+info[-1].type      = HSP3_TYPE_USER;
+info[-1].hspctx    = info->hspctx;
+info[-1].hspexinfo = info->hspexinfo;
+info[-1].cmdfunc   = info->cmdfunc;                          /* 用正常条目的默认值 */
+info->termfunc     = glue_exit_report;                       /* id 19 的退出报告不变 */
+```
+
+**验证**：用户真机复测「**没问题了**」✅
+
+### L.5 副产物
+- **中文名闪退**（此前记为「待查」）：根因就是这个缺陷 —— 中文角色名会让存档路径走文件事件，**r178 一并修掉**。
+- **r179**：黑边键位提示字号从 18pt 回到 **16pt / 行高 22**（v1 兼容层 r169 所用的尺寸；r174 曾放大到 20、r175 定型 18），保留 r173 加的加粗。
+
+### L.6 可复用的排查手法
+1. 崩溃报告在 `atmosphere/crash_reports/<uptime>_<titleid>.log`；
+2. 报告里的 `PC` / `LR` / `Stack Trace` **都是模块内偏移**（`Module Info → Address` 是基址），直接拿 CI 产物的 `hsp3dish.map` 查符号，例如 `grep '^\s+0x000000000000ba..\s+0x'`；
+3. 按住 R（title override）启动时，报告的 `Program ID` 是**被覆盖游戏的 title id**，但 `Process Name` 仍是 `hbloader`、`Module 00` 是 `hsp3dish` —— 别因此误判它不是游戏的崩溃；
+4. 用 `Module Id`（build-id 前 20 字节，NRO 文件偏移 `0x40`）把报告对到具体构建，跨版本对比是否同一处。
+
+---
+
+## 附录 M：2.32 整合包重打包 与 2.30 汉化版干净目录（2026-10-08）
+
+### M.1 整合包重打包（r178 → r179）
+- `工具与产物\SD卡\switch\hsp3dish.nro` 更新为 r178，随后升到 r179；`Elona_Switch_2.32_整合包.zip` 同步重打包（1707 条目，103.4 MB）。
+- **踩坑**：PowerShell 5.1 的 `Compress-Archive` 与 .NET Framework 的 `ZipFile.CreateFromDirectory` **都会把 zip 条目名写成反斜杠 `\`**（zip 规范要求 `/`），对方解压会得到一堆怪目录。
+- **正确做法**：以 `ZipArchiveMode.Update` 打开 `.zip`，**只 `Delete()` 并重新 `CreateEntryFromFile()` 那一个条目**，其余条目保留原始 `/` 结构；
+- **校验**：`$zip.Entries | Where-Object { $_.FullName -like '*\*' }` 的计数必须为 0。
+
+### M.2 2.30 汉化版干净 SD 卡目录
+- 新目录：**`工具与产物\Elona_Switch_2.30汉化版_自用\`**（约 1720 文件 / 255 MB）。源为 `…\6ab7990a…\_stage\vsd\switch\openhsp_230bak\`（原 613 MB，剔掉约 **357.9 MB** 开发期垃圾：35 个 `hsp3dish_boot*.log`、各版本 nro 备份、`smp_*.bmp` 调试截图、`ipaexg.ttf.*` 字体备份、`tmp/`、`log_on`、`hsptv` 的日文原版备份）。
+- **踩坑（黑屏）**：整理时把 7 个 `.dll` 当成「PC 专用」剔掉了 —— **2.30 汉化版脚本启动时会检查 `elona.dll` 是否存在**，缺失即报 `elona.dll 文件不存在` 并停住（表现为黑屏）。**Switch 上这些调用虽然由 dllshim 接管，但文件本身必须在**。补齐 `elona.dll / exrand.dll / hmm.dll / hspda.dll / hspext_ext.dll / hspinet.dll / hspsock.dll` 后，Eden 实测正常（标题菜单渲染、中文正常）。
+- 目录内容：`start.ax`(14,194,882) + `charset.txt`(`gbk`) + `gbk.tbl` + `ipaexg.ttf` + `timidity.cfg` + `timidity/instruments/`(192) + `data/graphic/guide/hsptv/map/original/save/sound/user` + 7 个 dll + `water.hpi`/`z.hpi`（后两者从 PC 版补齐，230bak 里没有）。
+- **2.30 与 2.32 不能共存于同一个 `/switch/openhsp/`**，换版本必须先清空该目录。
+
+### M.3 一处需要纠正的认知
+**真机 `sdmc:/switch/openhsp/` 跑的是 2.32 官方版**（不是 2.30 汉化版）。判据：该目录**没有 `charset.txt` / `gbk.tbl`**（那是汉化版才需要的 GBK 开关），引擎按 CP932 解码；文件集与桌面 `工具与产物\SD卡\switch\openhsp\` 一致。2.30 汉化版只在 **Eden 模拟器**上用于开发调试。
