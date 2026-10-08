@@ -803,7 +803,23 @@ void hsp3typeinit_sock_extcmd( HSP3TYPEINFO *info )
 		HSP3_TYPE_USER, (void *)info[-1].termfunc );
 	fflush( stdout );
 
-	info[-1].termfunc = NULL;
+	/*	r178: clear the whole gap entry, not just its termfunc.  The
+		interpreter dispatches events as well as terminating, and
+		call_eventfunc() walks tinfo_cur-1 down to HSP3_TYPE_USER - which
+		is exactly this stale id.  It tests info->option first and only
+		then info->eventfunc, so a leftover option overlapping the event's
+		category sent the callback into whatever the heap happened to
+		hold: fatal 2168-0001 with PC=fee63a00fee53a00 in every report
+		collected so far, X0=5 (HSPEVENT_FNAME) and the path being opened
+		in X3.  The slot has no command set of its own (sock is stubbed
+		out above), so zero it and give it the defaults a normal entry
+		would have received.											*/
+	memset( (void *)( info - 1 ), 0, sizeof( HSP3TYPEINFO ) );
+	info[-1].type = HSP3_TYPE_USER;
+	info[-1].hspctx = info->hspctx;
+	info[-1].hspexinfo = info->hspexinfo;
+	info[-1].cmdfunc = info->cmdfunc;
+
 	info->termfunc = glue_exit_report;
 
 #ifdef HSPDISH
