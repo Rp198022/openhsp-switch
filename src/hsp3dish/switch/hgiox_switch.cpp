@@ -1,4 +1,4 @@
-﻿//
+//
 //		Draw lib (iOS/android/opengl/ndk)
 //			onion software/onitama 2011/11
 //
@@ -4105,6 +4105,49 @@ int hgio_render_start( void )
 }
 
 
+/*	r177: optional frame cap.  At full speed the guest asks for and drops
+	textures far faster than the console retires them, and the 2N copy
+	buffer RegistTexMem() needs - up to 16 MB for a 2048x2048 sheet - then
+	finds no room: calloc() returns NULL and the memcpy() after it wrote
+	through address 0 (the r175 crash report).  Doing the boot log on the
+	card slows the loop to about 33 fps, which is why every build that
+	logged stayed up, but that also wears the card and grows the file.
+	Sleeping the same amount per frame reproduces the timing without
+	either, and unlike the log it costs nothing while nothing is drawn.
+
+	The cap comes from an optional file next to the .ax:
+		sdmc:/switch/openhsp/fps.txt  ->  a single number, e.g. "30"
+	No file, or a value outside 1..240, means no cap (the old behaviour). */
+static void sw_frame_cap( void )
+{
+	static int cap = -1;
+	static int next = 0;
+	int now, step;
+
+	if ( cap < 0 ) {
+		FILE *fp = fopen( "sdmc:/switch/openhsp/fps.txt", "rb" );
+		cap = 0;
+		if ( fp != NULL ) {
+			char buf[16];
+			if ( fgets( buf, sizeof( buf ), fp ) != NULL ) cap = atoi( buf );
+			fclose( fp );
+		}
+		if ( ( cap < 1 ) || ( cap > 240 ) ) cap = 0;
+	}
+	if ( cap == 0 ) return;
+
+	step = 1000 / cap;
+	now = hgio_gettick();
+	if ( next == 0 ) next = now;
+	if ( now < next ) {
+		SDL_Delay( (Uint32)( next - now ) );
+		now = hgio_gettick();
+	}
+	next += step;
+	if ( next <= now ) next = now + step;
+}
+
+
 int hgio_render_end( void )
 {
 	int res;
@@ -4160,6 +4203,8 @@ int hgio_render_end( void )
 	//SDL_GL_SwapBuffers();
 #endif
 #endif
+
+	sw_frame_cap();
 
 	drawflag = 0;
 	return res;
