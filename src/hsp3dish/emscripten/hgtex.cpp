@@ -427,6 +427,19 @@ int RegistTexMem( unsigned char *ptr, int size )
 			char *p2;
 			int y;
 			pImg2 = (unsigned char *)mem_ini( sx * sy * 4 );
+			if ( pImg2 == NULL ) {
+			    /*  r176: mem_ini() is calloc() here, and the 2N copy needs a
+			        second sx*sy*4 buffer.  On the console under memory pressure
+			        that calloc fails and returns NULL; the old code passed it
+			        straight to the memcpy() below and the game died with a data
+			        abort at address 0 (the r175 crash report).  Fail the load:
+			        the picture is missing, the game keeps running.            */
+			    printf( "hgio: RegistTexMem alloc failed %dx%d (2N %dx%d, %d bytes)\n",
+			        tsx, tsy, sx, sy, sx * sy * 4 );
+			    fflush( stdout );
+			    mem_bye( pImg );
+			    return -1;
+			}
 			p = (char *)pImg;
 			p2 = (char *)pImg2;
 			for(y=0;y<tsy;y++) {
@@ -474,6 +487,7 @@ int RegistTex( char *fname )
 	//Alertf( "Tex:read(%s)(%d)", fname, len );
 	if ( len < 0 ) return -1;
 	ptr = mem_ini( len );
+	if ( ptr == NULL ) return -1;	/* r176: same calloc, checked */
 	dpm_read( fname, ptr, len, 0 );
 	id = RegistTexMem( (unsigned char *)ptr, len );
 	mem_bye( ptr );
