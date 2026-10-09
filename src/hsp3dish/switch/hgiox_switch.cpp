@@ -1470,6 +1470,11 @@ void hgio_resume( void )
 	//	GLコンテキストが作り直されるため、古いFBO名は全て無効になる
 	sw_forget_all();
 
+	/*	F21: the overlay's cached hint textures died with the context too;
+		forget them so the next draw rebuilds instead of sampling names
+		the new context never issued.									*/
+	switch_overlay_ctx_reset();
+
 	tmes.texmesInit(SYSREQ_MESCACHE_MAX);
 
 	//テクスチャ初期化
@@ -1713,6 +1718,7 @@ static void setColorTex_mulcolor( float alpha )
 	and the GLES1 macro set there is shared with the upstream backend.		*/
 extern "C" void sw_glBlendFuncSeparate( GLenum, GLenum, GLenum, GLenum );
 extern "C" int sw_glBlendSeparateAvailable( void );
+extern "C" int sw_textconv_gbk( void );		/* textconv_switch.cpp: active plane is GBK (F11) */
 
 
 static void setBlendMode( int mode )
@@ -2333,7 +2339,10 @@ void hgio_rect( float x, float y, float w, float h )
 	};
 
 	glDisable(GL_BLEND);
-    //glBindTexture(GL_TEXTURE_2D,0);
+	/*	F19: this draw sends no texture coordinates; unbind the texture
+		(hgio_line() already does) so the previous draw's UV array does
+		not stay armed and get streamed past its end.					*/
+    ChangeTex(-1);
     glVertexPointer(2,GL_FLOAT,0,vert);
 	setCurrentColor(colors,4);
     glDrawArrays(GL_LINE_LOOP,0,4);
@@ -2354,7 +2363,8 @@ void hgio_boxfill( float x, float y, float w, float h )
 	};
 
 	glDisable(GL_BLEND);
-	//glBindTexture(GL_TEXTURE_2D,0);
+	/*	F19: see hgio_rect().											*/
+	ChangeTex(-1);
 	glVertexPointer(2,GL_FLOAT,0,vert);
 	setCurrentColor(colors,4);
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
@@ -2376,7 +2386,9 @@ void hgio_circleLine( float x, float y, float rx, float ry )
 	}
 
 	glDisable(GL_BLEND);
-    //glBindTexture(GL_TEXTURE_2D,0);
+	/*	F19: see hgio_rect().  The circle submits CIRCLE_DIV vertices
+		against whatever UV array the last textured draw left armed.	*/
+    ChangeTex(-1);
     glVertexPointer(2,GL_FLOAT,0,vert);
  	setCurrentColor(colors,length);
 	glDrawArrays(GL_LINE_LOOP,0,length);
@@ -2400,7 +2412,8 @@ void hgio_circleFill( float x, float y, float rx, float ry )
 	}
 
 	glDisable(GL_BLEND);
-    //glBindTexture(GL_TEXTURE_2D,0);
+	/*	F19: see hgio_circleLine().										*/
+    ChangeTex(-1);
     glVertexPointer(2,GL_FLOAT,0,vert);
   	setCurrentColor(colors,length);
 	glDrawArrays(GL_TRIANGLE_FAN,0,length);
@@ -3286,10 +3299,22 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	texpx = xx + srcsx;
 	texpy = yy + srcsy;
     
-	tx0 = ((float)xx) * sx;
-	ty0 = ((float)yy) * sy;
-	tx1 = ((float)(texpx)) * sx;
-	ty1 = ((float)(texpy)) * sy;
+	/*	F20: the window texture keeps screen row 0 at v=1 (sw_apply_target),
+		so a rotated read from the main screen flips the source rows the
+		same way hgio_copy() does - otherwise the copy comes back upside
+		down.  Done in pixel units before the rate multiply.			*/
+	if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
+		float fh = (float)tex->sy;
+		tx0 = ((float)xx) * sx;
+		ty0 = ( fh - (float)yy ) * sy;
+		tx1 = ((float)(texpx)) * sx;
+		ty1 = ( fh - (float)texpy ) * sy;
+	} else {
+		tx0 = ((float)xx) * sx;
+		ty0 = ((float)yy) * sy;
+		tx1 = ((float)(texpx)) * sx;
+		ty1 = ((float)(texpy)) * sy;
+	}
 
     flp = uvf2D;
     *flp++ = tx0;
@@ -3374,14 +3399,27 @@ void hgio_square_tex( BMSCR *bm, int *posx, int *posy, BMSCR *bmsrc, int *uvx, i
 	sy = tex->ratey;
 
     flp = uvf2D;
-    *flp++ = ((float)uvx[0]) * sx;
-    *flp++ = ((float)uvy[0]) * sy;
-    *flp++ = ((float)uvx[3]) * sx;
-    *flp++ = ((float)uvy[3]) * sy;
-    *flp++ = ((float)uvx[1]) * sx;
-    *flp++ = ((float)uvy[1]) * sy;
-    *flp++ = ((float)uvx[2]) * sx;
-    *flp++ = ((float)uvy[2]) * sy;
+	/*	F20: same window-source row flip as hgio_copy()/hgio_copyrot().	*/
+	if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
+		float fh = (float)tex->sy;
+		*flp++ = ((float)uvx[0]) * sx;
+		*flp++ = ( fh - (float)uvy[0] ) * sy;
+		*flp++ = ((float)uvx[3]) * sx;
+		*flp++ = ( fh - (float)uvy[3] ) * sy;
+		*flp++ = ((float)uvx[1]) * sx;
+		*flp++ = ( fh - (float)uvy[1] ) * sy;
+		*flp++ = ((float)uvx[2]) * sx;
+		*flp++ = ( fh - (float)uvy[2] ) * sy;
+	} else {
+		*flp++ = ((float)uvx[0]) * sx;
+		*flp++ = ((float)uvy[0]) * sy;
+		*flp++ = ((float)uvx[3]) * sx;
+		*flp++ = ((float)uvy[3]) * sy;
+		*flp++ = ((float)uvx[1]) * sx;
+		*flp++ = ((float)uvy[1]) * sy;
+		*flp++ = ((float)uvx[2]) * sx;
+		*flp++ = ((float)uvy[2]) * sy;
+	}
 
     flp = vertf2D;
 	*flp++ = (float)posx[0];
@@ -3898,15 +3936,21 @@ int hgio_mes(BMSCR* bm, char* msg)
 	}
 
 	{
-		/*	2026-10-06: the Chinese 2.30 translation draws the tail rows of
-			the race description into the skill column of the reference panel.
-			The same overlap happens on the PC build of that translation, so it
-			is the translation's data, not this port.  A real skill row is
-			"<name><padding><description>" and so contains a run of spaces; the
-			stray rows are plain sentences.  Only the blit is skipped - every
-			step before it still runs, so nothing else changes.			*/
-		int sw_hide = 0;
-		if ( bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+			/*	2026-10-06: the Chinese 2.30 translation draws the tail rows of
+				the race description into the skill column of the reference panel.
+				The same overlap happens on the PC build of that translation, so it
+				is the translation's data, not this port.  A real skill row is
+				"<name><padding><description>" and so contains a run of spaces; the
+				stray rows are plain sentences.  Only the blit is skipped - every
+				step before it still runs, so nothing else changes.
+				F11: this papers over one specific translation's data bug, so
+				it is gated on that build's markers - the GBK charset
+				(charset.txt) and the 800x600 canvas the panel layout was
+				measured on - instead of swallowing matching text in every
+				program this runtime runs.									*/
+			int sw_hide = 0;
+			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
+				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
 			const char *sp = use;
 			int padded = 0;
 			while ( sp[0] != 0 && sp[1] != 0 ) {

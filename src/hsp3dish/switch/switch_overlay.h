@@ -20,4 +20,10 @@ int  switch_overlay_hidden( void );
 	computed.  Draws nothing when the strips are too narrow to hold text.	*/
 void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w );
 
+/*	GL context teardown invalidates every texture name; hgio_resume()
+	calls this so the next draw rebuilds the strips instead of sampling
+	names the new context never issued.  The old names are NOT deleted
+	here - they mean nothing to the new context.						*/
+void switch_overlay_ctx_reset( void );
+
 #endif

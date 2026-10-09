@@ -503,7 +503,19 @@ int makedir( char *name )
 int changedir( char *name )
 {
 	char buf[_MAX_PATH+1];
+#ifdef __SWITCH__
+	/*	F15: the name is CP932/GBK and the filesystem stores UTF-8, so a
+		player-named folder could be created through makedir() (which
+		translates) but never entered.  Translate like the other entries.	*/
+	{
+		char u8[_MAX_PATH * 3 + 1];
+		const char *src = supio_slash( name, buf, sizeof( buf ) );
+		if ( sw_path_to_utf8( src, u8, sizeof( u8 ) ) > 0 ) src = u8;
+		return chdir( src );
+	}
+#else
 	return chdir( supio_slash( name, buf, sizeof( buf ) ) );
+#endif
 }
 
 

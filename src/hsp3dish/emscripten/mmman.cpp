@@ -63,7 +63,11 @@ void MusicPlay( int num, int mode )
 	if (m_music==NULL) return;
 	curmusic = num;
 	Mix_HaltMusic();
-	Mix_PlayMusic(m_music,mode);
+	/*	F18: HSP's option bit 0 is the loop flag, but it was handed to
+		SDL_mixer as a repeat count - mode 1 (loop forever) played twice
+		and stopped, and mode 2 (wait) three times.  SDL's infinite loop
+		is -1; the wait semantics stay unimplemented here.				*/
+	Mix_PlayMusic( m_music, ( mode & 1 ) ? -1 : 0 );
 }
 
 void MusicStop( void )
@@ -131,6 +135,27 @@ typedef struct MMM
 } MMM;
 
 
+/*	F17: which bank each SDL_mixer channel belongs to right now.  A bank
+	remembers the channel it was played on, but SDL hands a finished
+	channel to the next playback - and the first bank's record then
+	pointed at the second bank's sound, so StopBank/SetVol/SetPan and
+	GetStatus on one of them acted on the other.  -1 = unowned.			*/
+static int sw_ch_bank[MIX_MAX_CHANNEL];
+
+/*	True while the bank still owns its recorded channel; lazily drops
+	the association once the channel went silent or was taken over.		*/
+static int sw_bank_channel_live( MMM *m, int bank )
+{
+	int ch;
+	if ( m == NULL ) return 0;
+	ch = m->channel;
+	if ( ch < 0 ) return 0;
+	if ( sw_ch_bank[ch] != bank ) { m->channel = -1; return 0; }
+	if ( !Mix_Playing( ch ) ) { sw_ch_bank[ch] = -1; m->channel = -1; return 0; }
+	return 1;
+}
+
+
 //---------------------------------------------------------------------------
 
 MMMan::MMMan()
@@ -139,6 +164,10 @@ MMMan::MMMan()
 
 	mem_snd = NULL;
 	engine_flag = false;
+	{
+		int ci;
+		for ( ci = 0; ci < MIX_MAX_CHANNEL; ci++ ) sw_ch_bank[ci] = -1;
+	}
 	MusicInit();
 
 	int init_result = Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
@@ -190,6 +219,12 @@ void MMMan::DeleteBank( int bank )
 	lpSnd = sndbank( bank );
 	if ( lpSnd != NULL ) {
 		free( lpSnd );
+	}
+	{
+		int ci;
+		for ( ci = 0; ci < MIX_MAX_CHANNEL; ci++ ) {
+			if ( sw_ch_bank[ci] == bank ) sw_ch_bank[ci] = -1;
+		}
 	}
 	mem_snd[bank].flag = MMDATA_NONE;
 	mem_snd[bank].mempt=NULL;
@@ -305,8 +340,10 @@ void MMMan::Stop( void )
 {
 	//		stop all playing sounds
 	//
+	int ci;
 	MusicStop();
 	Mix_HaltChannel( -1 );
+	for ( ci = 0; ci < MIX_MAX_CHANNEL; ci++ ) sw_ch_bank[ci] = -1;
 }
 
 
@@ -381,8 +418,17 @@ int MMMan::Play( int num, int ch )
 #else
 		m->channel = Mix_PlayChannel( ch, m->chunk, loop ? -1 : 0 );
 #endif
-		if (m->vol>=0) {
-			Mix_Volume( m->channel, m->vol );
+		if ( m->channel >= 0 ) {
+			/*	F17: take the channel away from whichever bank played on
+				it before, so that bank's later stop/volume/pan/status
+				calls no longer reach this playback.					*/
+			int prev;
+			prev = sw_ch_bank[m->channel];
+			if ( prev >= 0 && prev != bank ) mem_snd[prev].channel = -1;
+			sw_ch_bank[m->channel] = bank;
+			if (m->vol>=0) {
+				Mix_Volume( m->channel, m->vol );
+			}
 		}
 		break;
 	case MMDATA_MUSIC:
@@ -433,9 +479,10 @@ void MMMan::SetVol( int num, int vol )
 	mmm->vol = (int)(MIX_MAX_VOLUME * ((float)(vol + 1000) / 1000.0f));
 
 	if ( flg == MMDATA_INTWAVE ) {
-		int ch = mmm->channel;
-		if ( ch>=0 ) Mix_Volume( ch, mmm->vol );
-		if ( mmm->pan != 0 ) SetPan(num, mmm->pan);
+		if ( sw_bank_channel_live( mmm, bank ) ) {
+			Mix_Volume( mmm->channel, mmm->vol );
+			if ( mmm->pan != 0 ) SetPan(num, mmm->pan);
+		}
 	}
 	if ( flg == MMDATA_MUSIC ) {
 		MusicVolume(mmm->vol);
@@ -446,7 +493,6 @@ void MMMan::SetVol( int num, int vol )
 
 void MMMan::SetPan( int num, int p_pan )
 {
-	int ch;
 	int pan = p_pan;
 
 	MMM *mmm;
@@ -471,8 +517,9 @@ void MMMan::SetPan( int num, int p_pan )
 		r = (1000 + pan) * max;
 	}
 	if ( flg == MMDATA_INTWAVE ) {
-		ch = mmm->channel;
-		if ( ch>=0 ) Mix_SetPanning( ch, l / 1000, r / 1000 );
+		if ( sw_bank_channel_live( mmm, bank ) ) {
+			Mix_SetPanning( mmm->channel, l / 1000, r / 1000 );
+		}
 	}
 }
 
@@ -504,8 +551,7 @@ int MMMan::GetStatus( int num, int infoid )
 			break;
 		}
 		if ( flg == MMDATA_INTWAVE ) {
-			int ch = mmm->channel;
-			if ( ch>=0 ) res = Mix_Playing( ch );
+			if ( sw_bank_channel_live( mmm, bank ) ) res = 1;
 		}
 		if ( flg == MMDATA_MUSIC ) {
 			res = MusicStatus(num,infoid);
@@ -534,8 +580,11 @@ void MMMan::StopBank( int num )
 	flg=mmm->flag;
 
 	if ( flg == MMDATA_INTWAVE ) {
-		int ch = mmm->channel;
-		if ( ch>=0 ) Mix_HaltChannel( ch );
+		if ( sw_bank_channel_live( mmm, bank ) ) {
+			Mix_HaltChannel( mmm->channel );
+			sw_ch_bank[mmm->channel] = -1;
+			mmm->channel = -1;
+		}
 	}
 	if ( flg == MMDATA_MUSIC ) {
 		if (num==curmusic) MusicStop();

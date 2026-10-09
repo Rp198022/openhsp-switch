@@ -679,9 +679,25 @@ static void hspda_addline( PVal *pval, APTR aptr, int len, char *add )
 //
 static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 {
+	PVal *pval = NULL;
+	APTR aptr;
+	int maxnum;
+
 	(void)args;
 	(void)argc;
-	return -1;					// no-op; see the note at the top of the file
+
+	/*	F12: Hspda.cpp's xnotesel - remember the note variable the later
+		xnoteadd works on.  The arguments sit on the bytecode stream for
+		an OLDDLLINIT declaration (see the section header), so they are
+		read off it the way the reference uses prm_getva()/prm_getdi().	*/
+	aptr = code_getva( &pval );
+	maxnum = code_getdi( 0 );
+	if ( maxnum == 0 ) maxnum = 256;	/* reference default			*/
+	if ( pval == NULL ) return -1;
+	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
+	hspda_note_pval = pval;
+	hspda_note_aptr = aptr;
+	return 0;
 }
 
 //	xnoteadd "strings"  ->  stat = index of the line that now holds it
@@ -691,10 +707,14 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 	char *add, *buf, *p;
 	int size, line;
 
-	add = (char *)args[1].ptr;
-	return -1;					// no-op; see the note at the top of the file
+	(void)args;
+	(void)argc;
 
-	(void)add;
+	/*	F12: the one argument is the string on the bytecode stream (the
+		OLDDLLINIT marshaller consumes nothing), not args[], which holds
+		no entry for such a declaration.								*/
+	add = code_gets();
+	if ( add == NULL ) return -1;
 	if ( hspda_note_pval == NULL ) return -1;
 	if ( hspda_note_pval->flag != HSPVAR_FLAG_STR ) return -1;
 
@@ -722,16 +742,14 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 	APTR aptr;
 	int order, i, count;
 
-	aptr = code_getva( &pval );
-	order = code_getdi( -123456 );
-
-	return 0;		// TEMPORARY: the real sort returns once the shape is known
-
 	(void)args;
 	(void)argc;
 
+	/*	F12: read the arguments exactly once - a second code_getva /
+		code_getdi pair would consume whatever bytecode follows the call.	*/
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
+	if ( pval == NULL ) return -1;
 	count = pval->len[1];
 	if ( count <= 0 ) return -1;
 
@@ -773,16 +791,13 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	char *buf, *p, *dst;
 	int order, i, count, size, len;
 
-	aptr = code_getva( &pval );
-	order = code_getdi( -123456 );
-
-	return 0;		// TEMPORARY: the real sort returns once the shape is known
-
 	(void)args;
 	(void)argc;
 
+	/*	F12: read the arguments exactly once - see sortval above.		*/
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
+	if ( pval == NULL ) return -1;
 	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
 
 	buf = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
@@ -1123,7 +1138,7 @@ static int impl_zlib_zread( const DllArgValue *args, int argc )
 {
 	gzFile gz;
 	long long want;
-	size_t got;
+	int got;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
 	gz = zlib_port_get( args[1].ival );
@@ -1146,7 +1161,23 @@ static int impl_zlib_zread( const DllArgValue *args, int argc )
 		return 0;
 	}
 	if ( want > (long long)0x4000000 ) want = 0x4000000;
-	got = (size_t)gzread( gz, args[0].ptr, (unsigned)want );
+	/*	F09: keep the signed return - gzread() reports a stream or I/O
+		error as a negative value, which the size_t cast hid.  A short
+		read at end of stream is normal; any other short read is not.
+		The script uses zRead as a statement, so the state is surfaced
+		through the log rather than the (unread) return value.			*/
+	got = gzread( gz, args[0].ptr, (unsigned)want );
+	if ( got < 0 ) {
+		int zerr = 0;
+		const char *zmsg = gzerror( gz, &zerr );
+		printf( "hsp3switch: zRead ERROR handle %d: %s (%d)\n",
+			args[1].ival, ( zmsg != NULL ) ? zmsg : "?", zerr );
+		fflush( stdout );
+	} else if ( (long long)got < want && !gzeof( gz ) ) {
+		printf( "hsp3switch: zRead SHORT handle %d: %d of %lld bytes without EOF\n",
+			args[1].ival, got, want );
+		fflush( stdout );
+	}
 	zlib_read_n++;
 	return 0;
 }
@@ -1155,7 +1186,7 @@ static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 {
 	gzFile gz;
 	long long want;
-	size_t put;
+	int put;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
 	gz = zlib_port_get( args[1].ival );
@@ -1176,7 +1207,15 @@ static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 		return 0;
 	}
 	if ( want > (long long)0x4000000 ) want = 0x4000000;
-	put = (size_t)gzwrite( gz, args[0].ptr, (unsigned)want );
+	/*	F09: gzwrite() answers the bytes actually written, 0 on failure.	*/
+	put = gzwrite( gz, args[0].ptr, (unsigned)want );
+	if ( (long long)put < want ) {
+		int zerr = 0;
+		const char *zmsg = gzerror( gz, &zerr );
+		printf( "hsp3switch: zWrite FAIL handle %d: %d of %lld bytes: %s (%d)\n",
+			args[1].ival, put, want, ( zmsg != NULL ) ? zmsg : "?", zerr );
+		fflush( stdout );
+	}
 	zlib_write_n++;
 	return 0;
 }
@@ -1190,7 +1229,14 @@ static int impl_zlib_zclose( const DllArgValue *args, int argc )
 	handle = args[0].ival;
 	gz = zlib_port_get( handle );
 	if ( gz != NULL ) {
-		gzclose( gz );
+		/*	F09: a failed close on a write stream means the trailer (and
+			possibly buffered data) never reached the card.				*/
+		int zrc = gzclose( gz );
+		if ( zrc != Z_OK ) {
+			printf( "hsp3switch: zClose handle %d -> %d (pending data may be lost)\n",
+				handle, zrc );
+			fflush( stdout );
+		}
 		zlib_port[handle - 1] = NULL;
 	}
 	zlib_close_n++;

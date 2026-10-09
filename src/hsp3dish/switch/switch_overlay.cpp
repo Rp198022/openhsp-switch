@@ -123,6 +123,16 @@ static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
 static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
 
+void switch_overlay_ctx_reset( void )
+{
+	/*	The context that issued these names is gone; dropping the numbers
+		without glDeleteTextures() is deliberate (see the header).		*/
+	sw_ovl_tex[0] = 0;
+	sw_ovl_tex[1] = 0;
+	sw_ovl_origin_x = -1;
+}
+
+
 void switch_overlay_toggle( void )
 {
 	sw_ovl_off = sw_ovl_off ? 0 : 1;

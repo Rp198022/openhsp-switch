@@ -609,7 +609,19 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 			sequence is >= 0x80, so after the conversion a 0x5C can only be a
 			real separator.												*/
 		n = strlen( path );
-		if ( n > sizeof( fixed ) - 1 ) return __real_fopen( path, mode );
+		/*	F14: an over-long input used to bypass the translation and go
+			to fopen raw, so the same name was read as legacy bytes when
+			short and as UTF-8 when long.  Truncate into the fixed buffer
+			and translate like every other length instead.				*/
+		if ( n > sizeof( fixed ) - 1 ) {
+			static int sw_toolong = 0;
+			if ( sw_toolong < 8 ) {
+				sw_toolong++;
+				printf( "hsp3file: path over %u bytes, truncated\n",
+					(unsigned)( sizeof( fixed ) - 1 ) );
+				fflush( stdout );
+			}
+		}
 		sw_path_to_utf8( path, fixed, sizeof( fixed ) - 1 );
 		for ( i = 0; fixed[i] != 0; i++ ) {
 			if ( fixed[i] == '\\' ) fixed[i] = '/';

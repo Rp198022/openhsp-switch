@@ -817,7 +817,13 @@ void sw_glDrawArrays( GLenum mode, GLint first, GLsizei count )
 	gl_enablevertexattribarray( SW_ATTR_POS );
 	gl_vertexattribpointer( SW_ATTR_POS, sw_vtx.size, GL_FLOAT, GL_FALSE, sw_vtx.stride, sw_vtx.ptr );
 
-	if ( sw_tex_client_enabled && sw_tex.ptr != NULL && sw_tex.type == GL_FLOAT ) {
+	/*	F19: arm the texcoord attribute only when this draw actually
+		samples - the same condition u_usetex just used.  A short UV
+		array left armed by an earlier textured draw (a circle submits
+		32-34 vertices against a 4-entry array) made the driver read
+		past the array's end.											*/
+	if ( sw_texture2d && sw_bound_tex != 0 &&
+		 sw_tex_client_enabled && sw_tex.ptr != NULL && sw_tex.type == GL_FLOAT ) {
 		gl_enablevertexattribarray( SW_ATTR_TEX );
 		gl_vertexattribpointer( SW_ATTR_TEX, sw_tex.size, GL_FLOAT, GL_FALSE, sw_tex.stride, sw_tex.ptr );
 	} else {

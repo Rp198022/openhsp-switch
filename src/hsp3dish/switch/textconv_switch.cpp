@@ -1056,6 +1056,13 @@ static int sw_charset_gbk( void )
 	return mode;
 }
 
+/*	Non-static view of the active plane for the drawing side (hgiox),
+	which gates a Chinese-build compatibility patch on it (F11).		*/
+extern "C" int sw_textconv_gbk( void )
+{
+	return sw_charset_gbk();
+}
+
 /*	Script strings are decoded with the active plane.  Half-width katakana
 	exist only in CP932, so that single-byte rule is off in GBK mode.	*/
 static int cp932_to_utf8( const char *in, char *out, int outsz )
@@ -1163,16 +1170,24 @@ int sw_utf8_to_cp932( const char *in, char *out, int outsz );
 extern "C" int sw_path_to_cp932( const char *in, char *out, int outsz )
 {
 	int n;
-	if ( sw_all_cp932( in ) ) {
-		n = 0;
-		while ( in[n] != 0 && n < outsz - 1 ) {
-			out[n] = in[n];
-			n++;
-		}
-		out[n] = 0;
-		return n;
+	/*	F10: this direction converts names that came FROM the filesystem,
+		which stores UTF-8 - so decide UTF-8 first.  The legacy plane was
+		tested first, but a 3-byte UTF-8 sequence is also a legal run of
+		CP932/GBK byte pairs (U+8868's UTF-8 E8 A1 A8 reads as U+9666
+		plus a half-width katakana), so such a name passed through
+		unchanged and never matched the script's own legacy form of it.
+		Bytes that are not valid UTF-8 are legacy already and stay as
+		they are.														*/
+	if ( sw_is_utf8_text( in ) ) {
+		return sw_utf8_to_cp932( in, out, outsz );
 	}
-	return sw_utf8_to_cp932( in, out, outsz );
+	n = 0;
+	while ( in[n] != 0 && n < outsz - 1 ) {
+		out[n] = in[n];
+		n++;
+	}
+	out[n] = 0;
+	return n;
 }
 
 
@@ -1200,6 +1215,18 @@ extern "C" int sw_path_to_utf8( const char *in, char *out, int outsz )
 	}
 	clean[n] = 0;
 
+	/*	F10: this direction converts paths the SCRIPT built, which are in
+		the active legacy plane - so decide the legacy plane first.  UTF-8
+		was tested first, but a legacy name can also be valid UTF-8 (the
+		GBK pair C2 A1 decodes as U+00A1), so it passed through
+		untranslated and the file was looked up under bytes nothing ever
+		wrote.  Input that is not valid in the legacy plane but is valid
+		UTF-8 (a path a system library handed back) still passes through
+		unchanged.  Pure ASCII is valid in both and converts to itself
+		either way.													*/
+	if ( sw_all_cp932( clean ) ) {
+		return cp932_to_utf8( clean, out, outsz );
+	}
 	if ( sw_is_utf8_text( clean ) ) {
 		n = 0;
 		while ( clean[n] != 0 && n < outsz - 1 ) {
@@ -1244,6 +1271,15 @@ int sw_utf8_to_cp932( const char *in, char *out, int outsz )
 			continue;
 		}
 		p += nb;
+
+		/*	F16: half-width katakana is single-byte CP932 (A1..DF map to
+			U+FF61..U+FF9F) - the forward conversion decodes it, so the
+			reverse has to emit it or the software keyboard's kana input
+			drops every such character.  GBK has no such range.			*/
+		if ( !gbk && cp >= 0xFF61u && cp <= 0xFF9Fu ) {
+			out[o++] = (char)( 0xA1 + ( cp - 0xFF61u ) );
+			continue;
+		}
 
 		hit = -1;
 		for ( i = 0; i < total; i++ ) {
