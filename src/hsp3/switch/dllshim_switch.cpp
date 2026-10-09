@@ -553,20 +553,25 @@ static int impl_LCMapStringA( const DllArgValue *args, int argc )
 
 //	Reference: src/plugins/win32/hspda/Hspda.cpp.
 //
-//	All four functions the .ax declares are STRUCTPRM_SUBID_OLDDLLINIT entries
-//	whose minfo slots are the ABI alone - (pexinfo, nullptr, nullptr, nullptr).
-//	The real arguments are not marshalled from those types: they stay on the
-//	bytecode stream and the function reads them itself through exinfo, which is
-//	what hei->HspFunc_prm_getva() / _getdi() / _gets() do in Hspda.cpp.  Nothing
-//	is consumed by the marshaller for such a declaration, so when an
-//	implementation below runs, the stream is sitting on the first real argument.
+//	The real declarations were read straight out of start.ax (its finfo and
+//	minfo tables), and they are not what an earlier note in this file assumed:
 //
-//	sortval/sortstr/sortnote/sortget became standard commands in HSP 3.5
-//	(doclib/history.txt), but the names stay declared against hspda.dll for
-//	backward compatibility - and that is the form Elona's start.ax calls, which
-//	is why start-up stopped on `Unsupported DLL call hspda.dll!_sortnote@16`.
-//	The implementations below follow the built-in equivalents in hsp3int.cpp
-//	(case 0x02d sortval / 0x02f sortnote) so the result is the same either way.
+//	  _xnotesel@16  subid=-3 (DLL)  prmmax=4  PPVAL, INUM, INUM, INUM
+//	  _xnoteadd@16  subid=-3 (DLL)  prmmax=4  PBMSCR, LOCALSTRING, INUM, INUM
+//
+//	These are plain DLL entries, NOT OLDDLLINIT, so the marshaller already
+//	consumes the operands - read_arg() takes one for PPVAL (code_getva) and one
+//	for LOCALSTRING (code_gets).  An implementation that calls code_get*() again
+//	reads the *next* operand and leaves the caller's bytecode stream one short.
+//	r181 did exactly that and creation died one step past the ability screen;
+//	loading a save never reaches these two, which is why saves stayed healthy.
+//	A real implementation must take everything from args[] and touch the stream
+//	never.
+//
+//	sortval/sortstr/sortnote/sortget are NOT declared in this .ax - only the two
+//	entries above exist - and HSP 3.5+ answers those names from the built-ins in
+//	hsp3int.cpp.  The DLL implementations below can never be reached and stay
+//	stubs; they must not read the operand stream either.
 //
 //	A non-zero order sorts descending (same convention as the built-ins), and
 //	ties keep their original relative position via the recorded index.
@@ -679,25 +684,13 @@ static void hspda_addline( PVal *pval, APTR aptr, int len, char *add )
 //
 static int impl_hspda_xnotesel( const DllArgValue *args, int argc )
 {
-	PVal *pval = NULL;
-	APTR aptr;
-	int maxnum;
-
 	(void)args;
 	(void)argc;
-
-	/*	F12: Hspda.cpp's xnotesel - remember the note variable the later
-		xnoteadd works on.  The arguments sit on the bytecode stream for
-		an OLDDLLINIT declaration (see the section header), so they are
-		read off it the way the reference uses prm_getva()/prm_getdi().	*/
-	aptr = code_getva( &pval );
-	maxnum = code_getdi( 0 );
-	if ( maxnum == 0 ) maxnum = 256;	/* reference default			*/
-	if ( pval == NULL ) return -1;
-	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
-	hspda_note_pval = pval;
-	hspda_note_aptr = aptr;
-	return 0;
+	/*	Stub on purpose - see the section header.  The operands are already
+		marshalled into args[] (args[0].ptr is the PVal, args[1].ival the
+		maxnum), so reading the stream here would desynchronise the caller.
+		Nothing in the game needs this yet; r180 answered -1 and ran fine.	*/
+	return -1;
 }
 
 //	xnoteadd "strings"  ->  stat = index of the line that now holds it
@@ -707,14 +700,10 @@ static int impl_hspda_xnoteadd( const DllArgValue *args, int argc )
 	char *add, *buf, *p;
 	int size, line;
 
-	(void)args;
-	(void)argc;
+	add = (char *)args[1].ptr;	/* the string, already marshalled (LOCALSTRING) */
+	return -1;					/* stub on purpose - see the section header	*/
 
-	/*	F12: the one argument is the string on the bytecode stream (the
-		OLDDLLINIT marshaller consumes nothing), not args[], which holds
-		no entry for such a declaration.								*/
-	add = code_gets();
-	if ( add == NULL ) return -1;
+	(void)add;
 	if ( hspda_note_pval == NULL ) return -1;
 	if ( hspda_note_pval->flag != HSPVAR_FLAG_STR ) return -1;
 
@@ -742,14 +731,16 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 	APTR aptr;
 	int order, i, count;
 
+	/*	Not reachable - this .ax declares no sortval (see the section header)
+		and HSP 3.5+ serves the name from hsp3int.cpp.  The stub stays so that
+		nothing here can touch the caller's operand stream.					*/
+	return 0;
+
 	(void)args;
 	(void)argc;
 
-	/*	F12: read the arguments exactly once - a second code_getva /
-		code_getdi pair would consume whatever bytecode follows the call.	*/
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
-	if ( pval == NULL ) return -1;
 	count = pval->len[1];
 	if ( count <= 0 ) return -1;
 
@@ -791,13 +782,14 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	char *buf, *p, *dst;
 	int order, i, count, size, len;
 
+	/*	Not reachable - see sortval above.								*/
+	return 0;
+
 	(void)args;
 	(void)argc;
 
-	/*	F12: read the arguments exactly once - see sortval above.		*/
 	aptr = code_getva( &pval );
 	order = code_getdi( 0 );
-	if ( pval == NULL ) return -1;
 	if ( pval->flag != HSPVAR_FLAG_STR ) return -1;
 
 	buf = (char *)HspVarCoreGetBlockSize( pval, HspVarCorePtrAPTR( pval, aptr ), &size );
