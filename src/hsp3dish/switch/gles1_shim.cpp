@@ -50,6 +50,7 @@ typedef void (*PFN_glEnable)( GLenum );
 typedef void (*PFN_glDisable)( GLenum );
 typedef void (*PFN_glBlendFunc)( GLenum, GLenum );
 typedef void (*PFN_glBlendEquation)( GLenum );
+typedef void (*PFN_glBlendFuncSeparate)( GLenum, GLenum, GLenum, GLenum );
 typedef void (*PFN_glGenTextures)( GLsizei, GLuint * );
 typedef void (*PFN_glDeleteTextures)( GLsizei, const GLuint * );
 typedef void (*PFN_glBindTexture)( GLenum, GLuint );
@@ -99,6 +100,7 @@ static PFN_glEnable						gl_enable;
 static PFN_glDisable					gl_disable;
 static PFN_glBlendFunc					gl_blendfunc;
 static PFN_glBlendEquation				gl_blendequation;
+static PFN_glBlendFuncSeparate			gl_blendfuncsep;
 static const char					*sw_blendeq_name = "(unset)";
 static PFN_glGenTextures				gl_gentextures;
 static PFN_glDeleteTextures				gl_deletetextures;
@@ -508,6 +510,10 @@ static void sw_init( void )
 	/*	same reasoning: a driver without glBlendEquation must not take the
 		whole renderer down, it only loses gmode 6's subtract.			*/
 	*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquation" );
+	/*	Loaded like glBlendEquation, outside the missing counter, so a driver
+		without it keeps rendering - setBlendMode() falls back to the plain
+		glBlendFunc() in that case.										*/
+	*(void **)( &gl_blendfuncsep ) = SDL_GL_GetProcAddress( "glBlendFuncSeparate" );
 	sw_blendeq_name = "glBlendEquation";
 	if ( gl_blendequation == NULL ) {
 		*(void **)( &gl_blendequation ) = SDL_GL_GetProcAddress( "glBlendEquationOES" );
@@ -925,6 +931,21 @@ void sw_glBlendEquation( GLenum mode )
 	if ( sw_ready && gl_blendequation != NULL ) gl_blendequation( mode );
 }
 
+/*	Separate factors for colour and alpha (GLES2 core).  Only the Switch
+	backend uses this: keep the destination alpha at 1 while the colour
+	channels blend normally.  A silent no-op without driver support - the
+	caller asks sw_glBlendSeparateAvailable() first and falls back.		*/
+extern "C" void sw_glBlendFuncSeparate( GLenum srgb, GLenum drgb, GLenum sa, GLenum da )
+{
+	sw_init();
+	if ( sw_ready && gl_blendfuncsep != NULL ) gl_blendfuncsep( srgb, drgb, sa, da );
+}
+
+extern "C" int sw_glBlendSeparateAvailable( void )
+{
+	sw_init();
+	return ( gl_blendfuncsep != NULL ) ? 1 : 0;
+}
 /*	Whether the driver really provided glBlendEquation.  The in-place fcgraph
 	subtract (hgiox_switch.cpp, sw_fcgraph_sub) is the only caller that cannot
 	be emulated any other way - it asks first and does nothing when the answer

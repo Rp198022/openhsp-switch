@@ -601,15 +601,21 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	/*	Elona separates with backslashes and writes CP932; the Switch
 		filesystem wants slashes and UTF-8.  Normalise, then translate. */
 	{
-		char tmp[sizeof( fixed )];
+		/*	Translate first, normalise the separator second.  A CP932 trail
+			byte can be 0x5C (the second byte of the two-byte 'so' and 'hyou'
+			kanji is 5C), so rewriting backslashes over the raw script bytes
+			splits such a character in half and the file is opened under a
+			name that was never written.  Every byte of a UTF-8 multi-byte
+			sequence is >= 0x80, so after the conversion a 0x5C can only be a
+			real separator.												*/
 		n = strlen( path );
-		if ( n > sizeof( tmp ) - 1 ) return __real_fopen( path, mode );
-		for ( i = 0; i < n; i++ ) tmp[i] = ( path[i] == '\\' ) ? '/' : path[i];
-		tmp[n] = 0;
-		sw_path_to_utf8( tmp, fixed, sizeof( fixed ) - 1 );
+		if ( n > sizeof( fixed ) - 1 ) return __real_fopen( path, mode );
+		sw_path_to_utf8( path, fixed, sizeof( fixed ) - 1 );
+		for ( i = 0; fixed[i] != 0; i++ ) {
+			if ( fixed[i] == '\\' ) fixed[i] = '/';
+		}
 		use = fixed;
 	}
-
 	/*	The card's config.txt is read-only in this build.  Elona's
 		environment-settings menu rewrites it with notesave(), and a screen
 		size or a drawing option this backend cannot honour hangs the

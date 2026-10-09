@@ -544,9 +544,14 @@ int dirlist( char *fname, char **target, int p3 )
 	DIR *sh;
 	struct dirent *fd;
 	struct stat st;
-	char patbuf[_MAX_PATH+1];		// fname全体(区切りは'/'へ正規化)
-	char dirbuf[_MAX_PATH+1];		// ディレクトリ部
-	char fullbuf[_MAX_PATH*2+2];	// stat用の dir + '/' + name
+	/*	patbuf/dirbuf hold UTF-8 by the time they are split: the script's
+		CP932/GBK pattern is translated on the way in and a 2-byte character
+		becomes 3, so a _MAX_PATH-sized conversion result does not fit a
+		_MAX_PATH-sized buffer.  The unguarded strcpy() here overflowed the
+		stack for 256 bytes of double-byte text.						*/
+	char patbuf[_MAX_PATH*3+1];		/* pattern, separators normalised to '/' */
+	char dirbuf[_MAX_PATH*3+1];		/* directory part of it */
+	char fullbuf[_MAX_PATH*4+2];	/* stat path: dir + '/' + name */
 	const char *pat;
 	const char *slash;
 	const char *use;
@@ -562,19 +567,35 @@ int dirlist( char *fname, char **target, int p3 )
 		区切りを'/'へ正規化して最後の'/'で分割し、Windows版と同じ動作にする。*/
 	n = strlen( fname );
 	if ( n > _MAX_PATH ) n = _MAX_PATH;
+#ifdef __SWITCH__
+	/*	Translate first, normalise the separator second: a CP932 trail byte
+		can be 0x5C (the second byte of the two-byte 'so' and 'hyou' kanji is
+		5C), so rewriting the separators over the raw script bytes splits
+		such a character in half and the split pattern matches nothing.
+		Every byte of a UTF-8 multi-byte sequence is >= 0x80, so after the
+		conversion a 0x5C can only be a real separator.  The result is
+		copied with a length check - the converted form is longer than the
+		buffer this used to be strcpy()'d into.							*/
+	{
+		char u8[_MAX_PATH * 3 + 1];
+		if ( sw_path_to_utf8( fname, u8, sizeof( u8 ) - 1 ) > 0 ) {
+			size_t ul = strlen( u8 );
+			if ( ul > sizeof( patbuf ) - 1 ) ul = sizeof( patbuf ) - 1;
+			memcpy( patbuf, u8, ul );
+			patbuf[ul] = 0;
+		} else {
+			memcpy( patbuf, fname, n );
+			patbuf[n] = 0;
+		}
+	}
+	for ( i = 0; patbuf[i] != 0; i++ ) {
+		if ( patbuf[i] == '\\' ) patbuf[i] = '/';
+	}
+#else
 	for ( i = 0; i < n; i++ ) {
 		patbuf[i] = ( fname[i] == '\\' ) ? '/' : fname[i];
 	}
 	patbuf[n] = 0;
-
-#ifdef __SWITCH__
-	/*	the pattern is CP932 like everything else Elona hands us */
-	{
-		char u8[_MAX_PATH * 3 + 1];
-		if ( sw_path_to_utf8( patbuf, u8, sizeof( u8 ) ) > 0 ) {
-			strcpy( patbuf, u8 );
-		}
-	}
 #endif
 
 	slash = strrchr( patbuf, '/' );
@@ -584,7 +605,7 @@ int dirlist( char *fname, char **target, int p3 )
 	} else {
 		size_t dl = (size_t)( slash - patbuf );
 		if ( dl == 0 ) dl = 1;					// "/pat"はルート直下
-		if ( dl > _MAX_PATH ) dl = _MAX_PATH;
+		if ( dl > sizeof( dirbuf ) - 1 ) dl = sizeof( dirbuf ) - 1;
 		memcpy( dirbuf, patbuf, dl );
 		dirbuf[dl] = 0;
 		pat = slash + 1;

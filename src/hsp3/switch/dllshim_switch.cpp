@@ -79,6 +79,7 @@ struct DllArgValue {
 	float	fval;		// MPTYPE_FLOAT
 	void	*ptr;		// pointer or string data
 	char	*owned;		// local copy to release after the call (or NULL)
+	int		cap;		// bytes usable behind ptr (-1 = unknown)
 };
 
 typedef int (*DllImplFunc)( const DllArgValue *args, int argc );
@@ -139,7 +140,7 @@ static int impl_CreateMutexA( const DllArgValue *args, int argc )
 		are full" (see sw_prune_stale_saves).							*/
 	if ( !pruned ) {
 		pruned = 1;
-		printf( "hsp3switch: build r179\n" );
+		printf( "hsp3switch: build r180\n" );
 		fflush( stdout );
 		sw_prune_stale_saves();
 	}
@@ -367,6 +368,9 @@ static int sw_rmtree( const char *dir )
 	Remove them once at startup, which also repairs cards that already have
 	them.  (Round 37 made RemoveDirectoryA recursive, so new deletes are clean;
 	this only clears what was already stuck.)							*/
+static int sw_prune_report = 0;
+
+
 static void sw_prune_stale_saves( void )
 {
 	const char *home = getenv( "HOME" );
@@ -388,8 +392,16 @@ static void sw_prune_stale_saves( void )
 		snprintf( dir, sizeof( dir ), "%s/%s", root, ent->d_name );
 		snprintf( hdr, sizeof( hdr ), "%s/header.txt", dir );
 		if ( access( hdr, F_OK ) == 0 ) continue;			/* a real save	*/
-		if ( sw_rmtree( dir ) ) {
-			printf( "hsp3switch: pruned stale save '%s'\n", dir );
+		/*	Report only, never delete.  A folder whose header is missing
+			cannot be listed or loaded and chara.hsp still counts it towards
+			"Save slots are full", but the character and map files inside may
+			be perfectly recoverable.  This runs from the first CreateMutexA
+			call, before anything could tell a broken copy from an interrupted
+			write, so the evidence is not good enough to destroy data on.
+			Left in place; the line below is the cue to clean up by hand.	*/
+		if ( sw_prune_report < 8 ) {
+			sw_prune_report++;
+			printf( "hsp3switch: save folder without header (kept): '%s'\n", dir );
 			fflush( stdout );
 		}
 	}
@@ -1067,24 +1079,29 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 		path arrived verbatim as 'sdmc:/switch/openhsp\map\home0.idx'.
 		Every map load failed and *map_begin looped on "Map loading
 		failed".  Normalise the path here as well.                    */
-	for ( i = 0; path[i] != 0 && i < (int)sizeof( norm ) - 1; i++ ) {
-		norm[i] = ( path[i] == '\\' ) ? '/' : path[i];
-	}
-	norm[i] = 0;
-	/*	The other half of what the fopen hook does: translate the path
-		from the script's CP932/GBK plane into the UTF-8 names the
-		console filesystem stores.  zlib's gzopen() opens through POSIX
-		open(), which never passes through that hook, so a Chinese save
-		folder was written by fopen under its UTF-8 name and read back
-		here under its GBK bytes - every .s1 of sav_<name> failed to open
-		(48 zOpen FAILs in one save) and the folder came back incomplete. */
+	/*	Translate first, normalise the separator second.  A CP932 trail byte
+		can be 0x5C (the second byte of the two-byte 'so' and 'hyou' kanji is
+		5C), so rewriting backslashes over the raw script bytes splits such a
+		character in half and the file is then looked up under a name that was
+		never written.  Every byte of a UTF-8 multi-byte sequence is >= 0x80,
+		so after the conversion a 0x5C can only be a real separator.
+
+		The converted form is longer than the CP932 one (2-byte characters
+		become 3 bytes), so the result is used directly - it is the one place
+		in this function that can hold the wider form.						*/
 	{
 		char u8[sizeof( norm ) * 3 + 1];
-		if ( sw_path_to_utf8( norm, u8, sizeof( u8 ) - 1 ) > 0 ) {
-			gz = gzopen( u8, ( mode != 0 ) ? "wb" : "rb" );
-		} else {
-			gz = gzopen( norm, ( mode != 0 ) ? "wb" : "rb" );
+		int cn = sw_path_to_utf8( path, u8, sizeof( u8 ) - 1 );
+		if ( cn <= 0 ) {
+			size_t pl = strlen( path );
+			if ( pl > sizeof( u8 ) - 1 ) pl = sizeof( u8 ) - 1;
+			memcpy( u8, path, pl );
+			u8[pl] = 0;
 		}
+		for ( i = 0; u8[i] != 0; i++ ) {
+			if ( u8[i] == '\\' ) u8[i] = '/';
+		}
+		gz = gzopen( u8, ( mode != 0 ) ? "wb" : "rb" );
 	}
 	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;
@@ -1105,13 +1122,30 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 static int impl_zlib_zread( const DllArgValue *args, int argc )
 {
 	gzFile gz;
-	size_t want, got;
+	long long want;
+	size_t got;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
 	gz = zlib_port_get( args[1].ival );
 	if ( gz == NULL ) return 0;
-	want = (size_t)args[2].ival;
-	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
+	/*	The length comes from the script and the buffer from the caller's
+		variable; the marshaller now passes how much room is really there
+		(read_arg's cap).  A negative length used to wrap to a 64 MiB
+		request, and a length larger than the variable wrote past its end -
+		gzread() fills up to `want` bytes and cannot know the bound.		*/
+	want = (long long)args[2].ival;
+	if ( want <= 0 ) return 0;
+	if ( args[0].cap >= 0 && want > (long long)args[0].cap ) {
+		static int rep = 0;
+		if ( rep < 8 ) {
+			rep++;
+			printf( "hsp3switch: zRead %lld bytes refused, buffer holds %d\n",
+				want, args[0].cap );
+			fflush( stdout );
+		}
+		return 0;
+	}
+	if ( want > (long long)0x4000000 ) want = 0x4000000;
 	got = (size_t)gzread( gz, args[0].ptr, (unsigned)want );
 	zlib_read_n++;
 	return 0;
@@ -1120,13 +1154,28 @@ static int impl_zlib_zread( const DllArgValue *args, int argc )
 static int impl_zlib_zwrite( const DllArgValue *args, int argc )
 {
 	gzFile gz;
-	size_t want, put;
+	long long want;
+	size_t put;
 
 	if ( argc < 3 || args[0].ptr == NULL ) return 0;
 	gz = zlib_port_get( args[1].ival );
 	if ( gz == NULL ) return 0;
-	want = (size_t)args[2].ival;
-	if ( want > (size_t)0x4000000 ) want = (size_t)0x4000000;
+	/*	Same bound as zRead, on the read side this time: gzwrite() reads
+		`want` bytes out of the variable, so an over-long length reads past
+		its end, and a negative one wrapped to a 64 MiB request.			*/
+	want = (long long)args[2].ival;
+	if ( want <= 0 ) return 0;
+	if ( args[0].cap >= 0 && want > (long long)args[0].cap ) {
+		static int rep = 0;
+		if ( rep < 8 ) {
+			rep++;
+			printf( "hsp3switch: zWrite %lld bytes refused, buffer holds %d\n",
+				want, args[0].cap );
+			fflush( stdout );
+		}
+		return 0;
+	}
+	if ( want > (long long)0x4000000 ) want = 0x4000000;
 	put = (size_t)gzwrite( gz, args[0].ptr, (unsigned)want );
 	zlib_write_n++;
 	return 0;
@@ -1484,6 +1533,7 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 	v->fval = 0.0f;
 	v->ptr = NULL;
 	v->owned = NULL;
+	v->cap = -1;
 
 	//	mptype branches follow code_expand_next(), hsp3extlib_ffi.cpp:586-690.
 	//
@@ -1502,7 +1552,16 @@ static void read_arg( DllArgValue *v, const STRUCTPRM *prm )
 		break;
 	case MPTYPE_PVARPTR: {
 		APTR aptr = code_getva( &pval );
-		v->ptr = HspVarCorePtrAPTR( pval, aptr );
+		PDAT *pdat = HspVarCorePtrAPTR( pval, aptr );
+		int blk = 0;
+		v->ptr = pdat;
+		/*	Hand over the remaining capacity as well as the address.
+			zRead/zWrite receive a bare pointer here and their length
+			argument was the one thing they could not check.  GetBlockSize
+			returns exactly "bytes left from pdat" (hspvar_int.cpp:226 -
+			array size minus the offset).							*/
+		HspVarCoreGetBlockSize( pval, pdat, &blk );
+		v->cap = ( blk > 0 ) ? blk : 0;
 		break;
 	}
 	case MPTYPE_NULLPTR:
@@ -1632,7 +1691,11 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 	STRUCTDAT *st;
 	LIBDAT *lib;
 	const DllImplEntry *entry;
-	DllArgValue args[DLLSHIM_MAX_ARGS];
+	/*	Zero-initialised on purpose: read_arg() only fills the slots it
+		reaches, and the catch below walks every one of them - a parse error
+		part-way through the argument list used to hand an uninitialised
+		`owned` to sbFree().											*/
+	DllArgValue args[DLLSHIM_MAX_ARGS] = {};
 	unsigned short *pc_in = code_getpcbak();
 	const char *libname = "?";
 	const char *funcname = "?";

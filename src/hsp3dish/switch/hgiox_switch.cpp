@@ -1708,36 +1708,62 @@ static void setColorTex_mulcolor( float alpha )
 	}
 }
 
+/*	Colour/alpha-separated blend state, provided by gles1_shim.cpp.
+	Declared here rather than in glcompat/GL/gl.h: only this file needs it,
+	and the GLES1 macro set there is shared with the upstream backend.		*/
+extern "C" void sw_glBlendFuncSeparate( GLenum, GLenum, GLenum, GLenum );
+extern "C" int sw_glBlendSeparateAvailable( void );
+
+
 static void setBlendMode( int mode )
 {
 	sw_glColorKey( 0, 0 );
-	// mode=2 はアルファあり半透明レート無効なのでアルファを 1.0 で埋める
-    switch( mode ) {
-        case 0:                     //no blend
-        case 1:                     //no blend
-            glDisable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            break;
-        case 5:                     //add
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_SRC_ALPHA,GL_ONE);
-            break;
-        case 6:                     //sub
-            /*	The upstream equation call sits inside #ifdef HSPIOS, which
-            	this target never defines, so gmode 6 used to fall through
-            	to the same glBlendFunc() as gmode 5 and drew as add.	*/
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-            glBlendFunc(GL_SRC_ALPHA,GL_ONE);
-            break;
-        default:                    //normal blend
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_ADD);
-            glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-            //glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
-            break;
-    }
+	/*	Blend the colour channels exactly as before, but keep the destination
+		alpha opaque.  A plain glBlendFunc() applies the source-alpha factor to
+		alpha as well: 50% over an opaque screen left it at 0.75, because the
+		alpha came out as As*As + Ad*(1-As).  The shader multiplies the sampled
+		alpha back into every later copy, so a screen composed from several
+		buffers kept fading, and gmode 6 subtracted the alpha away entirely
+		(opaque white minus opaque grey left alpha 0, and the next mode-3 copy
+		of it vanished).
+
+		With (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) the destination alpha becomes
+		As + Ad*(1-As), which is 1 for any source alpha as long as the buffer
+		started opaque - the natural invariant for a screen buffer, and it
+		costs nothing on the colour side.  Subtract passes GL_ZERO/GL_ONE for
+		the alpha factors so its equation leaves alpha untouched.  A driver
+		without glBlendFuncSeparate falls back to the old single call.		*/
+	int sep = sw_glBlendSeparateAvailable();
+
+	switch( mode ) {
+		case 0:						//no blend
+		case 1:						//no blend
+			glDisable(GL_BLEND);
+			glBlendEquation(GL_FUNC_ADD);
+			break;
+		case 5:						//add
+			glEnable(GL_BLEND);
+			glBlendEquation(GL_FUNC_ADD);
+			if ( sep ) sw_glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+			else glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+			break;
+		case 6:						//sub
+			/*	The upstream equation call sits inside #ifdef HSPIOS, which
+				this target never defines, so gmode 6 used to fall through
+				to the same glBlendFunc() as gmode 5 and drew as add.	*/
+			glEnable(GL_BLEND);
+			glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+			if ( sep ) sw_glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE );
+			else glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+			break;
+		default:					//normal blend
+			glEnable(GL_BLEND);
+			glBlendEquation(GL_FUNC_ADD);
+			if ( sep ) sw_glBlendFuncSeparate( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+			else glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+			//glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
+			break;
+	}
 }
 
 static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
@@ -3089,6 +3115,23 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			ratey = 1.0f / (float)sw_scratch_h;
 		}
 	}
+	else if ( ( bm->texid == bmsrc->texid ) &&
+			  ( sw_ov || ( bm->type == HSPWND_TYPE_MAIN ) ) ) {
+		/*	An aliased copy that stays on the direct path: the source texture
+			is also the current colour attachment, so the GPU samples what it
+			is still writing.  Recorded, not routed - both ways of routing it
+			regressed (r150 staged the main screen and wiped the message log;
+			p3s195 raised the staging size and whitened the map) so this needs
+			a hardware comparison before the path is changed again.			*/
+		if ( sw_selfblit_log < 24 ) {
+			sw_selfblit_log++;
+			sw_fbo_log( "hgio: aliased copy stays direct %d,%d %dx%d -> %g,%g "
+				"gmode=%d tex=%d main=%d ov=%d\n",
+				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)psx, (double)psy,
+				bm->gmode, bm->texid, ( bm->type == HSPWND_TYPE_MAIN ), sw_ov );
+		}
+	}
+
 	if ( !sw_scratch_used ) {
 		ratex = tex->ratex;
 		ratey = tex->ratey;

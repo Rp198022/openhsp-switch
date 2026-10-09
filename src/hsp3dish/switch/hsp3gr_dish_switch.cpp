@@ -1272,9 +1272,17 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
 		bmscr->Select( p2 );
-		/*	Select() has just reset this window's gmode to 0; the script expects
-			the mode it set earlier to still be in force. */
-		if ( sw_gmode_set ) {
+		/*	gmode belongs to each window (HSP documents it as a per-window
+			setting) and this build's Bmscr::Select() does not reset these
+			fields, so a window that has already set its own mode keeps it.
+			The remembered mode is carried over only into a window still
+			sitting at the defaults, which is the case the carry was added
+			for: Elona's display_customkey sets gmode 2, switches to another
+			screen and then copies.  Writing the last gmode into every window
+			instead let two windows overwrite each other's mode and size.	*/
+		if ( sw_gmode_set &&
+			 bmscr->gmode  == 0  && bmscr->gx     == 32 &&
+			 bmscr->gy     == 32 && bmscr->gfrate == 0 ) {
 			bmscr->gmode  = sw_gmode_g[0];
 			bmscr->gx     = sw_gmode_g[1];
 			bmscr->gy     = sw_gmode_g[2];
