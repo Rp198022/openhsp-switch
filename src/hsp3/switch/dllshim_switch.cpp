@@ -1681,6 +1681,15 @@ void dllshim_install( HSP3TYPEINFO *info )
 	pmpval = exinfo->mpval;
 }
 
+/*	Exposes the interpreter context to other switch modules (the side-panel
+	overlay reads script variables for the party HUD).  The shim owns the
+	pointer; callers only read through it, so this is safe from the present
+	pass where the interpreter is idle between frames.			*/
+extern "C" HSPCTX *switch_runtime_hspctx( void )
+{
+	return hspctx;
+}
+
 void dllshim_report_exit( void )
 {
 	//	code_catcherror() records the code in hspctx->err and never clears it, so

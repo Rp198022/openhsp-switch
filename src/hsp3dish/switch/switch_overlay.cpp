@@ -35,6 +35,13 @@
 
 #include "switch_overlay.h"
 
+/*	Party HUD reads the interpreter's script variables directly, so it can
+	track the player and one pet without touching the script.  The shim
+	hands us the context; the names resolve through the debug name table.	*/
+#include "../../hsp3/switch/dllshim_switch.h"
+#include "../../hsp3/hsp3code.h"
+#include "../../hsp3/hspvar_core.h"
+
 /*	Texture on/off is part of the fixed-function state the shim tracks,
 	and the present pass leaves GL_TEXTURE_2D *disabled*: ChangeTex(-1)
 	disables it on the way out (hgtex.cpp).  A draw whose texture never
@@ -123,6 +130,40 @@ static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
 static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
 
+/*	Display mode: R+stick click cycles key hints <-> party HUD.			*/
+#define SW_OVL_MODE_KEY		0
+#define SW_OVL_MODE_PARTY	1
+static int		sw_ovl_mode = SW_OVL_MODE_KEY;
+
+/*	Party HUD state.  The interpreter context is the cache key: when it
+	changes (new game, load) the variable indices are resolved again.
+	The face atlas and the 1x1 bar swatches are lazily uploaded on first
+	use and rebuilt after a GL context reset.						*/
+static HSPCTX	*sw_ovl_ctx = NULL;
+static PVal		*sw_ovl_pv_cdata = NULL;
+static PVal		*sw_ovl_pv_cdatan = NULL;
+static PVal		*sw_ovl_pv_sdata = NULL;
+static PVal		*sw_ovl_pv_msg = NULL;
+static PVal		*sw_ovl_pv_msgline = NULL;
+static PVal		*sw_ovl_pv_inf_maxlog = NULL;
+static GLuint	sw_ovl_face_tex = 0;
+static GLuint	sw_ovl_bar_tex[4] = { 0, 0, 0, 0 };	/* white,hp,mp,sp	*/
+static int		sw_ovl_face_w = 0;
+static int		sw_ovl_face_h = 0;
+
+/*	Party sheet textures: one per strip, rebuilt only when the tracked
+	content (name, bars, abilities, chat) actually changes.				*/
+static GLuint	sw_ovl_party_sheet[2] = { 0, 0 };
+static int		sw_ovl_party_sheet_w[2] = { 0, 0 };
+static int		sw_ovl_party_sheet_h[2] = { 0, 0 };
+static int		sw_ovl_party_slot[2] = { 0, -1 };
+static char		sw_ovl_party_name[2][ 64 ] = { "", "" };
+static int		sw_ovl_party_hp[2], sw_ovl_party_mhp[2];
+static int		sw_ovl_party_sp[2], sw_ovl_party_msp[2];
+static int		sw_ovl_party_mp[2], sw_ovl_party_mmp[2];
+static int		sw_ovl_party_abil[2][ 8 ];
+static char		sw_ovl_party_chat[2][ 200 ] = { "", "" };
+
 void switch_overlay_ctx_reset( void )
 {
 	/*	The context that issued these names is gone; dropping the numbers
@@ -130,13 +171,32 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_tex[0] = 0;
 	sw_ovl_tex[1] = 0;
 	sw_ovl_origin_x = -1;
+	sw_ovl_face_tex = 0;
+	sw_ovl_bar_tex[0] = 0;
+	sw_ovl_bar_tex[1] = 0;
+	sw_ovl_bar_tex[2] = 0;
+	sw_ovl_bar_tex[3] = 0;
+	sw_ovl_ctx = NULL;
+	sw_ovl_pv_cdata = NULL;
+	sw_ovl_pv_cdatan = NULL;
+	sw_ovl_pv_sdata = NULL;
+	sw_ovl_pv_msg = NULL;
+	sw_ovl_pv_msgline = NULL;
+	sw_ovl_pv_inf_maxlog = NULL;
+	sw_ovl_party_sheet[0] = 0;
+	sw_ovl_party_sheet[1] = 0;
+	sw_ovl_party_slot[0] = 0;
+	sw_ovl_party_slot[1] = -1;
 }
 
 
 void switch_overlay_toggle( void )
 {
-	sw_ovl_off = sw_ovl_off ? 0 : 1;
-	printf( "hsp3switch: overlay %s\n", sw_ovl_off ? "hidden" : "shown" );
+	/*	r185f: the party HUD joins the toggle cycle.  R+stick now walks
+		key hints -> party HUD -> key hints; there is no "hidden" state,
+		the player asked for the strips to carry information.			*/
+	sw_ovl_mode = ( sw_ovl_mode == SW_OVL_MODE_PARTY ) ? SW_OVL_MODE_KEY : SW_OVL_MODE_PARTY;
+	printf( "hsp3switch: overlay %s\n", sw_ovl_mode == SW_OVL_MODE_PARTY ? "party" : "keys" );
 	fflush( stdout );
 }
 
@@ -327,6 +387,13 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		sw_ovl_origin_x = origin_x;
 	}
 
+	/*	Party HUD replaces the key hints entirely: same window pass, its
+		own build/draw path below.										*/
+	if ( sw_ovl_mode == SW_OVL_MODE_PARTY ) {
+		switch_overlay_draw_party( win_w, win_h, origin_x, game_w, right_x, right_w );
+		return;
+	}
+
 	/*	Window-space coordinates: x across the whole panel, y downward.		*/
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
@@ -354,6 +421,442 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	/*	Back to the state sw_main_present() left the frame in: nothing bound,
 		blending off.  The projection/viewport are re-set by every draw pass
 		at the top of the next frame (sw_apply_target), so they stay.		*/
+	glBindTexture( GL_TEXTURE_2D, 0 );
+	glDisable( GL_BLEND );
+	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
+}
+/*	==================================================================
+	Party HUD (r185f)
+	------------------------------------------------------------------
+	Reads the interpreter's live variables (cdata/cdatan/sdata/msg) via
+	the shim's context getter and paints the player on the left strip and
+	the current pet on the right one: portrait, name, HP/MP/SP bars with
+	their numbers, the eight base abilities and the pet's latest chat.
+	==================================================================*/
+
+#define SW_OVL_PARTY_CD_EXIST		0
+#define SW_OVL_PARTY_CD_SEX		8
+#define SW_OVL_PARTY_CD_PORTRAIT		13
+#define SW_OVL_PARTY_CD_HP		50
+#define SW_OVL_PARTY_CD_MAX_HP		51
+#define SW_OVL_PARTY_CD_SP		52
+#define SW_OVL_PARTY_CD_MAX_SP		53
+#define SW_OVL_PARTY_CD_MP		55
+#define SW_OVL_PARTY_CD_MAX_MP		56
+#define SW_OVL_PARTY_CD_ALLIED		58
+#define SW_OVL_PARTY_CD_TAGTEAM		167
+#define SW_OVL_PARTY_CD_FACE		431
+
+#define SW_OVL_PARTY_ATTR_FIRST		10	/* SKILL_ATTR_STR */
+#define SW_OVL_PARTY_ATTR_COUNT		8	/* STR..CHA */
+#define SW_OVL_PARTY_SLOTS		16	/* MAX_CHARA_FOLLOWER */
+
+#define SW_OVL_PARTY_AVA_W		96
+#define SW_OVL_PARTY_AVA_H		134
+#define SW_OVL_PARTY_AVA_X		8
+#define SW_OVL_PARTY_AVA_Y		8
+
+/*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
+#define SW_OVL_PARTY_CELL_W		48
+#define SW_OVL_PARTY_CELL_H		72
+#define SW_OVL_PARTY_CELL_COLS		16
+
+static int sw_ovl_party_resolve( void )
+{
+	HSPCTX *ctx;
+	int id;
+
+	if ( sw_ovl_ctx != NULL ) return 0;
+	ctx = switch_runtime_hspctx();
+	if ( ctx == NULL ) return -1;
+	sw_ovl_ctx = ctx;
+
+	id = code_getdebug_seekvar( "cdata" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_cdata = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "cdatan" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_cdatan = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "sdata" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_sdata = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "msg" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_msg = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "msgline" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_msgline = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "inf_maxlog" );
+	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
+	sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
+	return 0;
+}
+
+static int sw_ovl_cdata( int field, int slot )
+{
+	if ( sw_ovl_pv_cdata == NULL ) return 0;
+	if ( field < 0 || field >= sw_ovl_pv_cdata->len[1] ) return 0;
+	if ( slot < 0 || slot >= sw_ovl_pv_cdata->len[2] ) return 0;
+	return ((int*)sw_ovl_pv_cdata->pt)[ field + slot * sw_ovl_pv_cdata->len[1] ];
+}
+
+static int sw_ovl_sdata( int ability, int slot )
+{
+	if ( sw_ovl_pv_sdata == NULL ) return 0;
+	if ( ability < 0 || ability >= sw_ovl_pv_sdata->len[1] ) return 0;
+	if ( slot < 0 || slot >= sw_ovl_pv_sdata->len[2] ) return 0;
+	return ((int*)sw_ovl_pv_sdata->pt)[ ability + slot * sw_ovl_pv_sdata->len[1] ];
+}
+
+static const char *sw_ovl_cdatan( int field, int slot )
+{
+	if ( sw_ovl_pv_cdatan == NULL ) return "";
+	if ( field < 0 || field >= sw_ovl_pv_cdatan->len[1] ) return "";
+	if ( slot < 0 || slot >= sw_ovl_pv_cdatan->len[2] ) return "";
+	/*	HspVarCorePtrAPTR writes pv->offset; the pointer is only valid
+		until the next call on the same PVal, so callers copy at once.	*/
+	return (const char*)HspVarCorePtrAPTR( sw_ovl_pv_cdatan, field + slot * sw_ovl_pv_cdatan->len[1] );
+}
+
+static int sw_ovl_pick_pet( int *out )
+{
+	int s, partner, best = -1;
+
+	if ( sw_ovl_pv_cdata == NULL ) return 0;
+	partner = sw_ovl_cdata( SW_OVL_PARTY_CD_TAGTEAM, 0 );
+	for ( s = 1; s < SW_OVL_PARTY_SLOTS && s < sw_ovl_pv_cdata->len[2]; s++ ) {
+		if ( sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, s ) != 1 ) continue;
+		if ( sw_ovl_cdata( SW_OVL_PARTY_CD_ALLIED, s ) != 100 ) continue;
+		if ( best < 0 ) best = s;
+		if ( s == partner ) { *out = s; return 1; }
+	}
+	if ( best >= 0 ) { *out = best; return 1; }
+	return 0;
+}
+
+static const char *sw_ovl_msg_peek( const char *pet_name )
+{
+	int ml, n, i, idx;
+	const char *s;
+
+	if ( sw_ovl_pv_msg == NULL || sw_ovl_pv_msgline == NULL ) return "";
+	ml = *(int*)sw_ovl_pv_msgline->pt;
+	if ( ml < 0 ) return "";
+	n = sw_ovl_pv_inf_maxlog ? *(int*)sw_ovl_pv_inf_maxlog->pt : 0;
+	if ( n <= 0 ) n = 3;
+	if ( n > sw_ovl_pv_msg->len[1] ) n = sw_ovl_pv_msg->len[1];
+	/*	Walk the ring buffer backwards from the newest line; the newest
+		line that starts with the pet's name is its latest chat.		*/
+	for ( i = 0; i < n && i < 6; i++ ) {
+		idx = ( ml - i ) % n;
+		if ( idx < 0 ) idx += n;
+		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, idx );
+		if ( s != NULL && pet_name != NULL && pet_name[0] != '\0' &&
+			 strncmp( s, pet_name, strlen( pet_name ) ) == 0 ) {
+			return s;
+		}
+	}
+	return "";
+}
+
+static const char *sw_ovl_attr_name( int i )
+{
+	static const char *nm[8] = {
+		"力量", "体质", "灵巧", "感知",
+		"学习", "意志", "魔力", "魅力",
+	};
+	if ( i < 0 || i > 7 ) return "";
+	return nm[ i ];
+}
+
+static GLuint sw_ovl_upload_rgba( SDL_Surface *surf, int *out_w, int *out_h )
+{
+	GLuint tex;
+
+	glGenTextures( 1, &tex );
+	glBindTexture( GL_TEXTURE_2D, tex );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, surf->w, surf->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, surf->pixels );
+	if ( out_w ) *out_w = surf->w;
+	if ( out_h ) *out_h = surf->h;
+	return tex;
+}
+
+static int sw_ovl_face_load( void )
+{
+	SDL_Surface *bmp, *conv;
+	static const char *cand[] = {
+		"sdmc:/switch/openhsp/graphic/face1.bmp",
+		"sdmc:/switch/openhsp/user/graphic/face1.bmp",
+	};
+	int i;
+
+	if ( sw_ovl_face_tex != 0 ) return 0;
+	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
+		bmp = SDL_LoadBMP( cand[i] );
+		if ( bmp == NULL ) continue;
+		conv = SDL_ConvertSurfaceFormat( bmp, SDL_PIXELFORMAT_ABGR8888, 0 );
+		SDL_FreeSurface( bmp );
+		if ( conv == NULL ) continue;
+		sw_ovl_face_tex = sw_ovl_upload_rgba( conv, &sw_ovl_face_w, &sw_ovl_face_h );
+		SDL_FreeSurface( conv );
+		if ( sw_ovl_face_tex == 0 ) continue;
+		printf( "hsp3switch: overlay face %s (%dx%d)\n", cand[i], sw_ovl_face_w, sw_ovl_face_h );
+		fflush( stdout );
+		return 0;
+	}
+	printf( "hsp3switch: overlay: no face atlas, portraits disabled\n" );
+	fflush( stdout );
+	return -1;
+}
+
+static int sw_ovl_bar_upload( void )
+{
+	/*	ABGR8888 Uint32: 0xAABBGGRR */
+	Uint32 rgb[4] = { 0xFFFFFFFF, 0xFF0000FF, 0xFFFF0000, 0xFF00FFFF };
+	/*			white		hp(red)	mp(blue)	sp(yellow)	*/
+	int k;
+	SDL_Surface *s;
+
+	if ( sw_ovl_bar_tex[0] != 0 ) return 0;
+	for ( k = 0; k < 4; k++ ) {
+		s = SDL_CreateRGBSurfaceWithFormat( 0, 1, 1, 32, SDL_PIXELFORMAT_ABGR8888 );
+		if ( s == NULL ) return -1;
+		SDL_FillRect( s, NULL, rgb[k] );
+		sw_ovl_bar_tex[k] = sw_ovl_upload_rgba( s, NULL, NULL );
+		SDL_FreeSurface( s );
+		if ( sw_ovl_bar_tex[k] == 0 ) return -1;
+	}
+	return 0;
+}
+
+static void sw_ovl_quad_uv( GLuint tex, float x0, float y0, float w, float h,
+						float u0, float v0, float u1, float v1 )
+{
+	GLfloat vert[8];
+	GLfloat uv[8];
+
+	vert[0] = x0;		vert[1] = y0;
+	vert[2] = x0 + w;	vert[3] = y0;
+	vert[4] = x0;		vert[5] = y0 - h;
+	vert[6] = x0 + w;	vert[7] = y0 - h;
+
+	uv[0] = u0;	uv[1] = v0;
+	uv[2] = u1;	uv[3] = v0;
+	uv[4] = u0;	uv[5] = v1;
+	uv[6] = u1;	uv[7] = v1;
+
+	glEnableClientState( GL_VERTEX_ARRAY );
+	glVertexPointer( 2, GL_FLOAT, 0, vert );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, uv );
+	glBindTexture( GL_TEXTURE_2D, tex );
+	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
+}
+
+static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
+{
+	char buf[ 40 ];
+	int len = (int)strlen( msg );
+	int row, per = 12, s, n;
+
+	if ( len > per * maxl ) len = per * maxl;
+	if ( len <= 0 ) return;
+	for ( row = 0; row < maxl && row * per < len; row++ ) {
+		s = row * per;
+		n = per;
+		if ( s + n > len ) n = len - s;
+		/*	Walk back so the chunk starts and ends on UTF-8 lead bytes. */
+		while ( n > 1 && ( (unsigned char)msg[s+n-1] & 0xC0 ) == 0x80 ) n--;
+		while ( n > 1 && ( (unsigned char)msg[s] & 0xC0 ) == 0x80 ) { s++; n--; }
+		if ( n <= 0 ) n = 1;
+		memcpy( buf, msg + s, n );
+		buf[ n ] = '\0';
+		sw_ovl_blit_text( panel, buf, 210, x, y + row * 18 );
+	}
+}
+
+static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
+{
+	SDL_Surface *panel;
+	SDL_Rect r;
+	int y, i;
+	char buf[ 96 ];
+
+	if ( strip_w < 48 ) return -1;
+	if ( sw_ovl_party_sheet[ ix ] != 0 ) {
+		glDeleteTextures( 1, &sw_ovl_party_sheet[ ix ] );
+		sw_ovl_party_sheet[ ix ] = 0;
+	}
+	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, sheet_h, 32, SDL_PIXELFORMAT_ABGR8888 );
+	if ( panel == NULL ) return -1;
+	SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 0, 0, 0, 0 ) );
+
+	y = 0;
+	sw_ovl_blit_text( panel, sw_ovl_party_name[ ix ], 255, 8, y );
+	y += 20;
+
+	if ( ix == 1 ) {
+		static const char *lbl[3] = { "HP", "MP", "SP" };
+		int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
+		int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
+		for ( i = 0; i < 3; i++ ) {
+			if ( mxs[ i ] <= 0 ) continue;
+			r.x = 8; r.y = y; r.w = strip_w - 44; r.h = 8;
+			SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
+			snprintf( buf, sizeof( buf ), "%s %d/%d", lbl[ i ], cur[ i ], mxs[ i ] );
+			sw_ovl_blit_text( panel, buf, 230, 8, y - 3 );
+			y += 18;
+		}
+	}
+
+	for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
+		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
+		sw_ovl_blit_text( panel, buf, 225, 8, y );
+		y += 20;
+	}
+
+	if ( ix == 1 ) {
+		y += 8;
+		sw_ovl_chat_lines( panel, sw_ovl_party_chat[ 1 ], 8, y, 3 );
+	}
+
+	sw_ovl_party_sheet[ ix ] = sw_ovl_upload_rgba( panel, &sw_ovl_party_sheet_w[ ix ], &sw_ovl_party_sheet_h[ ix ] );
+	SDL_FreeSurface( panel );
+	return sw_ovl_party_sheet[ ix ] ? 0 : -1;
+}
+
+static int sw_ovl_party_refresh( int *slot )
+{
+	int dirty = 0, k, i;
+
+	slot[0] = 0;
+	slot[1] = -1;
+	if ( sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 ) != 1 ) return -1;
+	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
+
+	for ( k = 0; k < 2; k++ ) {
+		int s = slot[k];
+		const char *nm = sw_ovl_cdatan( 0, s < 0 ? 0 : s );
+		char nb[ 64 ];
+
+		snprintf( nb, sizeof( nb ), "%s", nm );
+		if ( strcmp( nb, sw_ovl_party_name[k] ) != 0 ) {
+			dirty = 1;
+			strncpy( sw_ovl_party_name[k], nb, sizeof( sw_ovl_party_name[k] ) - 1 );
+			sw_ovl_party_name[k][ sizeof( sw_ovl_party_name[k] ) - 1 ] = '\0';
+		}
+		if ( s < 0 ) {
+			for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) sw_ovl_party_abil[k][i] = 0;
+			sw_ovl_party_hp[k] = sw_ovl_party_mhp[k] = 0;
+			sw_ovl_party_sp[k] = sw_ovl_party_msp[k] = 0;
+			sw_ovl_party_mp[k] = sw_ovl_party_mmp[k] = 0;
+			continue;
+		}
+		if ( sw_ovl_party_hp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_HP, s ) ) dirty = 1;
+		if ( sw_ovl_party_mhp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, s ) ) dirty = 1;
+		if ( sw_ovl_party_sp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_SP, s ) ) dirty = 1;
+		if ( sw_ovl_party_msp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_SP, s ) ) dirty = 1;
+		if ( sw_ovl_party_mp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_MP, s ) ) dirty = 1;
+		if ( sw_ovl_party_mmp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_MP, s ) ) dirty = 1;
+		sw_ovl_party_hp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_HP, s );
+		sw_ovl_party_mhp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, s );
+		sw_ovl_party_sp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_SP, s );
+		sw_ovl_party_msp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_SP, s );
+		sw_ovl_party_mp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MP, s );
+		sw_ovl_party_mmp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_MP, s );
+		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
+			int v = sw_ovl_sdata( SW_OVL_PARTY_ATTR_FIRST + i, s ) / 10000;
+			if ( v != sw_ovl_party_abil[k][i] ) dirty = 1;
+			sw_ovl_party_abil[k][i] = v;
+		}
+		if ( k == 1 ) {
+			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1] );
+			char mb[ 200 ];
+			snprintf( mb, sizeof( mb ), "%s", m );
+			if ( strcmp( mb, sw_ovl_party_chat[1] ) != 0 ) {
+				dirty = 1;
+				strncpy( sw_ovl_party_chat[1], mb, sizeof( sw_ovl_party_chat[1] ) - 1 );
+				sw_ovl_party_chat[1][ sizeof( sw_ovl_party_chat[1] ) - 1 ] = '\0';
+			}
+		}
+	}
+	return dirty;
+}
+
+void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, int right_x, int right_w )
+{
+	int dirty, slot[2], k, i, tex2d_was;
+	int sheet_h;
+	float ly;
+
+	if ( origin_x < 48 || right_w < 48 ) return;
+	if ( sw_ovl_party_resolve() != 0 ) return;
+	if ( sw_ovl_font == NULL ) sw_ovl_font = sw_ovl_open_font();
+	if ( sw_ovl_font == NULL ) return;
+	if ( sw_ovl_face_tex == 0 && sw_ovl_face_load() != 0 ) return;
+	if ( sw_ovl_bar_tex[0] == 0 && sw_ovl_bar_upload() != 0 ) return;
+
+	dirty = sw_ovl_party_refresh( slot );
+	if ( dirty < 0 ) return;
+
+	sheet_h = win_h - 16;
+	if ( sheet_h < 120 ) sheet_h = 120;
+	if ( sheet_h > sw_ovl_party_sheet_h[0] + 1 || sheet_h > sw_ovl_party_sheet_h[1] + 1 ) dirty = 1;
+	if ( dirty || sw_ovl_party_sheet[0] == 0 || sw_ovl_party_sheet[1] == 0 ) {
+		if ( sw_ovl_party_build( 0, origin_x, sheet_h ) != 0 ) return;
+		if ( sw_ovl_party_build( 1, right_w, sheet_h ) != 0 ) return;
+	}
+
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+	glOrtho( 0, (GLdouble)win_w, -(GLdouble)win_h, 0, -100, 100 );
+	glViewport( 0, 0, win_w, win_h );
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+
+	glDisableClientState( GL_COLOR_ARRAY );
+	sw_glColorKey( 0, 0 );
+	tex2d_was = sw_texture2d_on();
+	glEnable( GL_TEXTURE_2D );
+	glEnable( GL_BLEND );
+	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+
+	ly = (float)( -( win_h - sheet_h ) / 2 );
+	if ( sw_ovl_party_sheet[0] != 0 ) {
+		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
+		if ( sw_ovl_face_tex != 0 && sw_ovl_face_w > 0 && sw_ovl_face_h > 0 ) {
+			int p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, 0 ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, 0 );
+			int col = p % SW_OVL_PARTY_CELL_COLS;
+			int row = p / SW_OVL_PARTY_CELL_COLS;
+			float u0 = (float)( col * SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
+			float v0 = (float)( row * SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
+			float u1 = (float)( col * SW_OVL_PARTY_CELL_W + SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
+			float v1 = (float)( row * SW_OVL_PARTY_CELL_H + SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
+			sw_ovl_quad_uv( sw_ovl_face_tex, (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y,
+				(float)SW_OVL_PARTY_AVA_W, (float)SW_OVL_PARTY_AVA_H, u0, v0, u1, v1 );
+		}
+	}
+	if ( sw_ovl_party_sheet[1] != 0 ) {
+		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
+		if ( slot[1] >= 0 ) {
+			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
+			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
+			for ( i = 0; i < 3; i++ ) {
+				int fw;
+				if ( mxs[ i ] <= 0 || cur[ i ] <= 0 ) continue;
+				if ( cur[ i ] > mxs[ i ] ) cur[ i ] = mxs[ i ];
+				fw = (int)( ( right_w - 44 ) * cur[ i ] / mxs[ i ] );
+				if ( fw < 1 ) fw = 1;
+				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], (float)right_x + 8.0f,
+					ly + 20.0f + (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
+			}
+		}
+	}
+
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
 	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );

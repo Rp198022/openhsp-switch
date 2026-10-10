@@ -50,4 +50,12 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize );
 //
 void dllshim_report_exit( void );
 
+/*	Returns the HSP interpreter context the shim was installed with, for
+	read-only access to script variables from other switch modules.  NULL
+	before dllshim_install() runs.								*/
+#ifdef __cplusplus
+extern "C" HSPCTX *switch_runtime_hspctx( void );
+#endif
+
+
 #endif
