@@ -472,6 +472,17 @@ static int sw_ovl_party_resolve( void )
 	ctx = switch_runtime_hspctx();
 	if ( ctx == NULL ) return -1;
 
+	{
+		static int _r = 0;
+		if ( (_r++ % 100) == 0 ) {
+			printf( "hsp3switch: rslv ids cdata=%d cdatan=%d sdata=%d msg=%d msgline=%d maxlog=%d maxval=%d\n",
+				code_getdebug_seekvar( "cdata" ), code_getdebug_seekvar( "cdatan" ), code_getdebug_seekvar( "sdata" ),
+				code_getdebug_seekvar( "msg" ), code_getdebug_seekvar( "msgline" ), code_getdebug_seekvar( "inf_maxlog" ),
+				(int)ctx->hsphed->max_val );
+			fflush( stdout );
+		}
+	}
+
 	id = code_getdebug_seekvar( "cdata" );
 	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
 	sw_ovl_pv_cdata = &ctx->mem_var[ id ];
