@@ -451,6 +451,7 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 
 #define SW_OVL_PARTY_ATTR_FIRST		10	/* SKILL_ATTR_STR */
 #define SW_OVL_PARTY_ATTR_COUNT		8	/* STR..CHA */
+#define SW_OVL_PARTY_SKILL_OFF	600	/* STARTING_SKILL_SPACT: sdata base for skills */
 #define SW_OVL_PARTY_SLOTS		16	/* MAX_CHARA_FOLLOWER */
 
 #define SW_OVL_PARTY_AVA_W		96
@@ -788,6 +789,7 @@ static int sw_ovl_party_refresh( int *slot )
 	  { static int _e=0; if ( (_e++ % 100)==0 ) { printf( "hsp3switch: refresh ex0=%d ctx=%p pv=%p\n", e0, (void*)sw_ovl_ctx, (void*)sw_ovl_pv_cdata ); fflush( stdout ); } }
 	  if ( e0 != 1 ) return -1; }
 	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
+	{ int _r = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST, 0 ); static int _a = 0; if ( (_a++ % 200) == 0 ) { printf( "hsp3switch: attr0 raw=%d lv=%d tt=%d", _r, _r / 1000000, sw_ovl_cdata( SW_OVL_PARTY_CD_TAGTEAM, 0 ) ); { int q; for ( q = 1; q < 16; q++ ) printf( " %d:%d/%d", q, sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, q ), sw_ovl_cdata( SW_OVL_PARTY_CD_ALLIED, q ) ); } printf( " slot1=%d\n", slot[1] ); fflush( stdout ); } }
 
 	for ( k = 0; k < 2; k++ ) {
 		int s = slot[k];
@@ -820,7 +822,7 @@ static int sw_ovl_party_refresh( int *slot )
 		sw_ovl_party_mp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MP, s );
 		sw_ovl_party_mmp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_MP, s );
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
-			int v = sw_ovl_sdata( SW_OVL_PARTY_ATTR_FIRST + i, s ) / 10000;
+			int v = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ) / 1000000;
 			if ( v != sw_ovl_party_abil[k][i] ) dirty = 1;
 			sw_ovl_party_abil[k][i] = v;
 		}
