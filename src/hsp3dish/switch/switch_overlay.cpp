@@ -797,21 +797,21 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 	{ static int _dp=0; if ((_dp++ % 100) == 0) { printf( "hsp3switch: party IN w=%d h=%d ox=%d gw=%d rx=%d rw=%d\n", win_w, win_h, origin_x, game_w, right_x, right_w ); fflush( stdout ); } }
 	if ( origin_x < 48 || right_w < 48 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET ox=%d rw=%d\n", origin_x, right_w ); fflush( stdout ); } } return; }
-	{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET resolve\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_party_resolve() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET resolve\n" ); fflush( stdout ); } } return; }
 	if ( sw_ovl_font == NULL ) sw_ovl_font = sw_ovl_open_font();
-	{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET font\n" ); fflush( stdout ); } } return; }
-	{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET face\n" ); fflush( stdout ); } } return; }
-	{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET bar\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_font == NULL ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET font\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_face_tex == 0 && sw_ovl_face_load() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET face\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_bar_tex[0] == 0 && sw_ovl_bar_upload() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET bar\n" ); fflush( stdout ); } } return; }
 
 	dirty = sw_ovl_party_refresh( slot );
-	{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET refresh dirty=%d\n", dirty ); fflush( stdout ); } } return; }
+	if ( dirty < 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET refresh dirty=%d\n", dirty ); fflush( stdout ); } } return; }
 
 	sheet_h = win_h - 16;
 	if ( sheet_h < 120 ) sheet_h = 120;
 	if ( sheet_h > sw_ovl_party_sheet_h[0] + 1 || sheet_h > sw_ovl_party_sheet_h[1] + 1 ) dirty = 1;
 	if ( dirty || sw_ovl_party_sheet[0] == 0 || sw_ovl_party_sheet[1] == 0 ) {
-		{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD0 fail w=%d h=%d\n", origin_x, sheet_h ); fflush( stdout ); } } return; }
-		{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD1 fail w=%d h=%d\n", right_w, sheet_h ); fflush( stdout ); } } return; }
+		if ( sw_ovl_party_build( 0, origin_x, sheet_h ) != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD0 fail w=%d h=%d\n", origin_x, sheet_h ); fflush( stdout ); } } return; }
+		if ( sw_ovl_party_build( 1, right_w, sheet_h ) != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD1 fail w=%d h=%d\n", right_w, sheet_h ); fflush( stdout ); } } return; }
 	}
 
 	glMatrixMode( GL_PROJECTION );
@@ -831,7 +831,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	ly = (float)( -( win_h - sheet_h ) / 2 );
 	if ( sw_ovl_party_sheet[0] != 0 ) {
 		{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party DRAW s0=%u w0=%d h0=%d s1=%u w1=%d h1=%d slot=%d,%d face=%u bar=%u ly=%.1f\n", (unsigned)sw_ovl_party_sheet[0], sw_ovl_party_sheet_w[0], sw_ovl_party_sheet_h[0], (unsigned)sw_ovl_party_sheet[1], sw_ovl_party_sheet_w[1], sw_ovl_party_sheet_h[1], slot[0], slot[1], (unsigned)sw_ovl_face_tex, (unsigned)sw_ovl_bar_tex[1], ly ); fflush( stdout ); } }
-	sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
+		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
 		if ( sw_ovl_face_tex != 0 && sw_ovl_face_w > 0 && sw_ovl_face_h > 0 ) {
 			int p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, 0 ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, 0 );
 			int col = p % SW_OVL_PARTY_CELL_COLS;
