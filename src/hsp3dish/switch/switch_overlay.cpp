@@ -458,6 +458,7 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_NAME_Y		4	/* small top margin */
 #define SW_OVL_PARTY_AVA_Y		24	/* face sits below the name line */
 #define SW_OVL_PARTY_BAR_Y		(SW_OVL_PARTY_AVA_Y + SW_OVL_PARTY_AVA_H + 6)
+#define SW_OVL_PARTY_STAT_PITCH		30	/* label row + bar row per stat */
 
 /*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
 #define SW_OVL_PARTY_CELL_W		48
@@ -757,12 +758,12 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
 		for ( i = 0; i < 3; i++ ) {
 			if ( mxs[ i ] <= 0 ) continue;
-			r.x = 8; r.y = y; r.w = strip_w - 44; r.h = 8;
-			SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
 			snprintf( buf, sizeof( buf ), "%s %d/%d", lbl[ i ], cur[ i ], mxs[ i ] );
-			sw_ovl_blit_text( panel, buf, 230, 8, y - 3 );
-			y += 18;
+			sw_ovl_blit_text( panel, buf, 230, 8, y + i * SW_OVL_PARTY_STAT_PITCH );
+			r.x = 8; r.y = y + i * SW_OVL_PARTY_STAT_PITCH + 17; r.w = strip_w - 16; r.h = 8;
+			SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
 		}
+		y += 3 * SW_OVL_PARTY_STAT_PITCH;
 	}
 
 	for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
@@ -893,10 +894,11 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				int fw;
 				if ( mxs[ i ] <= 0 || cur[ i ] <= 0 ) continue;
 				if ( cur[ i ] > mxs[ i ] ) cur[ i ] = mxs[ i ];
-				fw = (int)( ( right_w - 44 ) * cur[ i ] / mxs[ i ] );
+				fw = (int)( ( right_w - 16 ) * cur[ i ] / mxs[ i ] );
 				if ( fw < 1 ) fw = 1;
 				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], (float)right_x + 8.0f,
-					ly - (float)SW_OVL_PARTY_BAR_Y - (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
+					ly - (float)SW_OVL_PARTY_BAR_Y - (float)( i * SW_OVL_PARTY_STAT_PITCH ) - 17.0f,
+					(float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
 			}
 		}
 	}
