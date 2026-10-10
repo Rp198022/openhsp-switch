@@ -548,6 +548,50 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 	__real___cxa_throw( thrown, tinfo, dest );
 }
 
+/*	Remember paths that a read open just found to be absent, so the runtime's
+	repeated probes for them stop paying an SD-card round trip each time.
+
+	Measured on hardware: a freshly created character requests the missing
+	part images pcc_etc_0/pcc_glove_0/pcc_mantle_0/pcc_mantlebk_0 every single
+	frame (their indices start at 1 in this pack), and the runtime then retries
+	each of them under "/hsptv/" - a prefix glues onto an absolute path, so that
+	second probe can never succeed either.  584 failed opens landed inside the
+	~40 s after creation; the retries alone were 268 of them.  Serving the
+	repeat from here leaves the first probe untouched, so a missing file still
+	costs one real syscall, while a known-missing one costs nothing.
+
+	Reads only, and it is purely a cache: a path that is created later is
+	already refused entry because only paths whose open FAILED are recorded.	*/
+#define GLUE_MISS_MAX	512
+#define GLUE_MISS_LEN	240
+static char glue_miss_key[GLUE_MISS_MAX][GLUE_MISS_LEN];
+static int  glue_miss_n = 0;
+static unsigned int glue_miss_next = 0;
+
+static int glue_miss_seen( const char *path )
+{
+	int i;
+	for ( i = 0; i < glue_miss_n; i++ ) {
+		if ( strcmp( glue_miss_key[i], path ) == 0 ) return 1;
+	}
+	return 0;
+}
+
+static void glue_miss_note( const char *path )
+{
+	size_t n = strlen( path );
+	int slot;
+	if ( n >= GLUE_MISS_LEN ) return;
+	if ( glue_miss_seen( path ) ) return;
+	if ( glue_miss_n < GLUE_MISS_MAX ) {
+		slot = glue_miss_n++;
+	} else {
+		slot = (int)( glue_miss_next % GLUE_MISS_MAX );		/* overwrite oldest */
+		glue_miss_next++;
+	}
+	strcpy( glue_miss_key[slot], path );
+}
+
 /*	Write-mode detection and the one repair a failed write open gets:
 	create the parent folders.  Elona builds its save paths by string
 	concatenation (sdmc:/switch/openhsp/save/sav_XXX/tmp/...), and a
@@ -642,7 +686,19 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		}
 	}
 
+	/*	A read for a path already known to be missing: answer at once instead
+		of paying another SD-card round trip for an answer we have.			*/
+	if ( !glue_fopen_writes( mode ) && glue_miss_seen( use ) ) {
+		return NULL;
+	}
+
 	fp = __real_fopen( use, mode );
+	if ( glue_fopen_writes( mode ) ) {
+		/*	A write may create or replace something an earlier probe recorded
+			as absent (Elona's save folders are built exactly that way), so the
+			table above is no longer trustworthy once one is issued.		*/
+		glue_miss_n = 0;
+	}
 	if ( fp == NULL && glue_fopen_writes( mode ) ) {
 		/*	A write cannot create its own folders, and the card run that
 			never wrote a single file is exactly that symptom. */
@@ -654,6 +710,7 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		}
 	}
 	if ( fp == NULL ) {
+		if ( !glue_fopen_writes( mode ) ) glue_miss_note( use );
 		printf( "hsp3file: FAIL '%s' (mode %s)\n", use, mode );
 		fflush( stdout );
 	}
