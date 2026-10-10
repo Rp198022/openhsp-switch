@@ -3077,6 +3077,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		routed create_pcpic's 128x198 parts (128,0->256,0 and 256,0->0,0, which
 		do NOT overlap) through the single shared scratch, changing how often
 		each layer landed on the screen - which whitened the whole map.		*/
+	int sw_same;
 	int sw_ov;
 	{
 		int sx0 = (int)xx, sy0 = (int)yy;
@@ -3087,7 +3088,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			read the screen while it is still being drawn and paint the result
 			back; on hardware it came out black.  Only a PARTIAL overlap is a
 			real hazard, so an exact self-copy stays on the direct path. */
-		int sw_same = ( sx0 == dx0 ) && ( sy0 == dy0 ) &&
+		sw_same   = ( sx0 == dx0 ) && ( sy0 == dy0 ) &&
 				( (int)srcsx == (int)psx ) && ( (int)srcsy == (int)psy );
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
@@ -3096,10 +3097,19 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
-	if ( ( bm->texid == bmsrc->texid ) && ( bm->type != HSPWND_TYPE_MAIN ) &&
+	if ( ( bm->texid == bmsrc->texid ) && ( sw_same == 0 ) &&
 		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
+		int cyy = (int)yy;
+		/*	r185c: a main-screen source keeps row 0 at v=1 while an offscreen
+			screen keeps it at v=0 (sw_apply_target), so the capture - which
+			samples straight tex coords into a v=0 scratch - has to flip the
+			source band the same way the direct read-back below does (fh-yy-srcsy).*/
+		if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
+			float fh = (float)tex->sy;
+			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
+		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
-				(int)xx, (int)yy, (int)srcsx, (int)srcsy );
+				(int)xx, cyy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
 			sw_selfblit_log++;
 			sw_fbo_log( "hgio: selfblit %d,%d %dx%d -> %g,%g gmode=%d tex=%d ret=%d "
@@ -3111,8 +3121,13 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		if ( scret == 0 ) {
 			/*	sw_bind_target() may return early when sw_cur already names this
 				screen, which would leave the scratch bound and every later draw
-				going into it.  Restore the target outright. */
-			{
+				going into it.  The main screen is not in sw_targets, so sw_find()
+				returns NULL for it - restore its own fbo or everything after the
+				stage draws into the scratch (the r150 wipe). */
+			if ( ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) ) {
+				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+				sw_apply_target( bm );
+			} else {
 				SWTARGET *st2 = sw_find( bm );
 				if ( st2 != NULL ) {
 					sw_bfb(  st2->fbo );
@@ -3126,6 +3141,22 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			ty1 = (GLfloat)srcsy;
 			ratex = 1.0f / (float)sw_scratch_w;
 			ratey = 1.0f / (float)sw_scratch_h;
+		} else {
+			/*	a failed capture stays framebuffer feedback on the direct
+				path, so skip the draw entirely, then restore the target and
+				roll the scratch state back. */
+			if ( ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) ) {
+				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+				sw_apply_target( bm );
+			} else {
+				SWTARGET *st2 = sw_find( bm );
+				if ( st2 != NULL ) {
+					sw_bfb(  st2->fbo );
+					sw_apply_target( bm );
+				}
+			}
+			sw_scratch_used = 0;
+			return;
 		}
 	}
 	else if ( ( bm->texid == bmsrc->texid ) &&
