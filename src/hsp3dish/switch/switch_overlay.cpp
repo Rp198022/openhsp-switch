@@ -783,6 +783,17 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 static int sw_ovl_party_refresh( int *slot )
 {
 	int dirty = 0, k, i;
+	{ static int _pdone = 0;
+	  if ( !_pdone ) {
+	    int _s, _n;
+	    _pdone = 1;
+	    _n = sw_ovl_pv_cdata ? sw_ovl_pv_cdata->len[2] : -1;
+	    printf( "hsp3switch: DBG len2=%d tagteam=%d slot0ex=%d\n", _n, sw_ovl_cdata( SW_OVL_PARTY_CD_TAGTEAM, 0 ), sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 ) );
+	    for ( _s = 0; _s < 24 && _s < _n; _s++ ) {
+	      printf( "hsp3switch: DBG s=%d ex=%d al=%d sex=%d por=%d nm='%s'\n", _s, sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, _s ), sw_ovl_cdata( SW_OVL_PARTY_CD_ALLIED, _s ), sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, _s ), sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, _s ), sw_ovl_cdatan( 0, _s ) );
+	    }
+	    fflush( stdout );
+	  } }
 
 	slot[0] = 0;
 	slot[1] = -1;
@@ -852,6 +863,10 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	if ( sw_ovl_bar_tex[0] == 0 && sw_ovl_bar_upload() != 0 ) return;
 
 	dirty = sw_ovl_party_refresh( slot );
+	if ( dirty >= 0 ) { static int _ldone = 0;
+	  if ( !_ldone ) { _ldone = 1;
+	    printf( "hsp3switch: DBG draw win_w=%d win_h=%d ox=%d gw=%d rx=%d rw=%d name0='%s'\n", win_w, win_h, origin_x, game_w, right_x, right_w, sw_ovl_party_name[0] );
+	    fflush( stdout ); } }
 	if ( dirty < 0 ) return;
 
 	sheet_h = win_h - 16;
