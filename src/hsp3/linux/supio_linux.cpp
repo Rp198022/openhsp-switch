@@ -448,6 +448,7 @@ int makedir( char *name )
 	ret = mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
 #endif
 #ifdef __SWITCH__
+	extern "C" void glue_fs_mutated( void );
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
 		listing (system.hsp:2883-2896).  POSIX reports an existing folder as
@@ -495,6 +496,11 @@ int makedir( char *name )
 			buf, ret, errno, ( n > 0 ) ? pbuf : "?", pe );
 		fflush( stdout );
 	}
+	/*	r185: a directory the script just created (or confirmed) is a
+		card mutation the miss table has to hear about - the save flow
+		mkdirs the slot right before the bcopy reads back the tmp files
+		that z.hpi wrote behind the wrapper's back.				*/
+	if ( ret == 0 ) glue_fs_mutated();
 #endif
 	return ret;
 }

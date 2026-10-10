@@ -568,16 +568,37 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 #define GLUE_MISS_MAX	512
 #define GLUE_MISS_LEN	240
 static char glue_miss_key[GLUE_MISS_MAX][GLUE_MISS_LEN];
+static unsigned int glue_miss_key_epoch[GLUE_MISS_MAX];
 static int  glue_miss_n = 0;
 static unsigned int glue_miss_next = 0;
+/*	r185: generation counter for everything on the card that this wrapper
+	never sees.  Elona's save writes the .s2 files through z.hpi, whose
+	gzopen() goes through POSIX open() - the --wrap hook does not fire, so
+	the files appear without any drop here, and a still-cached "missing"
+	answer then killed the bcopy that copies them into the save slot
+	(throw 12).  Every mutation this wrapper does see bumps the epoch; a
+	cached miss whose epoch is stale gets exactly one real probe before
+	the cached answer is trusted again.  Probes that run between
+	mutations (the pcc_* sprites) stay at one cached answer.		*/
+static unsigned int glue_miss_epoch = 0;
 
-static int glue_miss_seen( const char *path )
+extern "C" void glue_fs_mutated( void )
+{
+	glue_miss_epoch++;
+}
+
+static int glue_miss_index( const char *path )
 {
 	int i;
 	for ( i = 0; i < glue_miss_n; i++ ) {
-		if ( strcmp( glue_miss_key[i], path ) == 0 ) return 1;
+		if ( strcmp( glue_miss_key[i], path ) == 0 ) return i;
 	}
-	return 0;
+	return -1;
+}
+
+static int glue_miss_seen( const char *path )
+{
+	return ( glue_miss_index( path ) >= 0 );
 }
 
 static void glue_miss_note( const char *path )
@@ -593,6 +614,7 @@ static void glue_miss_note( const char *path )
 		glue_miss_next++;
 	}
 	strcpy( glue_miss_key[slot], path );
+	glue_miss_key_epoch[slot] = glue_miss_epoch;
 }
 
 /*	r184: forget exactly one recorded miss.  A successful write open makes
@@ -716,6 +738,25 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 			which is how the create-character save blew up without a trace.
 			Print the hit (and the drop below) until the r184 regression is
 			understood.														*/
+		/*	r185: writes this wrapper cannot see (z.hpi's gzopen goes
+			through POSIX open()) make cached misses stale.  Any write or
+			directory event seen here bumps the epoch, so a stale entry
+			gets exactly one real probe before the cached answer is
+			trusted again; within one generation the cache stays free.	*/
+		int mi = glue_miss_index( use );
+		if ( mi >= 0 && glue_miss_key_epoch[mi] != glue_miss_epoch ) {
+			FILE *re = __real_fopen( use, "rb" );
+			if ( re != NULL ) {
+				printf( "hsp3file: revalidate hit '%s'\n", use );
+				fflush( stdout );
+				glue_miss_drop( use );
+				return re;
+			}
+			glue_miss_key_epoch[mi] = glue_miss_epoch;
+			printf( "hsp3file: revalidate miss '%s'\n", use );
+			fflush( stdout );
+			return NULL;
+		}
 		printf( "hsp3file: miss-hit '%s'\n", use );
 		fflush( stdout );
 		return NULL;
@@ -741,6 +782,7 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		printf( "hsp3file: drop '%s' (mode %s)\n", use, mode );
 		fflush( stdout );
 		glue_miss_drop( use );
+		glue_fs_mutated();
 	}
 	if ( fp == NULL ) {
 		if ( !glue_fopen_writes( mode ) ) {
