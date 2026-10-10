@@ -3106,7 +3106,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			source band the same way the direct read-back below does (fh-yy-srcsy).*/
 		if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
 			float fh = (float)tex->sy;
-			cyy = (int)( fh - (float)yy );
+			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
 		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
@@ -3139,6 +3139,15 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			ty0 = 0.0f;
 			tx1 = (GLfloat)srcsx;
 			ty1 = (GLfloat)srcsy;
+			/*	r185d: the staged band came off the MAIN texture, whose row0
+				lives at v=1 - the band is stored MIRRORED in the scratch, so a
+				main destination has to read the scratch back upside down or the
+				log comes out mirrored (real-hardware: first line flipped / band
+				rows showed blood-bar rows).  Offscreen destinations keep 0..srcsy.	*/
+			if ( ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) ) {
+				ty0 = (GLfloat)srcsy;
+				ty1 = 0.0f;
+			}
 			ratex = 1.0f / (float)sw_scratch_w;
 			ratey = 1.0f / (float)sw_scratch_h;
 		} else {
