@@ -491,7 +491,8 @@ static int sw_ovl_party_resolve( void )
 		stays NULL and every lookup returns -1 even though max_val is set.
 		The arrays this HUD needs are therefore found by their exact
 		dimensions, which Elona fixes: cdata dim 500,245, sdata dim 1200,245,
-		cdatan sdim 40,10,245.  The combination pins each one uniquely.
+		cdatan sdim 40,10,245 -> PVal 10x245 (sdim's first argument is the
+		string length, stored in len[0]; the axes land in len[1],len[2]).
 		The name route is still tried first in case a debug build appears. */
 	sw_ovl_pv_cdata = NULL;
 	sw_ovl_pv_sdata = NULL;
@@ -515,7 +516,7 @@ static int sw_ovl_party_resolve( void )
 
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
-	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 40, 10, 245 );
+	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
 
 	{
 		static int _r = 0;
