@@ -19,6 +19,12 @@
 #ifdef __SWITCH__
 #include <errno.h>		/* makedir() reports why it failed */
 #endif
+/*	r185b: the miss table lives in glue_switch.cpp on the same build;
+	declared in file scope because a successful makedir is a card
+	mutation the table must revalidate against.  */
+#ifdef __SWITCH__
+extern "C" void glue_fs_mutated( void );
+#endif
 #include <sys/time.h>
 #include <time.h>
 // mkdir stat
@@ -448,7 +454,6 @@ int makedir( char *name )
 	ret = mkdir( supio_slash( name, buf, sizeof( buf ) ), 0755 );
 #endif
 #ifdef __SWITCH__
-	extern "C" void glue_fs_mutated( void );
 	/*	Elona reads `mkdir` as "make sure this folder exists": game_save
 		lists the save folder and only creates it when it was not in that
 		listing (system.hsp:2883-2896).  POSIX reports an existing folder as
