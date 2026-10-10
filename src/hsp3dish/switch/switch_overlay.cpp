@@ -291,8 +291,6 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 		the panel and would otherwise squeeze the key column back towards
 		the middle of the strip.										*/
 	title_x = SW_OVL_MARGIN;
-	printf( "hsp3switch: overlay cols ix=%d k=%d d=%d at %d,%d\n", ix, max_key, max_desc, key_x, desc_x );
-	fflush( stdout );
 
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
@@ -457,7 +455,8 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_AVA_W		96
 #define SW_OVL_PARTY_AVA_H		134
 #define SW_OVL_PARTY_AVA_X		8
-#define SW_OVL_PARTY_AVA_Y		8
+#define SW_OVL_PARTY_AVA_Y		24	/* face sits below the name line */
+#define SW_OVL_PARTY_BAR_Y		(SW_OVL_PARTY_AVA_Y + SW_OVL_PARTY_AVA_H + 6)
 
 /*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
 #define SW_OVL_PARTY_CELL_W		48
@@ -519,22 +518,6 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
 
-	{
-		static int _r = 0;
-		if ( (_r++ % 100) == 0 ) {
-			printf( "hsp3switch: rslv cdata=%p(%d,%d) sdata=%p(%d,%d) cdatan=%p(%d,%d,%d) maxval=%d\n",
-				(void*)sw_ovl_pv_cdata,
-				sw_ovl_pv_cdata ? sw_ovl_pv_cdata->len[1] : -1, sw_ovl_pv_cdata ? sw_ovl_pv_cdata->len[2] : -1,
-				(void*)sw_ovl_pv_sdata,
-				sw_ovl_pv_sdata ? sw_ovl_pv_sdata->len[1] : -1, sw_ovl_pv_sdata ? sw_ovl_pv_sdata->len[2] : -1,
-				(void*)sw_ovl_pv_cdatan,
-				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[1] : -1,
-				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[2] : -1,
-				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[3] : -1,
-				(int)ctx->hsphed->max_val );
-			fflush( stdout );
-		}
-	}
 
 	if ( sw_ovl_pv_cdata == NULL || sw_ovl_pv_sdata == NULL || sw_ovl_pv_cdatan == NULL ) return -1;
 
@@ -707,6 +690,24 @@ static void sw_ovl_quad_uv( GLuint tex, float x0, float y0, float w, float h,
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 }
 
+/*	Paint one face cell of face1.bmp (16 columns of 48x72) for a
+	character slot; the portrait is blown up 2x into its box.			*/
+static void sw_ovl_draw_face( int slot, float x, float y )
+{
+	int p, col, row;
+	float u0, v0, u1, v1;
+
+	if ( sw_ovl_face_tex == 0 || sw_ovl_face_w <= 0 || sw_ovl_face_h <= 0 ) return;
+	p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, slot ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, slot );
+	col = p % SW_OVL_PARTY_CELL_COLS;
+	row = p / SW_OVL_PARTY_CELL_COLS;
+	u0 = (float)( col * SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
+	v0 = (float)( row * SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
+	u1 = (float)( col * SW_OVL_PARTY_CELL_W + SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
+	v1 = (float)( row * SW_OVL_PARTY_CELL_H + SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
+	sw_ovl_quad_uv( sw_ovl_face_tex, x, y, (float)SW_OVL_PARTY_AVA_W, (float)SW_OVL_PARTY_AVA_H, u0, v0, u1, v1 );
+}
+
 static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
 {
 	char buf[ 40 ];
@@ -747,7 +748,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 	y = 0;
 	sw_ovl_blit_text( panel, sw_ovl_party_name[ ix ], 255, 8, y );
-	y += 20;
+	y = SW_OVL_PARTY_BAR_Y;	/* the face quad is painted in this box by the caller */
 
 	if ( ix == 1 ) {
 		static const char *lbl[3] = { "HP", "MP", "SP" };
@@ -786,10 +787,8 @@ static int sw_ovl_party_refresh( int *slot )
 	slot[0] = 0;
 	slot[1] = -1;
 	{ int e0 = sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 );
-	  { static int _e=0; if ( (_e++ % 100)==0 ) { printf( "hsp3switch: refresh ex0=%d ctx=%p pv=%p\n", e0, (void*)sw_ovl_ctx, (void*)sw_ovl_pv_cdata ); fflush( stdout ); } }
 	  if ( e0 != 1 ) return -1; }
 	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
-	{ int _r = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST, 0 ); static int _a = 0; if ( (_a++ % 200) == 0 ) { printf( "hsp3switch: attr0 raw=%d lv=%d tt=%d", _r, _r / 1000000, sw_ovl_cdata( SW_OVL_PARTY_CD_TAGTEAM, 0 ) ); { int q; for ( q = 1; q < 16; q++ ) printf( " %d:%d/%d", q, sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, q ), sw_ovl_cdata( SW_OVL_PARTY_CD_ALLIED, q ) ); } printf( " slot1=%d\n", slot[1] ); fflush( stdout ); } }
 
 	for ( k = 0; k < 2; k++ ) {
 		int s = slot[k];
@@ -846,23 +845,21 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	int sheet_h;
 	float ly;
 
-	{ static int _dp=0; if ((_dp++ % 100) == 0) { printf( "hsp3switch: party IN w=%d h=%d ox=%d gw=%d rx=%d rw=%d\n", win_w, win_h, origin_x, game_w, right_x, right_w ); fflush( stdout ); } }
-	if ( origin_x < 48 || right_w < 48 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET ox=%d rw=%d\n", origin_x, right_w ); fflush( stdout ); } } return; }
-	if ( sw_ovl_party_resolve() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET resolve\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_party_resolve() != 0 ) return;
 	if ( sw_ovl_font == NULL ) sw_ovl_font = sw_ovl_open_font();
-	if ( sw_ovl_font == NULL ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET font\n" ); fflush( stdout ); } } return; }
-	if ( sw_ovl_face_tex == 0 && sw_ovl_face_load() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET face\n" ); fflush( stdout ); } } return; }
-	if ( sw_ovl_bar_tex[0] == 0 && sw_ovl_bar_upload() != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET bar\n" ); fflush( stdout ); } } return; }
+	if ( sw_ovl_font == NULL ) return;
+	if ( sw_ovl_face_tex == 0 && sw_ovl_face_load() != 0 ) return;
+	if ( sw_ovl_bar_tex[0] == 0 && sw_ovl_bar_upload() != 0 ) return;
 
 	dirty = sw_ovl_party_refresh( slot );
-	if ( dirty < 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party RET refresh dirty=%d\n", dirty ); fflush( stdout ); } } return; }
+	if ( dirty < 0 ) return;
 
 	sheet_h = win_h - 16;
 	if ( sheet_h < 120 ) sheet_h = 120;
 	if ( sheet_h > sw_ovl_party_sheet_h[0] + 1 || sheet_h > sw_ovl_party_sheet_h[1] + 1 ) dirty = 1;
 	if ( dirty || sw_ovl_party_sheet[0] == 0 || sw_ovl_party_sheet[1] == 0 ) {
-		if ( sw_ovl_party_build( 0, origin_x, sheet_h ) != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD0 fail w=%d h=%d\n", origin_x, sheet_h ); fflush( stdout ); } } return; }
-		if ( sw_ovl_party_build( 1, right_w, sheet_h ) != 0 ) { { static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party BUILD1 fail w=%d h=%d\n", right_w, sheet_h ); fflush( stdout ); } } return; }
+		if ( sw_ovl_party_build( 0, origin_x, sheet_h ) != 0 ) return;
+		if ( sw_ovl_party_build( 1, right_w, sheet_h ) != 0 ) return;
 	}
 
 	glMatrixMode( GL_PROJECTION );
@@ -881,22 +878,11 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 	ly = (float)( -( win_h - sheet_h ) / 2 );
 	if ( sw_ovl_party_sheet[0] != 0 ) {
-		{ static int _d=0; if ((_d++ % 100) == 0) { printf( "hsp3switch: party DRAW s0=%u w0=%d h0=%d s1=%u w1=%d h1=%d slot=%d,%d face=%u bar=%u ly=%.1f\n", (unsigned)sw_ovl_party_sheet[0], sw_ovl_party_sheet_w[0], sw_ovl_party_sheet_h[0], (unsigned)sw_ovl_party_sheet[1], sw_ovl_party_sheet_w[1], sw_ovl_party_sheet_h[1], slot[0], slot[1], (unsigned)sw_ovl_face_tex, (unsigned)sw_ovl_bar_tex[1], ly ); fflush( stdout ); } }
-		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
-		if ( sw_ovl_face_tex != 0 && sw_ovl_face_w > 0 && sw_ovl_face_h > 0 ) {
-			int p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, 0 ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, 0 );
-			int col = p % SW_OVL_PARTY_CELL_COLS;
-			int row = p / SW_OVL_PARTY_CELL_COLS;
-			float u0 = (float)( col * SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
-			float v0 = (float)( row * SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
-			float u1 = (float)( col * SW_OVL_PARTY_CELL_W + SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
-			float v1 = (float)( row * SW_OVL_PARTY_CELL_H + SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
-			sw_ovl_quad_uv( sw_ovl_face_tex, (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y,
-				(float)SW_OVL_PARTY_AVA_W, (float)SW_OVL_PARTY_AVA_H, u0, v0, u1, v1 );
-		}
+		sw_ovl_draw_face( 0, (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
 	}
 	if ( sw_ovl_party_sheet[1] != 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
+		sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
 		if ( slot[1] >= 0 ) {
 			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
 			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
@@ -907,7 +893,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				fw = (int)( ( right_w - 44 ) * cur[ i ] / mxs[ i ] );
 				if ( fw < 1 ) fw = 1;
 				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], (float)right_x + 8.0f,
-					ly + 20.0f + (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
+					ly + (float)SW_OVL_PARTY_BAR_Y + (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
 			}
 		}
 	}
