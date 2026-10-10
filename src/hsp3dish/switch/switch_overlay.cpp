@@ -455,8 +455,8 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_AVA_W		96
 #define SW_OVL_PARTY_AVA_H		134
 #define SW_OVL_PARTY_AVA_X		8
-#define SW_OVL_PARTY_NAME_Y		24	/* name band (top rows of the strip do not show) */
-#define SW_OVL_PARTY_AVA_Y		48	/* face sits below the name line */
+#define SW_OVL_PARTY_NAME_Y		4	/* small top margin */
+#define SW_OVL_PARTY_AVA_Y		24	/* face sits below the name line */
 #define SW_OVL_PARTY_BAR_Y		(SW_OVL_PARTY_AVA_Y + SW_OVL_PARTY_AVA_H + 6)
 
 /*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
@@ -880,11 +880,11 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	ly = 0.0f;	/* sheets start at the top edge so the name row is not clipped */
 	if ( sw_ovl_party_sheet[0] != 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
-		sw_ovl_draw_face( 0, (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
+		sw_ovl_draw_face( 0, (float)SW_OVL_PARTY_AVA_X, ly - (float)SW_OVL_PARTY_AVA_Y );
 	}
 	if ( sw_ovl_party_sheet[1] != 0 && slot[1] >= 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
-		if ( slot[1] >= 0 ) sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
+		if ( slot[1] >= 0 ) sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly - (float)SW_OVL_PARTY_AVA_Y );
 		if ( slot[1] >= 0 ) {
 			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
 			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
@@ -895,7 +895,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				fw = (int)( ( right_w - 44 ) * cur[ i ] / mxs[ i ] );
 				if ( fw < 1 ) fw = 1;
 				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], (float)right_x + 8.0f,
-					ly + (float)SW_OVL_PARTY_BAR_Y + (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
+					ly - (float)SW_OVL_PARTY_BAR_Y - (float)( i * 18 ), (float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
 			}
 		}
 	}
