@@ -471,7 +471,6 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_ctx != NULL ) return 0;
 	ctx = switch_runtime_hspctx();
 	if ( ctx == NULL ) return -1;
-	sw_ovl_ctx = ctx;
 
 	id = code_getdebug_seekvar( "cdata" );
 	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
@@ -491,6 +490,12 @@ static int sw_ovl_party_resolve( void )
 	id = code_getdebug_seekvar( "inf_maxlog" );
 	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
 	sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
+
+	sw_ovl_ctx = ctx;
+	printf( "hsp3switch: rslv ok maxval=%d flag=%d len1=%d len2=%d pt=%p ex0=%d\n",
+		(int)ctx->hsphed->max_val, (int)sw_ovl_pv_cdata->flag, sw_ovl_pv_cdata->len[1], sw_ovl_pv_cdata->len[2],
+		(void*)sw_ovl_pv_cdata->pt, sw_ovl_pv_cdata->pt ? ((int*)sw_ovl_pv_cdata->pt)[ 0 ] : -1 );
+	fflush( stdout );
 	return 0;
 }
 
@@ -737,7 +742,9 @@ static int sw_ovl_party_refresh( int *slot )
 
 	slot[0] = 0;
 	slot[1] = -1;
-	if ( sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 ) != 1 ) return -1;
+	{ int e0 = sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 );
+	  { static int _e=0; if ( (_e++ % 100)==0 ) { printf( "hsp3switch: refresh ex0=%d ctx=%p pv=%p\n", e0, (void*)sw_ovl_ctx, (void*)sw_ovl_pv_cdata ); fflush( stdout ); } }
+	  if ( e0 != 1 ) return -1; }
 	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
 
 	for ( k = 0; k < 2; k++ ) {
