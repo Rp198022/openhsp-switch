@@ -561,7 +561,10 @@ extern "C" void __wrap___cxa_throw( void *thrown, void *tinfo, void (*dest)(void
 	costs one real syscall, while a known-missing one costs nothing.
 
 	Reads only, and it is purely a cache: a path that is created later is
-	already refused entry because only paths whose open FAILED are recorded.	*/
+	already refused entry because only paths whose open FAILED are recorded,
+	and a successful write open drops its own path again (r184; r183 used to
+	invalidate the whole table on any write open, and the create-character
+	stage writes continuously, which kept that table empty).	*/
 #define GLUE_MISS_MAX	512
 #define GLUE_MISS_LEN	240
 static char glue_miss_key[GLUE_MISS_MAX][GLUE_MISS_LEN];
@@ -590,6 +593,26 @@ static void glue_miss_note( const char *path )
 		glue_miss_next++;
 	}
 	strcpy( glue_miss_key[slot], path );
+}
+
+/*	r184: forget exactly one recorded miss.  A successful write open makes
+	its own path exist, so an entry recorded for it is stale from that
+	moment; every other entry stays as measured.  The only way a file
+	appears mid-run here is a write open through this very function, so
+	dropping the exact path is enough to keep the table correct.	*/
+static void glue_miss_drop( const char *path )
+{
+	int i;
+	for ( i = 0; i < glue_miss_n; i++ ) {
+		if ( strcmp( glue_miss_key[i], path ) == 0 ) {
+			int j;
+			glue_miss_n--;
+			for ( j = i; j < glue_miss_n; j++ ) {
+				memcpy( glue_miss_key[j], glue_miss_key[j + 1], GLUE_MISS_LEN );
+			}
+			return;
+		}
+	}
 }
 
 /*	Write-mode detection and the one repair a failed write open gets:
@@ -693,12 +716,6 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	}
 
 	fp = __real_fopen( use, mode );
-	if ( glue_fopen_writes( mode ) ) {
-		/*	A write may create or replace something an earlier probe recorded
-			as absent (Elona's save folders are built exactly that way), so the
-			table above is no longer trustworthy once one is issued.		*/
-		glue_miss_n = 0;
-	}
 	if ( fp == NULL && glue_fopen_writes( mode ) ) {
 		/*	A write cannot create its own folders, and the card run that
 			never wrote a single file is exactly that symptom. */
@@ -708,6 +725,14 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 			printf( "hsp3file: mkdir-p opened '%s' (mode %s)\n", use, mode );
 			fflush( stdout );
 		}
+	}
+	if ( fp != NULL && glue_fopen_writes( mode ) ) {
+		/*	r184: drop only the path this write just made exist.  r183
+			emptied the whole table on every write open; the create-character
+			stage writes continuously (save tmp/, logs), which re-armed all
+			314 pcc_*_0.bmp probes (17 repeats each over ~76 s).  A failed
+			write creates nothing, so it drops nothing.				*/
+		glue_miss_drop( use );
 	}
 	if ( fp == NULL ) {
 		if ( !glue_fopen_writes( mode ) ) glue_miss_note( use );
