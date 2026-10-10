@@ -190,6 +190,8 @@ void switch_overlay_ctx_reset( void )
 }
 
 
+void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, int right_x, int right_w );
+
 void switch_overlay_toggle( void )
 {
 	/*	r185f: the party HUD joins the toggle cycle.  R+stick now walks
