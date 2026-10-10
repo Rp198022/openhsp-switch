@@ -463,6 +463,20 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_CELL_H		72
 #define SW_OVL_PARTY_CELL_COLS		16
 
+static PVal *sw_ovl_find_dim( HSPCTX *ctx, int flag, int l1, int l2, int l3 )
+{
+	int i, n = (int)ctx->hsphed->max_val;
+	for ( i = 0; i < n; i++ ) {
+		PVal *pv = &ctx->mem_var[ i ];
+		if ( (int)pv->flag != flag ) continue;
+		if ( l1 >= 0 && pv->len[1] != l1 ) continue;
+		if ( l2 >= 0 && pv->len[2] != l2 ) continue;
+		if ( l3 >= 0 && pv->len[3] != l3 ) continue;
+		return pv;
+	}
+	return NULL;
+}
+
 static int sw_ovl_party_resolve( void )
 {
 	HSPCTX *ctx;
@@ -472,41 +486,57 @@ static int sw_ovl_party_resolve( void )
 	ctx = switch_runtime_hspctx();
 	if ( ctx == NULL ) return -1;
 
+	/*	Elona ships its .ax without the debug variable-name table, so
+		code_getdebug_seekvar() cannot resolve anything at all: mem_di_val
+		stays NULL and every lookup returns -1 even though max_val is set.
+		The arrays this HUD needs are therefore found by their exact
+		dimensions, which Elona fixes: cdata dim 500,245, sdata dim 1200,245,
+		cdatan sdim 40,10,245.  The combination pins each one uniquely.
+		The name route is still tried first in case a debug build appears. */
+	sw_ovl_pv_cdata = NULL;
+	sw_ovl_pv_sdata = NULL;
+	sw_ovl_pv_cdatan = NULL;
+	sw_ovl_pv_msg = NULL;
+	sw_ovl_pv_msgline = NULL;
+	sw_ovl_pv_inf_maxlog = NULL;
+
+	id = code_getdebug_seekvar( "cdata" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdata = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "sdata" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_sdata = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "cdatan" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdatan = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "msg" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msg = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "msgline" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msgline = &ctx->mem_var[ id ];
+	id = code_getdebug_seekvar( "inf_maxlog" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
+
+	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
+	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
+	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 40, 10, 245 );
+
 	{
 		static int _r = 0;
 		if ( (_r++ % 100) == 0 ) {
-			printf( "hsp3switch: rslv ids cdata=%d cdatan=%d sdata=%d msg=%d msgline=%d maxlog=%d maxval=%d\n",
-				code_getdebug_seekvar( "cdata" ), code_getdebug_seekvar( "cdatan" ), code_getdebug_seekvar( "sdata" ),
-				code_getdebug_seekvar( "msg" ), code_getdebug_seekvar( "msgline" ), code_getdebug_seekvar( "inf_maxlog" ),
+			printf( "hsp3switch: rslv cdata=%p(%d,%d) sdata=%p(%d,%d) cdatan=%p(%d,%d,%d) maxval=%d\n",
+				(void*)sw_ovl_pv_cdata,
+				sw_ovl_pv_cdata ? sw_ovl_pv_cdata->len[1] : -1, sw_ovl_pv_cdata ? sw_ovl_pv_cdata->len[2] : -1,
+				(void*)sw_ovl_pv_sdata,
+				sw_ovl_pv_sdata ? sw_ovl_pv_sdata->len[1] : -1, sw_ovl_pv_sdata ? sw_ovl_pv_sdata->len[2] : -1,
+				(void*)sw_ovl_pv_cdatan,
+				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[1] : -1,
+				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[2] : -1,
+				sw_ovl_pv_cdatan ? sw_ovl_pv_cdatan->len[3] : -1,
 				(int)ctx->hsphed->max_val );
 			fflush( stdout );
 		}
 	}
 
-	id = code_getdebug_seekvar( "cdata" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_cdata = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "cdatan" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_cdatan = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "sdata" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_sdata = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "msg" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_msg = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "msgline" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_msgline = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "inf_maxlog" );
-	if ( id < 0 || id >= ctx->hsphed->max_val ) return -1;
-	sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
+	if ( sw_ovl_pv_cdata == NULL || sw_ovl_pv_sdata == NULL || sw_ovl_pv_cdatan == NULL ) return -1;
 
 	sw_ovl_ctx = ctx;
-	printf( "hsp3switch: rslv ok maxval=%d flag=%d len1=%d len2=%d pt=%p ex0=%d\n",
-		(int)ctx->hsphed->max_val, (int)sw_ovl_pv_cdata->flag, sw_ovl_pv_cdata->len[1], sw_ovl_pv_cdata->len[2],
-		(void*)sw_ovl_pv_cdata->pt, sw_ovl_pv_cdata->pt ? ((int*)sw_ovl_pv_cdata->pt)[ 0 ] : -1 );
-	fflush( stdout );
 	return 0;
 }
 
