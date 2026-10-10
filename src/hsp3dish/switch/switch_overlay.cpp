@@ -878,11 +878,12 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 	ly = (float)( -( win_h - sheet_h ) / 2 );
 	if ( sw_ovl_party_sheet[0] != 0 ) {
+		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
 		sw_ovl_draw_face( 0, (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
 	}
 	if ( sw_ovl_party_sheet[1] != 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
-		sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
+		if ( slot[1] >= 0 ) sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly + (float)SW_OVL_PARTY_AVA_Y );
 		if ( slot[1] >= 0 ) {
 			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
 			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
