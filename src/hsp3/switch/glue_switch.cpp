@@ -712,6 +712,12 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 	/*	A read for a path already known to be missing: answer at once instead
 		of paying another SD-card round trip for an answer we have.			*/
 	if ( !glue_fopen_writes( mode ) && glue_miss_seen( use ) ) {
+		/*	r184b diagnostic: a swallowed read open is invisible in the log,
+			which is how the create-character save blew up without a trace.
+			Print the hit (and the drop below) until the r184 regression is
+			understood.														*/
+		printf( "hsp3file: miss-hit '%s'\n", use );
+		fflush( stdout );
 		return NULL;
 	}
 
@@ -732,10 +738,16 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 			stage writes continuously (save tmp/, logs), which re-armed all
 			314 pcc_*_0.bmp probes (17 repeats each over ~76 s).  A failed
 			write creates nothing, so it drops nothing.				*/
+		printf( "hsp3file: drop '%s' (mode %s)\n", use, mode );
+		fflush( stdout );
 		glue_miss_drop( use );
 	}
 	if ( fp == NULL ) {
-		if ( !glue_fopen_writes( mode ) ) glue_miss_note( use );
+		if ( !glue_fopen_writes( mode ) ) {
+			printf( "hsp3file: note '%s'\n", use );
+			fflush( stdout );
+			glue_miss_note( use );
+		}
 		printf( "hsp3file: FAIL '%s' (mode %s)\n", use, mode );
 		fflush( stdout );
 	}
