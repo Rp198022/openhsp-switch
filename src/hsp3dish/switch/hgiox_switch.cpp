@@ -3106,7 +3106,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			source band the same way the direct read-back below does (fh-yy-srcsy).*/
 		if ( ( bmsrc != NULL ) && ( bmsrc->type == HSPWND_TYPE_MAIN ) ) {
 			float fh = (float)tex->sy;
-			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
+			cyy = (int)( fh - (float)yy );
 		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
