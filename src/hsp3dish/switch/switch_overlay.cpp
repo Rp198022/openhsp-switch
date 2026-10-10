@@ -455,7 +455,8 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_AVA_W		96
 #define SW_OVL_PARTY_AVA_H		134
 #define SW_OVL_PARTY_AVA_X		8
-#define SW_OVL_PARTY_AVA_Y		24	/* face sits below the name line */
+#define SW_OVL_PARTY_NAME_Y		24	/* name band (top rows of the strip do not show) */
+#define SW_OVL_PARTY_AVA_Y		48	/* face sits below the name line */
 #define SW_OVL_PARTY_BAR_Y		(SW_OVL_PARTY_AVA_Y + SW_OVL_PARTY_AVA_H + 6)
 
 /*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
@@ -746,18 +747,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	if ( panel == NULL ) return -1;
 	SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 0, 0, 0, 0 ) );
 
-	{ static int _nd = 0;
-	  if ( _nd < 8 ) { char _hx[64]; int _i; SDL_Surface *_rs; SDL_Color _c;
-	    _nd++;
-	    for ( _i = 0; _i < 16; _i++ ) sprintf( _hx + _i * 3, "%02x ", (unsigned char)sw_ovl_party_name[ ix ][ _i ] );
-	    _hx[ 48 ] = 0;
-	    _c.r = _c.g = _c.b = 255; _c.a = 255;
-	    _rs = TTF_RenderUTF8_Blended( sw_ovl_font, sw_ovl_party_name[ ix ], _c );
-	    printf( "hsp3switch: DBG build ix=%d sh=%d name='%s' len=%d bytes=%s render=%dx%d err='%s'\n", ix, sheet_h, sw_ovl_party_name[ ix ], (int)strlen( sw_ovl_party_name[ ix ] ), _hx, _rs ? _rs->w : -1, _rs ? _rs->h : -1, TTF_GetError() );
-	    if ( _rs ) SDL_FreeSurface( _rs );
-	    fflush( stdout );
-	  } }
-	y = 0;
+	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_party_name[ ix ], 255, 8, y );
 	y = SW_OVL_PARTY_BAR_Y;	/* the face quad is painted in this box by the caller */
 
