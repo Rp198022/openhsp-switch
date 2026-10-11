@@ -543,7 +543,6 @@ static int sw_ovl_party_resolve( void )
 			}
 		}
 		}
-	}
 
 
 	if ( sw_ovl_pv_cdata == NULL || sw_ovl_pv_sdata == NULL || sw_ovl_pv_cdatan == NULL ) return -1;
