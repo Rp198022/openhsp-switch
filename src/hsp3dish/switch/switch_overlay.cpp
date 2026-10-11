@@ -452,12 +452,10 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_SKILL_OFF	600	/* STARTING_SKILL_SPACT: sdata base for skills */
 #define SW_OVL_PARTY_SLOTS		16	/* MAX_CHARA_FOLLOWER */
 
-#define SW_OVL_PARTY_AVA_W		96
-#define SW_OVL_PARTY_AVA_H		134
-#define SW_OVL_PARTY_AVA_X		8
+#define SW_OVL_PARTY_BOX_X		4	/* portrait box inset from the strip edge */
+#define SW_OVL_PARTY_BOX_Y		24	/* box top: below the name line */
+#define SW_OVL_PARTY_BOX_PAD		12	/* frame thickness kept around the face */
 #define SW_OVL_PARTY_NAME_Y		4	/* small top margin */
-#define SW_OVL_PARTY_AVA_Y		24	/* face sits below the name line */
-#define SW_OVL_PARTY_BAR_Y		(SW_OVL_PARTY_AVA_Y + SW_OVL_PARTY_AVA_H + 6)
 #define SW_OVL_PARTY_STAT_PITCH		30	/* label row + bar row per stat */
 
 /*	face1.bmp is a 16-column atlas of 48x72 cells (800x744 bitmap).	*/
@@ -692,14 +690,66 @@ static void sw_ovl_quad_uv( GLuint tex, float x0, float y0, float w, float h,
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 }
 
-/*	Paint one face cell of face1.bmp (16 columns of 48x72) for a
-	character slot; the portrait is blown up 2x into its box.			*/
-static void sw_ovl_draw_face( int slot, float x, float y )
+/*	Portrait box geometry.  The box fills the letterbox strip and the face is
+	scaled to the 48x72 cell's aspect inside it; the even margin left over is
+	painted as the frame, so the portrait can fill the strip without being
+	stretched.  Both the sheet builder (which paints the frame) and the
+	frame-time face quad call this, so the two always line up.			*/
+static void sw_ovl_party_ava_geom( int strip_w, int *bx, int *by, int *bw, int *bh,
+					int *ax, int *ay, int *aw, int *ah )
 {
-	int p, col, row;
+	*bx = SW_OVL_PARTY_BOX_X;
+	*by = SW_OVL_PARTY_BOX_Y;
+	*bw = strip_w - SW_OVL_PARTY_BOX_X * 2;
+	if ( *bw < 32 ) *bw = 32;
+	*aw = *bw - SW_OVL_PARTY_BOX_PAD * 2;
+	if ( *aw < 24 ) *aw = 24;
+	*ah = *aw * SW_OVL_PARTY_CELL_H / SW_OVL_PARTY_CELL_W;
+	*bh = *ah + SW_OVL_PARTY_BOX_PAD * 2;
+	*ax = *bx + SW_OVL_PARTY_BOX_PAD;
+	*ay = *by + SW_OVL_PARTY_BOX_PAD;
+}
+
+/*	Top of the row block that sits under the portrait box.				*/
+static int sw_ovl_party_rows_y( int strip_w )
+{
+	int bx, by, bw, bh, ax, ay, aw, ah;
+	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
+	return by + bh + 6;
+}
+
+/*	Paint the box into the sheet: a dark fill with a 2px light edge.  The
+	face quad is drawn over its centre at frame time, so only this margin
+	shows - that margin IS the frame the strip leaves around the face.	*/
+static void sw_ovl_party_draw_box( SDL_Surface *panel, int strip_w )
+{
+	int bx, by, bw, bh, ax, ay, aw, ah;
+	SDL_Rect r;
+	Uint32 fill = SDL_MapRGBA( panel->format, 32, 34, 40, 255 );
+	Uint32 edge = SDL_MapRGBA( panel->format, 150, 152, 160, 255 );
+
+	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
+	r.x = bx; r.y = by; r.w = bw; r.h = bh;
+	SDL_FillRect( panel, &r, fill );
+	r.x = bx; r.y = by; r.w = bw; r.h = 2;
+	SDL_FillRect( panel, &r, edge );
+	r.x = bx; r.y = by + bh - 2; r.w = bw; r.h = 2;
+	SDL_FillRect( panel, &r, edge );
+	r.x = bx; r.y = by; r.w = 2; r.h = bh;
+	SDL_FillRect( panel, &r, edge );
+	r.x = bx + bw - 2; r.y = by; r.w = 2; r.h = bh;
+	SDL_FillRect( panel, &r, edge );
+}
+
+/*	Paint one face cell of face1.bmp (16 columns of 48x72) for a character
+	slot, scaled into the centre of its portrait box.					*/
+static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y )
+{
+	int p, col, row, bx, by, bw, bh, ax, ay, aw, ah;
 	float u0, v0, u1, v1;
 
 	if ( sw_ovl_face_tex == 0 || sw_ovl_face_w <= 0 || sw_ovl_face_h <= 0 ) return;
+	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
 	p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, slot ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, slot );
 	col = p % SW_OVL_PARTY_CELL_COLS;
 	row = p / SW_OVL_PARTY_CELL_COLS;
@@ -707,7 +757,8 @@ static void sw_ovl_draw_face( int slot, float x, float y )
 	v0 = (float)( row * SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
 	u1 = (float)( col * SW_OVL_PARTY_CELL_W + SW_OVL_PARTY_CELL_W ) / (float)sw_ovl_face_w;
 	v1 = (float)( row * SW_OVL_PARTY_CELL_H + SW_OVL_PARTY_CELL_H ) / (float)sw_ovl_face_h;
-	sw_ovl_quad_uv( sw_ovl_face_tex, x, y, (float)SW_OVL_PARTY_AVA_W, (float)SW_OVL_PARTY_AVA_H, u0, v0, u1, v1 );
+	sw_ovl_quad_uv( sw_ovl_face_tex, strip_x + (float)ax, top_y - (float)ay,
+		(float)aw, (float)ah, u0, v0, u1, v1 );
 }
 
 static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
@@ -750,7 +801,8 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_party_name[ ix ], 255, 8, y );
-	y = SW_OVL_PARTY_BAR_Y;	/* the face quad is painted in this box by the caller */
+	sw_ovl_party_draw_box( panel, strip_w );
+	y = sw_ovl_party_rows_y( strip_w );
 
 	if ( ix == 1 ) {
 		static const char *lbl[3] = { "HP", "MP", "SP" };
@@ -881,12 +933,13 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	ly = 0.0f;	/* sheets start at the top edge so the name row is not clipped */
 	if ( sw_ovl_party_sheet[0] != 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
-		sw_ovl_draw_face( 0, (float)SW_OVL_PARTY_AVA_X, ly - (float)SW_OVL_PARTY_AVA_Y );
+		sw_ovl_draw_face( 0, 0.0f, origin_x, ly );
 	}
 	if ( sw_ovl_party_sheet[1] != 0 && slot[1] >= 0 ) {
+		int rows_y = sw_ovl_party_rows_y( right_w );
 		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
-		if ( slot[1] >= 0 ) sw_ovl_draw_face( 1, (float)right_x + (float)SW_OVL_PARTY_AVA_X, ly - (float)SW_OVL_PARTY_AVA_Y );
-		if ( slot[1] >= 0 ) {
+		sw_ovl_draw_face( 1, (float)right_x, right_w, ly );
+		{
 			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
 			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
 			for ( i = 0; i < 3; i++ ) {
@@ -896,7 +949,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				fw = (int)( ( right_w - 16 ) * cur[ i ] / mxs[ i ] );
 				if ( fw < 1 ) fw = 1;
 				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], (float)right_x + 8.0f,
-					ly - (float)SW_OVL_PARTY_BAR_Y - (float)( i * SW_OVL_PARTY_STAT_PITCH ) - 17.0f,
+					ly - (float)( rows_y + i * SW_OVL_PARTY_STAT_PITCH + 17 ),
 					(float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
 			}
 		}
