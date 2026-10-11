@@ -509,7 +509,7 @@ static int sw_ovl_party_resolve( void )
 	id = code_getdebug_seekvar( "cdatan" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdatan = &ctx->mem_var[ id ];
 	id = code_getdebug_seekvar( "msg" );
-	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msg = &ctx->mem_var[ id ];
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msg = &ctx->mem_var[ id ];	printf( "ovldiag: seek msg id=%d max=%d\n", id, (int)ctx->hsphed->max_val ); fflush( stdout );
 	id = code_getdebug_seekvar( "msgline" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msgline = &ctx->mem_var[ id ];
 	id = code_getdebug_seekvar( "inf_maxlog" );
@@ -526,7 +526,7 @@ static int sw_ovl_party_resolve( void )
 		   len[1]>=10 keeps a wrong index from being mistaken for msg. */
 		if ( 743 < (int)ctx->hsphed->max_val &&
 		     (int)ctx->mem_var[743].flag == HSPVAR_FLAG_STR &&
-		     ctx->mem_var[743].len[1] >= 10 ) {
+		     ctx->mem_var[743].len[1] >= 10 ) {		printf( "ovldiag: msg fallback 743 len1=%d\n", ctx->mem_var[743].len[1] ); fflush( stdout );
 			sw_ovl_pv_msg = &ctx->mem_var[743];
 		}
 	}
@@ -621,6 +621,7 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 	char key[ 64 ];
 	size_t n = 0;
 	static int once = 0;
+	static int dbg = 0;
 
 	if ( sw_ovl_pv_msg == NULL ) return "";
 
@@ -634,18 +635,19 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 	}
 	if ( !once ) { once = 1;
 		printf( "ovlmsg: key=%s len1=%d\n", key, sw_ovl_pv_msg->len[1] ); fflush( stdout );
-		for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
+		for ( i = 0; i < (int)sw_ovl_pv_msg->len[1]; i++ ) {
 			s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-			if ( s != NULL && s[0] != '\0' ) {
-				printf( "ovlmsg[%d]: %s\n", i, s ); fflush( stdout );
-				break;
-			}
+			printf( "ovlmsg[%d]: %s\n", i, s != NULL ? s : "(null)" ); fflush( stdout );
 		}
 	}
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-		if ( s != NULL && key[ 0 ] != '\0' && strstr( s, key ) != NULL ) return s;
+		if ( s != NULL && key[ 0 ] != '\0' && strstr( s, key ) != NULL ) {
+			if ( dbg < 5 ) { dbg++; printf( "ovlmsg: hit idx=%d s=%s\n", i, s ); fflush( stdout ); }
+			return s;
+		}
 	}
+	if ( dbg < 5 ) { dbg++; printf( "ovlmsg: miss\n" ); fflush( stdout ); }
 	return "";
 }
 
