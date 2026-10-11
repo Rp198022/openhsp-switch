@@ -126,6 +126,7 @@ static int		sw_ovl_off = 0;			/* hidden when 1 (shown by default) */
 static int		sw_ovl_failed = 0;		/* font/build failure: gives up		*/
 static int		sw_ovl_tried = 0;		/* the one-time font open has run	*/
 static TTF_Font	*sw_ovl_font = NULL;
+static TTF_Font	*sw_ovl_font_small = NULL;
 static GLuint	sw_ovl_tex[2] = { 0, 0 };	/* 0 = left strip, 1 = right strip	*/
 static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
@@ -166,6 +167,7 @@ static int		sw_ovl_party_abil[2][ 8 ];
 static int		sw_ovl_party_rank[2][ 8 ];
 static int		sw_ovl_party_fix[2][ 5 ];
 static GLuint	sw_ovl_face_u_tex[2] = { 0, 0 };
+static int		sw_ovl_party_rel[2] = { 0, 0 };
 static int		sw_ovl_face_u_id[2] = { 0, 0 };
 /*	Pet chat: the latest pet-related log lines joined by '\n', newest
 	last.  sw_ovl_msg_peek() collects up to SW_OVL_PET_ROWS lines from the
@@ -245,6 +247,10 @@ static TTF_Font *sw_ovl_open_font( void )
 			/*	r173: the hints are drawn over the game's own artwork and
 				the regular weight was hard to make out on the small screen. */
 			TTF_SetFontStyle( f, TTF_STYLE_BOLD );
+			if ( sw_ovl_font_small == NULL ) {
+				sw_ovl_font_small = TTF_OpenFont( cand[i], 13 );
+				if ( sw_ovl_font_small != NULL ) TTF_SetFontStyle( sw_ovl_font_small, TTF_STYLE_BOLD );
+			}
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
 			return f;
@@ -255,7 +261,28 @@ static TTF_Font *sw_ovl_open_font( void )
 	return NULL;
 }
 
+/*	Same as sw_ovl_blit_text but with the smaller rating font.			*/
+static void sw_ovl_blit_small( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
+{
+	SDL_Color col;
+	SDL_Surface *s, *c;
+	SDL_Rect at;
+
+	if ( sw_ovl_font_small == NULL ) return;
+	col.r = col.g = col.b = v;
+	col.a = 255;
+	s = TTF_RenderUTF8_Blended( sw_ovl_font_small, text, col );
+	if ( s == NULL ) return;
+	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( c == NULL ) return;
+	at.x = x;
+	at.y = y;
+	SDL_BlitSurface( c, NULL, dst, &at );
+	SDL_FreeSurface( c );
+}
 static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
+
 {
 	SDL_Color col;
 	SDL_Surface *s, *c;
@@ -980,6 +1007,14 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), 255, 8, y );
+	if ( ix == 1 ) {
+		int nmw; char lv[ 48 ];
+		static const char gbk_lv[] = { 0xBA, 0xC3, 0xB8, 0xD0, 0 };
+		if ( TTF_SizeUTF8( sw_ovl_font, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), &nmw, NULL ) == 0 ) {
+			snprintf( lv, sizeof( lv ), "%s %d", gbk_lv, sw_ovl_party_rel[ ix ] );
+			sw_ovl_blit_small( panel, sw_ovl_utf8( lv ), 225, 8 + nmw + 8, y + 3 );
+		}
+	}
 	sw_ovl_party_draw_box( panel, strip_w );
 	y = sw_ovl_party_rows_y( strip_w );
 
@@ -998,18 +1033,31 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 
 	for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
-		snprintf( buf, sizeof( buf ), "%s %d %s", sw_ovl_attr_name( i ),
-			sw_ovl_party_abil[ ix ][ i ], sw_ovl_rank_name( sw_ovl_party_rank[ ix ][ i ] ) );
+		int nw;
+		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
 		sw_ovl_blit_text( panel, buf, 225, 8, y );
+		if ( TTF_SizeUTF8( sw_ovl_font, buf, &nw, NULL ) == 0 )
+			sw_ovl_blit_small( panel, sw_ovl_rank_name( sw_ovl_party_rank[ ix ][ i ] ), 210, 8 + nw + 8, y + 3 );
 		y += 20;
 	}
 	if ( ix == 0 ) {
-		static const char *flbl[5] = { "Prot", "Evade", "Atk", "Spd", "SpellPow" };
+		int pv, dv, prot, eva, hit;
+		pv = sw_ovl_party_fix[ 0 ][ 0 ]; if ( pv < 0 ) pv = 0;
+		dv = sw_ovl_party_fix[ 0 ][ 1 ]; if ( dv < 0 ) dv = 0;
+		prot = 100 - 10000 / ( pv + 100 );
+		eva  = 100 - 10000 / ( dv + 100 );
+		hit  = sw_ovl_party_fix[ 0 ][ 2 ]; if ( hit < 0 ) hit = 0;
 		y += 6;
-		for ( i = 0; i < 5; i++ ) {
-			snprintf( buf, sizeof( buf ), "%s %d", flbl[ i ], sw_ovl_party_fix[ 0 ][ i ] );
-			sw_ovl_blit_text( panel, buf, 200, 8, y );
-			y += 20;
+		{
+			static const char *flbl[4] = { "SpellPow", "Prot", "Evade", "Hit" };
+			int vals[4];
+			vals[0] = sw_ovl_party_fix[ 0 ][ 4 ];
+			vals[1] = prot; vals[2] = eva; vals[3] = hit;
+			for ( i = 0; i < 4; i++ ) {
+				snprintf( buf, sizeof( buf ), "%s %d%%", flbl[ i ], vals[ i ] );
+				sw_ovl_blit_text( panel, buf, 200, 8, y );
+				y += 20;
+			}
 		}
 	}
 
@@ -1068,7 +1116,7 @@ static int sw_ovl_party_refresh( int *slot )
 		sw_ovl_party_mmp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_MP, s );
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
 			int v = sw_ovl_sdata( SW_OVL_PARTY_ATTR_FIRST + i, s );
-			int r = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ) / 1000;
+			int r = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ) % 1000;
 			if ( v != sw_ovl_party_abil[k][i] || r != sw_ovl_party_rank[k][i] ) dirty = 1;
 			sw_ovl_party_abil[k][i] = v;
 			sw_ovl_party_rank[k][i] = r;
@@ -1108,6 +1156,8 @@ static int sw_ovl_party_refresh( int *slot )
 			}
 		}
 
+			{ int rr = sw_ovl_cdata( 9, s );
+			  if ( rr != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = rr; } }
 		if ( k == 1 ) {
 			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1] );
 			char mb[ 1200 ];
