@@ -618,16 +618,33 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 {
 	int i;
 	const char *s;
+	char key[ 64 ];
+	size_t n = 0;
+	static int once = 0;
 
 	if ( sw_ovl_pv_msg == NULL ) return "";
 
-	/*	Log lines are full sentences, so the pet name can sit mid-line:
-		match anywhere in the line, walking the ring buffer from the end
-		(msgline itself has no reliable decode).				*/
+	/*	The game log quotes the pet by its short title, not the full
+		"title name.player" string the panel shows, so match on the leading
+		name segment (up to the first space) only.					*/
+	if ( pet_name != NULL ) {
+		while ( pet_name[ n ] != '\0' && pet_name[ n ] != ' ' && n < sizeof( key ) - 1 ) n++;
+		memcpy( key, pet_name, n );
+		key[ n ] = '\0';
+	}
+	if ( !once ) { once = 1;
+		printf( "ovlmsg: key=%s len1=%d\n", key, sw_ovl_pv_msg->len[1] ); fflush( stdout );
+		for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
+			s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
+			if ( s != NULL && s[0] != '\0' ) {
+				printf( "ovlmsg[%d]: %s\n", i, s ); fflush( stdout );
+				break;
+			}
+		}
+	}
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-		if ( s != NULL && pet_name != NULL && pet_name[0] != '\0' &&
-			 strstr( s, pet_name ) != NULL ) return s;
+		if ( s != NULL && key[ 0 ] != '\0' && strstr( s, key ) != NULL ) return s;
 	}
 	return "";
 }
