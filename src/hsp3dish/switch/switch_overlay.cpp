@@ -163,6 +163,10 @@ static int		sw_ovl_party_hp[2], sw_ovl_party_mhp[2];
 static int		sw_ovl_party_sp[2], sw_ovl_party_msp[2];
 static int		sw_ovl_party_mp[2], sw_ovl_party_mmp[2];
 static int		sw_ovl_party_abil[2][ 8 ];
+static int		sw_ovl_party_rank[2][ 8 ];
+static int		sw_ovl_party_fix[2][ 5 ];
+static GLuint	sw_ovl_face_u_tex[2] = { 0, 0 };
+static int		sw_ovl_face_u_id[2] = { 0, 0 };
 /*	Pet chat: the latest pet-related log lines joined by '\n', newest
 	last.  sw_ovl_msg_peek() collects up to SW_OVL_PET_ROWS lines from the
 	game's log ring; sw_ovl_chat_lines() renders one line each, older
@@ -193,6 +197,10 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_party_sheet[1] = 0;
 	sw_ovl_party_slot[0] = 0;
 	sw_ovl_party_slot[1] = -1;
+	sw_ovl_face_u_tex[0] = 0;
+	sw_ovl_face_u_tex[1] = 0;
+	sw_ovl_face_u_id[0] = 0;
+	sw_ovl_face_u_id[1] = 0;
 }
 
 
@@ -711,6 +719,58 @@ static GLuint sw_ovl_upload_rgba( SDL_Surface *surf, int *out_w, int *out_h )
 	return tex;
 }
 
+/*	Ability rating words, exactly as the game's status screen draws them
+	(command.hsp): p = sdata(skill + STARTING_SKILL_SPACT) \ 1000 with
+	thresholds 400/300/200/150/100/50 -> Supreme..Hopeless.  HSP '\' is
+	integer division, so a C '/' on the non-negative value does the same. */
+static const char *sw_ovl_rank_name( int p )
+{
+	if ( p >= 400 ) return "Supreme";
+	if ( p >= 300 ) return "Amazing";
+	if ( p >= 200 ) return "Superb";
+	if ( p >= 150 ) return "Great";
+	if ( p >= 100 ) return "Good";
+	if ( p >= 50 ) return "Bad";
+	return "Hopeless";
+}
+
+/*	u-series portrait: CDATA_PORTRAIT < 0 picks user/graphic/faceN.bmp as
+	a whole 80x112 image, N = abs(portrait + 1); portrait == -1 means "none"
+	and is skipped, mirroring command.hsp.  One texture per strip, replaced
+	when the tracked character's portrait index changes.			*/
+static void sw_ovl_face_u_load( int ix, int n )
+{
+	char path[ 128 ];
+	SDL_Surface *bmp, *conv;
+	GLuint tex;
+
+	if ( n == sw_ovl_face_u_id[ ix ] && sw_ovl_face_u_tex[ ix ] != 0 ) return;
+	if ( sw_ovl_face_u_tex[ ix ] != 0 ) {
+		glDeleteTextures( 1, &sw_ovl_face_u_tex[ ix ] );
+		sw_ovl_face_u_tex[ ix ] = 0;
+	}
+	sw_ovl_face_u_id[ ix ] = 0;
+	if ( n <= 0 ) return;
+	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/user/graphic/face%d.bmp", n );
+	bmp = SDL_LoadBMP( path );
+	if ( bmp == NULL ) {
+		printf( "hsp3switch: overlay: u-face %d missing, atlas fallback\n", n );
+		fflush( stdout );
+		return;
+	}
+	conv = SDL_ConvertSurfaceFormat( bmp, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( bmp );
+	if ( conv == NULL ) return;
+	tex = sw_ovl_upload_rgba( conv, NULL, NULL );
+	SDL_FreeSurface( conv );
+	if ( tex == 0 ) return;
+	sw_ovl_face_u_tex[ ix ] = tex;
+	sw_ovl_face_u_id[ ix ] = n;
+	printf( "hsp3switch: overlay u-face %d loaded\n", n );
+	fflush( stdout );
+}
+
+
 static int sw_ovl_face_load( void )
 {
 	SDL_Surface *bmp, *conv;
@@ -843,6 +903,18 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 
 	if ( sw_ovl_face_tex == 0 || sw_ovl_face_w <= 0 || sw_ovl_face_h <= 0 ) return;
 	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
+	{
+		int pt = sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, slot );
+		if ( pt < 0 ) {
+			int nu = -( pt + 1 );
+			if ( nu > 0 && sw_ovl_face_u_tex[ slot ] != 0 ) {
+				sw_ovl_quad_uv( sw_ovl_face_u_tex[ slot ], strip_x + (float)ax,
+					top_y - (float)ay, (float)aw, (float)ah, 0.0f, 0.0f, 1.0f, 1.0f );
+				return;
+			}
+		}
+	}
+
 	p = sw_ovl_cdata( SW_OVL_PARTY_CD_SEX, slot ) * 80 + sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, slot );
 	col = p % SW_OVL_PARTY_CELL_COLS;
 	row = p / SW_OVL_PARTY_CELL_COLS;
@@ -926,9 +998,19 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 
 	for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
-		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
+		snprintf( buf, sizeof( buf ), "%s %d %s", sw_ovl_attr_name( i ),
+			sw_ovl_party_abil[ ix ][ i ], sw_ovl_rank_name( sw_ovl_party_rank[ ix ][ i ] ) );
 		sw_ovl_blit_text( panel, buf, 225, 8, y );
 		y += 20;
+	}
+	if ( ix == 0 ) {
+		static const char *flbl[5] = { "Prot", "Evade", "Atk", "Spd", "SpellPow" };
+		y += 6;
+		for ( i = 0; i < 5; i++ ) {
+			snprintf( buf, sizeof( buf ), "%s %d", flbl[ i ], sw_ovl_party_fix[ 0 ][ i ] );
+			sw_ovl_blit_text( panel, buf, 200, 8, y );
+			y += 20;
+		}
 	}
 
 	if ( ix == 1 ) {
@@ -963,7 +1045,10 @@ static int sw_ovl_party_refresh( int *slot )
 			sw_ovl_party_name[k][ sizeof( sw_ovl_party_name[k] ) - 1 ] = '\0';
 		}
 		if ( s < 0 ) {
-			for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) sw_ovl_party_abil[k][i] = 0;
+			for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
+				sw_ovl_party_abil[k][i] = 0; sw_ovl_party_rank[k][i] = 0;
+			}
+			sw_ovl_face_u_load( k, 0 );
 			sw_ovl_party_hp[k] = sw_ovl_party_mhp[k] = 0;
 			sw_ovl_party_sp[k] = sw_ovl_party_msp[k] = 0;
 			sw_ovl_party_mp[k] = sw_ovl_party_mmp[k] = 0;
@@ -982,10 +1067,47 @@ static int sw_ovl_party_refresh( int *slot )
 		sw_ovl_party_mp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MP, s );
 		sw_ovl_party_mmp[k] = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_MP, s );
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
-			int v = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ) / 1000000;
-			if ( v != sw_ovl_party_abil[k][i] ) dirty = 1;
+			int v = sw_ovl_sdata( SW_OVL_PARTY_ATTR_FIRST + i, s );
+			int r = sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ) / 1000;
+			if ( v != sw_ovl_party_abil[k][i] || r != sw_ovl_party_rank[k][i] ) dirty = 1;
 			sw_ovl_party_abil[k][i] = v;
+			sw_ovl_party_rank[k][i] = r;
 		}
+		{
+			int pt = sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, s );
+			int nu = ( pt < 0 ) ? -( pt + 1 ) : 0;
+			if ( nu != sw_ovl_face_u_id[k] ) {
+				dirty = 1;
+				sw_ovl_face_u_load( k, nu );
+			}
+		}
+		if ( k == 0 ) {
+			int fv[5], mag;
+			fv[0] = sw_ovl_cdata( 70, s );
+			fv[1] = sw_ovl_cdata( 71, s );
+			fv[2] = sw_ovl_cdata( 72, s );
+			fv[3] = sw_ovl_cdata( 11, s );
+			mag = sw_ovl_sdata( 16, s );
+			if ( mag < 0 ) mag = 0; if ( mag > 1500 ) mag = 1500;
+			fv[4] = sw_ovl_cdata( 98, s ) * 2 / 3;
+			if ( fv[4] < 0 ) fv[4] = 0; if ( fv[4] > 1000 ) fv[4] = 1000;
+			fv[4] = fv[4] / 10 + mag / 10 + 100;
+			{ static int once = 0;
+			  if ( !once ) { once = 1;
+				for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ )
+					printf( "ovlrank[%d] cur=%d raw=%d r=%d %s\n", i,
+						sw_ovl_party_abil[0][i],
+						sw_ovl_sdata( SW_OVL_PARTY_SKILL_OFF + SW_OVL_PARTY_ATTR_FIRST + i, s ),
+						sw_ovl_party_rank[0][i],
+						sw_ovl_rank_name( sw_ovl_party_rank[0][i] ) );
+				fflush( stdout );
+			  } }
+			for ( i = 0; i < 5; i++ ) {
+				if ( fv[i] != sw_ovl_party_fix[k][i] ) dirty = 1;
+				sw_ovl_party_fix[k][i] = fv[i];
+			}
+		}
+
 		if ( k == 1 ) {
 			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1] );
 			char mb[ 1200 ];
