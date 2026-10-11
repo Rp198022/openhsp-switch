@@ -878,6 +878,7 @@ static int sw_ovl_party_refresh( int *slot )
 	slot[1] = -1;
 	{ int e0 = sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 );
 	  if ( e0 != 1 ) return -1; }
+	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
 
 	for ( k = 0; k < 2; k++ ) {
 		int s = slot[k];
