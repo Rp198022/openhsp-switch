@@ -788,23 +788,34 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 
 static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
 {
-	char buf[ 40 ];
+	char buf[ 200 ];
 	int len = (int)strlen( msg );
-	int row, per = 12, s, n;
+	int row, s, maxw, n, cw, w, h;
 
-	if ( len > per * maxl ) len = per * maxl;
 	if ( len <= 0 ) return;
-	for ( row = 0; row < maxl && row * per < len; row++ ) {
-		s = row * per;
-		n = per;
-		if ( s + n > len ) n = len - s;
-		/*	Walk back so the chunk starts and ends on UTF-8 lead bytes. */
-		while ( n > 1 && ( (unsigned char)msg[s+n-1] & 0xC0 ) == 0x80 ) n--;
-		while ( n > 1 && ( (unsigned char)msg[s] & 0xC0 ) == 0x80 ) { s++; n--; }
-		if ( n <= 0 ) n = 1;
+	maxw = panel->w - x - 8;	/* 8px right margin keeps the frame clear */
+	s = 0;
+	for ( row = 0; row < maxl && s < len; row++ ) {
+		/*	Grow the chunk one whole UTF-8 char at a time while it still fits
+			the strip's text width, so a line fills the panel before wrapping. */
+		n = 0;
+		while ( s + n < len ) {
+			unsigned char b = (unsigned char)msg[ s + n ];
+			cw = 1;
+			if ( b >= 0xC2 && b <= 0xDF ) cw = 2;
+			else if ( b >= 0xE0 && b <= 0xEF ) cw = 3;
+			else if ( b >= 0xF0 && b <= 0xF4 ) cw = 4;
+			if ( n + cw > (int)sizeof( buf ) - 1 ) break;
+			memcpy( buf, msg + s, n + cw );
+			buf[ n + cw ] = '\0';
+			if ( TTF_SizeUTF8( sw_ovl_font, buf, &w, &h ) != 0 || w > maxw ) break;
+			n += cw;
+		}
+		if ( n <= 0 ) n = 1;	/* safety: at least one byte on a broken string */
 		memcpy( buf, msg + s, n );
 		buf[ n ] = '\0';
 		sw_ovl_blit_text( panel, buf, 210, x, y + row * 18 );
+		s += n;
 	}
 }
 
@@ -867,7 +878,6 @@ static int sw_ovl_party_refresh( int *slot )
 	slot[1] = -1;
 	{ int e0 = sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 );
 	  if ( e0 != 1 ) return -1; }
-	if ( sw_ovl_pick_pet( &slot[1] ) == 0 ) slot[1] = -1;
 
 	for ( k = 0; k < 2; k++ ) {
 		int s = slot[k];
