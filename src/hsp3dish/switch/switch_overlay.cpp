@@ -639,16 +639,16 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 			int di, j;
 			for ( di = 0; di < (int)sw_ovl_ctx->hsphed->max_val; di++ ) {
 				PVal *pv = &sw_ovl_ctx->mem_var[ di ];
-				if ( pv->flag != HSPVAR_FLAG_STR || pv->len[1] < 5 || pv->len[1] > 300 ) continue;
+				if ( pv->flag != HSPVAR_FLAG_STR ) continue;
+				if ( pv->len[0] * pv->len[1] <= 0 ) continue;
+				const char *c0 = NULL;
 				for ( j = 0; j < pv->len[0] * pv->len[1]; j++ ) {
 					const char *sc = (const char*)HspVarCorePtrAPTR( pv, j );
-					if ( sc != NULL && strstr( sc, "\xC9\xD9\xC5\xAE" ) != NULL ) {
-						printf( "ovlmsg: STR %d len1=%d cell=%d: %s\n", di, pv->len[1], j, sc ); fflush( stdout );
-						break;
-					}
+					if ( sc != NULL && sc[0] != '\0' ) { c0 = sc; break; }
 				}
+				printf( "ovlmsg: STR %d len0=%d len1=%d first=%s\n", di, pv->len[0], pv->len[1], c0 != NULL ? c0 : "(empty)" ); fflush( stdout );
 			}
-			printf( "ovlmsg: scan done\n" ); fflush( stdout );
+			printf( "ovlmsg: dump done\n" ); fflush( stdout );
 		}
 	}
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
