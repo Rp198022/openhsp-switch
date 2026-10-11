@@ -38,6 +38,7 @@
 /*	Party HUD reads the interpreter's script variables directly, so it can
 	track the player and one pet without touching the script.  The shim
 	hands us the context; the names resolve through the debug name table.	*/
+#include "switch_gbk.h"
 #include "../../hsp3/switch/dllshim_switch.h"
 #include "../../hsp3/hsp3code.h"
 #include "../../hsp3/hspvar_core.h"
@@ -517,6 +518,7 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
+	if ( sw_ovl_pv_msg == NULL )  sw_ovl_pv_msg  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 120, -1, -1 );
 
 
 	if ( sw_ovl_pv_cdata == NULL || sw_ovl_pv_sdata == NULL || sw_ovl_pv_cdatan == NULL ) return -1;
@@ -567,27 +569,50 @@ static int sw_ovl_pick_pet( int *out )
 	return 0;
 }
 
+/*	GBK bytes -> UTF-8 in a static scratch buffer.  The Chinese Elona
+	overlay font is SimHei (has the Han glyphs): the tofu boxes were an
+	encoding problem, not a missing-glyph one.  ASCII passes through,
+	every GBK lead byte is looked up and emitted as UTF-8.			*/
+static const char *sw_ovl_utf8( const char *in )
+{
+	static char out[ 256 ];
+	const unsigned char *p = (const unsigned char*)in;
+	unsigned char *q = (unsigned char*)out;
+	unsigned short u;
+
+	while ( *p && ( q - (unsigned char*)out ) < (int)sizeof( out ) - 4 ) {
+		if ( *p < 0x80 ) { *q++ = *p++; continue; }
+		if ( *p >= 0x81 && *p <= 0xFE && p[1] >= 0x40 && p[1] <= 0xFE ) {
+			u = sw_gbk_uni[ *p - 0x81 ][ p[1] - 0x40 ];
+			p += 2;
+			if ( u == 0 ) { *q++ = '?'; continue; }
+		} else { *q++ = '?'; p++; continue; }
+		if ( u < 0x800 ) {
+			*q++ = (unsigned char)( 0xC0 | ( u >> 6 ) );
+			*q++ = (unsigned char)( 0x80 | ( u & 0x3F ) );
+		} else {
+			*q++ = (unsigned char)( 0xE0 | ( u >> 12 ) );
+			*q++ = (unsigned char)( 0x80 | ( ( u >> 6 ) & 0x3F ) );
+			*q++ = (unsigned char)( 0x80 | ( u & 0x3F ) );
+		}
+	}
+	*q = 0;
+	return out;
+}
+
+/*	Latest log line whose raw (GBK) bytes start with the pet's GBK name;
+	byte-wise match, no transcoding.  The ring is walked from the newest
+	cell backward (msgline itself has no reliable decode).			*/
 static const char *sw_ovl_msg_peek( const char *pet_name )
 {
-	int ml, n, i, idx;
+	int i;
 	const char *s;
 
-	if ( sw_ovl_pv_msg == NULL || sw_ovl_pv_msgline == NULL ) return "";
-	ml = *(int*)sw_ovl_pv_msgline->pt;
-	if ( ml < 0 ) return "";
-	n = sw_ovl_pv_inf_maxlog ? *(int*)sw_ovl_pv_inf_maxlog->pt : 0;
-	if ( n <= 0 ) n = 3;
-	if ( n > sw_ovl_pv_msg->len[1] ) n = sw_ovl_pv_msg->len[1];
-	/*	Walk the ring buffer backwards from the newest line; the newest
-		line that starts with the pet's name is its latest chat.		*/
-	for ( i = 0; i < n && i < 6; i++ ) {
-		idx = ( ml - i ) % n;
-		if ( idx < 0 ) idx += n;
-		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, idx );
+	if ( sw_ovl_pv_msg == NULL ) return "";
+	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
+		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
 		if ( s != NULL && pet_name != NULL && pet_name[0] != '\0' &&
-			 strncmp( s, pet_name, strlen( pet_name ) ) == 0 ) {
-			return s;
-		}
+			 strncmp( s, pet_name, strlen( pet_name ) ) == 0 ) return s;
 	}
 	return "";
 }
@@ -800,7 +825,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 0, 0, 0, 0 ) );
 
 	y = SW_OVL_PARTY_NAME_Y;
-	sw_ovl_blit_text( panel, sw_ovl_party_name[ ix ], 255, 8, y );
+	sw_ovl_blit_text( panel, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), 255, 8, y );
 	sw_ovl_party_draw_box( panel, strip_w );
 	y = sw_ovl_party_rows_y( strip_w );
 
@@ -826,7 +851,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 	if ( ix == 1 ) {
 		y += 8;
-		sw_ovl_chat_lines( panel, sw_ovl_party_chat[ 1 ], 8, y, 3 );
+		sw_ovl_chat_lines( panel, sw_ovl_utf8( sw_ovl_party_chat[ 1 ] ), 8, y, 3 );
 	}
 
 	sw_ovl_party_sheet[ ix ] = sw_ovl_upload_rgba( panel, &sw_ovl_party_sheet_w[ ix ], &sw_ovl_party_sheet_h[ ix ] );
