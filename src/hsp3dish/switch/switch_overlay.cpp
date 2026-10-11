@@ -518,7 +518,18 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
-	if ( sw_ovl_pv_msg == NULL )  sw_ovl_pv_msg  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 120, -1, -1 );
+	{ int mi, mn = (int)ctx->hsphed->max_val;
+	  for ( mi = 0; mi < mn; mi++ ) {
+		PVal *mp = &ctx->mem_var[ mi ];
+		/*  msg is `sdim msg, 120, inf_maxlog`: len[0] is the string
+			length, len[1] is the ring depth (runtime value).  Match on
+			len[0] - the single STR PVal with length 120 is msg.  */
+		if ( (int)mp->flag == HSPVAR_FLAG_STR && mp->len[0] == 120 ) {
+			sw_ovl_pv_msg = mp;
+			break;
+		}
+	  }
+	}
 
 
 	if ( sw_ovl_pv_cdata == NULL || sw_ovl_pv_sdata == NULL || sw_ovl_pv_cdatan == NULL ) return -1;
