@@ -518,15 +518,17 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
-	{ int mi, mn = (int)ctx->hsphed->max_val;
-	  for ( mi = 0; mi < mn; mi++ ) {
-		PVal *mp = &ctx->mem_var[ mi ];
-		if ( (int)mp->flag == HSPVAR_FLAG_STR ) {
-			printf( "ovlstr[%d]: len0=%d len1=%d len2=%d len3=%d\n",
-				mi, mp->len[0], mp->len[1], mp->len[2], mp->len[3] ); fflush( stdout );
-			if ( mp->len[0] == 120 ) sw_ovl_pv_msg = mp;
+	if ( sw_ovl_pv_msg == NULL ) {
+		/* msg = sdim msg,120,inf_maxlog : a one-dim STR array.  len[1] holds
+		   the runtime inf_maxlog and len[0] is always 1 in openhsp, so
+		   neither can identify it; its index in the Elona+ 2.32 Chinese .ax
+		   variable table (743, seen in the Eden boot log) does.  The guard
+		   len[1]>=10 keeps a wrong index from being mistaken for msg. */
+		if ( 743 < (int)ctx->hsphed->max_val &&
+		     (int)ctx->mem_var[743].flag == HSPVAR_FLAG_STR &&
+		     ctx->mem_var[743].len[1] >= 10 ) {
+			sw_ovl_pv_msg = &ctx->mem_var[743];
 		}
-	  }
 	}
 
 
@@ -616,26 +618,16 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 {
 	int i;
 	const char *s;
-	static int once = 0;
 
-	if ( sw_ovl_pv_msg == NULL ) {
-		if ( !once ) { once = 1;
-			printf( "ovlmsg: pv_msg=NULL\n" ); fflush( stdout ); }
-		return "";
-	}
-	if ( !once ) {
-		once = 1;
-		printf( "ovlmsg: len0=%d len1=%d name=%s\n",
-			sw_ovl_pv_msg->len[0], sw_ovl_pv_msg->len[1], pet_name ); fflush( stdout );
-		for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
-			s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-			printf( "ovlmsg[%d]: %s\n", i, s ? s : "(null)" ); fflush( stdout );
-		}
-	}
+	if ( sw_ovl_pv_msg == NULL ) return "";
+
+	/*	Log lines are full sentences, so the pet name can sit mid-line:
+		match anywhere in the line, walking the ring buffer from the end
+		(msgline itself has no reliable decode).				*/
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
 		if ( s != NULL && pet_name != NULL && pet_name[0] != '\0' &&
-			 strncmp( s, pet_name, strlen( pet_name ) ) == 0 ) return s;
+			 strstr( s, pet_name ) != NULL ) return s;
 	}
 	return "";
 }
