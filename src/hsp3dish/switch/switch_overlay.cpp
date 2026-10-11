@@ -524,10 +524,24 @@ static int sw_ovl_party_resolve( void )
 		   neither can identify it; its index in the Elona+ 2.32 Chinese .ax
 		   variable table (743, seen in the Eden boot log) does.  The guard
 		   len[1]>=10 keeps a wrong index from being mistaken for msg. */
-		if ( 743 < (int)ctx->hsphed->max_val &&
-		     (int)ctx->mem_var[743].flag == HSPVAR_FLAG_STR &&
-		     ctx->mem_var[743].len[1] >= 10 ) {		printf( "ovldiag: msg fallback 743 len1=%d\n", ctx->mem_var[743].len[1] ); fflush( stdout );
-			sw_ovl_pv_msg = &ctx->mem_var[743];
+		/*	743 was the book-title array, not the log ring; the real msg
+			is the STR array whose log lines carry a leading space.  The .ax
+			has no debug name table, so this scan is the way in.			*/
+		{
+			int ii;
+			for ( ii = 0; ii < (int)ctx->hsphed->max_val; ii++ ) {
+				PVal *pv = &ctx->mem_var[ ii ];
+				const char *sc;
+				if ( pv->flag != HSPVAR_FLAG_STR ) continue;
+				if ( pv->len[0] * pv->len[1] < 2 ) continue;
+				sc = (const char*)HspVarCorePtrAPTR( pv, 0 );
+				if ( sc != NULL && sc[0] == ' ' ) {
+					sw_ovl_pv_msg = pv;
+					printf( "ovldiag: msg idx=%d len1=%d first=%s\n", ii, pv->len[1], sc ); fflush( stdout );
+					break;
+				}
+			}
+		}
 		}
 	}
 
