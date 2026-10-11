@@ -618,8 +618,22 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 {
 	int i;
 	const char *s;
+	static int once = 0;
 
-	if ( sw_ovl_pv_msg == NULL ) return "";
+	if ( sw_ovl_pv_msg == NULL ) {
+		if ( !once ) { once = 1;
+			printf( "ovlmsg: pv_msg=NULL\n" ); fflush( stdout ); }
+		return "";
+	}
+	if ( !once ) {
+		once = 1;
+		printf( "ovlmsg: len0=%d len1=%d name=%s\n",
+			sw_ovl_pv_msg->len[0], sw_ovl_pv_msg->len[1], pet_name ); fflush( stdout );
+		for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
+			s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
+			printf( "ovlmsg[%d]: %s\n", i, s ? s : "(null)" ); fflush( stdout );
+		}
+	}
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
 		if ( s != NULL && pet_name != NULL && pet_name[0] != '\0' &&
