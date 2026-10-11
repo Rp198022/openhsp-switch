@@ -145,6 +145,7 @@ static HSPCTX	*sw_ovl_ctx = NULL;
 static PVal		*sw_ovl_pv_cdata = NULL;
 static PVal		*sw_ovl_pv_cdatan = NULL;
 static PVal		*sw_ovl_pv_sdata = NULL;
+static PVal		*sw_ovl_pv_inv = NULL;	/* item data: dim 70,5480 INT	*/
 static PVal		*sw_ovl_pv_msg = NULL;
 static PVal		*sw_ovl_pv_msgline = NULL;
 static PVal		*sw_ovl_pv_inf_maxlog = NULL;
@@ -168,6 +169,7 @@ static int		sw_ovl_party_rank[2][ 8 ];
 static int		sw_ovl_party_fix[2][ 5 ];
 static GLuint	sw_ovl_face_u_tex[2] = { 0, 0 };
 static int		sw_ovl_party_rel[2] = { 0, 0 };
+static int		sw_ovl_wep[2][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
 static int		sw_ovl_face_u_id[2] = { 0, 0 };
 /*	Pet chat: the latest pet-related log lines joined by '\n', newest
 	last.  sw_ovl_msg_peek() collects up to SW_OVL_PET_ROWS lines from the
@@ -195,6 +197,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_pv_msg = NULL;
 	sw_ovl_pv_msgline = NULL;
 	sw_ovl_pv_inf_maxlog = NULL;
+	sw_ovl_pv_inv = NULL;
 	sw_ovl_party_sheet[0] = 0;
 	sw_ovl_party_sheet[1] = 0;
 	sw_ovl_party_slot[0] = 0;
@@ -558,6 +561,7 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
+	if ( sw_ovl_pv_inv == NULL )    sw_ovl_pv_inv    = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 70, 5480, -1 );
 	if ( sw_ovl_pv_msg == NULL ) {
 		/* msg = sdim msg,120,inf_maxlog : a one-dim STR array.  len[1] holds
 		   the runtime inf_maxlog and len[0] is always 1 in openhsp, so
@@ -615,6 +619,61 @@ static const char *sw_ovl_cdatan( int field, int slot )
 	/*	HspVarCorePtrAPTR writes pv->offset; the pointer is only valid
 		until the next call on the same PVal, so callers copy at once.	*/
 	return (const char*)HspVarCorePtrAPTR( sw_ovl_pv_cdatan, field + slot * sw_ovl_pv_cdatan->len[1] );
+}
+
+static int sw_ovl_inv( int field, int idx )
+{
+	if ( sw_ovl_pv_inv == NULL ) return 0;
+	if ( field < 0 || field >= sw_ovl_pv_inv->len[1] ) return 0;
+	if ( idx < 0 || idx >= sw_ovl_pv_inv->len[2] ) return 0;
+	return ((int*)sw_ovl_pv_inv->pt)[ field + idx * sw_ovl_pv_inv->len[1] ];
+}
+
+static int sw_ovl_lim( int v, int lo, int hi )
+{
+	return v < lo ? lo : ( v > hi ? hi : v );
+}
+
+/*	Reproduce the character sheet's weapon lines (command.hsp
+	*com_skill_calcAttack, note mode): mode 0 = melee (skip the ammo/extra
+	slots 10/11), mode 1 = ranged (the shoot slot 5).  out = dice1, dice2,
+	dmgfix, hit%.  Equip slot value = slot*10000 + (item index + 1).			*/
+static void sw_ovl_calc_wep( int mode, int *out )
+{
+	int cnt, cw = -1, st, v, sk, d1, d2, fix, hit;
+
+	out[0] = out[1] = out[2] = out[3] = 0;
+	for ( cnt = 0; cnt < 30; cnt++ ) {
+		v = sw_ovl_cdata( 100 + cnt, 0 );
+		if ( v <= 0 ) continue;
+		st = v / 10000;
+		if ( mode == 0 ) {
+			if ( st == 10 || st == 11 ) continue;
+		} else {
+			if ( st != 5 ) continue;
+		}
+		cw = v % 10000 - 1;
+		if ( cw < 0 ) { cw = -1; continue; }
+		if ( sw_ovl_inv( 10, cw ) <= 0 ) { cw = -1; continue; }
+		break;
+	}
+	if ( cw < 0 ) return;
+
+	sk = sw_ovl_inv( 16, cw );
+	if ( sk <= 0 ) sk = 106;
+	d1 = sw_ovl_inv( 10, cw ); if ( d1 <= 0 ) d1 = 4;
+	d2 = sw_ovl_inv( 11, cw ); if ( d2 <= 0 ) d2 = 4;
+	fix = sw_ovl_cdata( 73, 0 ) + sw_ovl_inv( 12, cw ) + sw_ovl_inv( 20, cw )
+		+ ( sw_ovl_inv( 17, cw ) == 1 )
+		+ sw_ovl_sdata( 15, 0 ) / 10 + sw_ovl_sdata( 10, 0 ) / 30 + sw_ovl_sdata( 13, 0 ) / 30
+		+ sw_ovl_lim( ( sw_ovl_inv( 7, cw ) + 1 ) / 5000, 0, 40 )
+		+ sw_ovl_sdata( sk, 0 ) / 50 * 5;
+	hit = sw_ovl_sdata( 12, 0 ) / 4 + sw_ovl_sdata( sw_ovl_inv( 16, cw ), 0 ) / 3
+		+ sw_ovl_sdata( sk, 0 ) + 50
+		+ sw_ovl_cdata( 72, 0 ) + sw_ovl_inv( 13, cw ) + sw_ovl_inv( 20, cw )
+		+ ( sw_ovl_inv( 17, cw ) == 1 );
+
+	out[0] = d1; out[1] = d2; out[2] = fix; out[3] = hit;
 }
 
 static int sw_ovl_pick_pet( int *out )
@@ -1041,23 +1100,31 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		y += 20;
 	}
 	if ( ix == 0 ) {
-		int pv, dv, prot, eva, hit;
-		pv = sw_ovl_party_fix[ 0 ][ 0 ]; if ( pv < 0 ) pv = 0;
-		dv = sw_ovl_party_fix[ 0 ][ 1 ]; if ( dv < 0 ) dv = 0;
+		int prot, eva, spellpow;
+		int pv = sw_ovl_party_fix[ 0 ][ 0 ]; if ( pv < 0 ) pv = 0;
+		int dv = sw_ovl_party_fix[ 0 ][ 1 ]; if ( dv < 0 ) dv = 0;
 		prot = 100 - 10000 / ( pv + 100 );
 		eva  = 100 - 10000 / ( dv + 100 );
-		hit  = sw_ovl_party_fix[ 0 ][ 2 ]; if ( hit < 0 ) hit = 0;
+		spellpow = sw_ovl_party_fix[ 0 ][ 4 ];
 		y += 6;
 		{
-			static const char *flbl[4] = { "SpellPow", "Prot", "Evade", "Hit" };
-			int vals[4];
-			vals[0] = sw_ovl_party_fix[ 0 ][ 4 ];
-			vals[1] = prot; vals[2] = eva; vals[3] = hit;
-			for ( i = 0; i < 4; i++ ) {
-				snprintf( buf, sizeof( buf ), "%s %d%%", flbl[ i ], vals[ i ] );
+			static const char *wl[2] = { "\xe6\xad\xa6\xe5\x99\xa8", "\xe5\xb0\x84\xe5\x87\xbb" };
+			for ( i = 0; i < 2; i++ ) {
+				int d1 = sw_ovl_wep[ i ][ 0 ];
+				if ( d1 <= 0 ) continue;
+				if ( sw_ovl_wep[ i ][ 2 ] > 0 )
+					snprintf( buf, sizeof( buf ), "%s %dd%d+%d %d%%", wl[i], d1, sw_ovl_wep[i][1], sw_ovl_wep[i][2], sw_ovl_wep[i][3] );
+				else
+					snprintf( buf, sizeof( buf ), "%s %dd%d %d%%", wl[i], d1, sw_ovl_wep[i][1], sw_ovl_wep[i][3] );
 				sw_ovl_blit_text( panel, buf, 200, 8, y );
 				y += 20;
 			}
+			snprintf( buf, sizeof( buf ), "%s %d%%", "\xe5\x87\x8f\xe8\xbd\xbb", prot );
+			sw_ovl_blit_text( panel, buf, 200, 8, y ); y += 20;
+			snprintf( buf, sizeof( buf ), "%s %d%%", "\xe5\x9b\x9e\xe9\x81\xbf", eva );
+			sw_ovl_blit_text( panel, buf, 200, 8, y ); y += 20;
+			snprintf( buf, sizeof( buf ), "%s %d%%", "\xe9\xad\x94\xe6\xb3\x95\xe5\xa8\x81\xe5\x8a\x9b", spellpow );
+			sw_ovl_blit_text( panel, buf, 200, 8, y ); y += 20;
 		}
 	}
 
@@ -1131,6 +1198,15 @@ static int sw_ovl_party_refresh( int *slot )
 		}
 		if ( k == 0 ) {
 			int fv[5], mag;
+				int w[4], r[4], wi;
+				sw_ovl_calc_wep( 0, w );
+				sw_ovl_calc_wep( 1, r );
+				for ( wi = 0; wi < 4; wi++ ) {
+					if ( w[wi] != sw_ovl_wep[0][wi] ) dirty = 1;
+					if ( r[wi] != sw_ovl_wep[1][wi] ) dirty = 1;
+					sw_ovl_wep[0][wi] = w[wi];
+					sw_ovl_wep[1][wi] = r[wi];
+				}
 			fv[0] = sw_ovl_cdata( 70, s );
 			fv[1] = sw_ovl_cdata( 71, s );
 			fv[2] = sw_ovl_cdata( 72, s );
