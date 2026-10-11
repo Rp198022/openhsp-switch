@@ -521,12 +521,10 @@ static int sw_ovl_party_resolve( void )
 	{ int mi, mn = (int)ctx->hsphed->max_val;
 	  for ( mi = 0; mi < mn; mi++ ) {
 		PVal *mp = &ctx->mem_var[ mi ];
-		/*  msg is `sdim msg, 120, inf_maxlog`: len[0] is the string
-			length, len[1] is the ring depth (runtime value).  Match on
-			len[0] - the single STR PVal with length 120 is msg.  */
-		if ( (int)mp->flag == HSPVAR_FLAG_STR && mp->len[0] == 120 ) {
-			sw_ovl_pv_msg = mp;
-			break;
+		if ( (int)mp->flag == HSPVAR_FLAG_STR ) {
+			printf( "ovlstr[%d]: len0=%d len1=%d len2=%d len3=%d\n",
+				mi, mp->len[0], mp->len[1], mp->len[2], mp->len[3] ); fflush( stdout );
+			if ( mp->len[0] == 120 ) sw_ovl_pv_msg = mp;
 		}
 	  }
 	}
