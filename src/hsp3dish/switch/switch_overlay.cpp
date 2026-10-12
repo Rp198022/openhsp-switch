@@ -1111,6 +1111,8 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
+		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
+			int nw;
 		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
 		sw_ovl_blit_text( panel, buf, 225, 8, y );
 		if ( TTF_SizeUTF8( sw_ovl_font, buf, &nw, NULL ) == 0 )
