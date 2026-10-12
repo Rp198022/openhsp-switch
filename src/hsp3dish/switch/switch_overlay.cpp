@@ -135,7 +135,7 @@ static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
 /*	Display mode: R+stick click cycles key hints <-> party HUD.			*/
 #define SW_OVL_MODE_KEY		0
 #define SW_OVL_MODE_PARTY	1
-static int		sw_ovl_mode = SW_OVL_MODE_KEY;
+static int		sw_ovl_mode = SW_OVL_MODE_PARTY;	/* r187v TEST: force party HUD */
 
 /*	Party HUD state.  The interpreter context is the cache key: when it
 	changes (new game, load) the variable indices are resolved again.
