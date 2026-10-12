@@ -275,7 +275,12 @@ void switch_input_poll( void )
 		arrows[1] = SDL_SCANCODE_LEFT;
 		arrows[2] = SDL_SCANCODE_DOWN;
 		arrows[3] = SDL_SCANCODE_RIGHT;
-		if ( sw_pad != NULL ) SDL_PumpEvents();
+		/*	r187x: pump unconditionally.  The old guarded call only ran when a
+			gamepad was attached, so on a desktop with no pad the SDL keyboard
+			state (read below) never got refreshed and arrow keys stayed dead
+			even though the events reached the window.  The pump is harmless on
+			the console - no keyboard there, so the state stays all-zero.	*/
+		SDL_PumpEvents();
 		ks = SDL_GetKeyboardState( NULL );
 		for ( a = 0; a < 4; a++ ) {
 			int nw = ( ks && ks[ arrows[a] ] ) ? 1 : 0;
