@@ -251,7 +251,7 @@ static TTF_Font *sw_ovl_open_font( void )
 				the regular weight was hard to make out on the small screen. */
 			TTF_SetFontStyle( f, TTF_STYLE_BOLD );
 			if ( sw_ovl_font_small == NULL ) {
-				sw_ovl_font_small = TTF_OpenFont( cand[i], 13 );
+				sw_ovl_font_small = TTF_OpenFont( cand[i], 11 );
 				if ( sw_ovl_font_small != NULL ) TTF_SetFontStyle( sw_ovl_font_small, TTF_STYLE_BOLD );
 			}
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
@@ -284,6 +284,26 @@ static void sw_ovl_blit_small( SDL_Surface *dst, const char *text, Uint8 v, int 
 	SDL_BlitSurface( c, NULL, dst, &at );
 	SDL_FreeSurface( c );
 }
+static void sw_ovl_blit_small_rgb( SDL_Surface *dst, const char *text, Uint8 r, Uint8 g, Uint8 b, int x, int y )
+{
+	SDL_Color col;
+	SDL_Surface *s, *c;
+	SDL_Rect at;
+
+	if ( sw_ovl_font_small == NULL ) return;
+	col.r = r; col.g = g; col.b = b;
+	col.a = 255;
+	s = TTF_RenderUTF8_Blended( sw_ovl_font_small, text, col );
+	if ( s == NULL ) return;
+	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( c == NULL ) return;
+	at.x = x;
+	at.y = y;
+	SDL_BlitSurface( c, NULL, dst, &at );
+	SDL_FreeSurface( c );
+}
+
 static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
 
 {
@@ -1065,8 +1085,16 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 	/*	Bottom-aligned: render only the newest maxl rows, old rows scroll off
 		the top; the newest message always shows in full at the bottom.  */
 	start = ( nr > maxl ) ? ( nr - maxl ) : 0;
-	for ( row = start, rrow = 0; row < nr; row++, rrow++ )
-		sw_ovl_blit_small( panel, rows[ row ], 255, x, y + rrow * 15 );
+	for ( row = start, rrow = 0; row < nr; row++, rrow++ ) {
+		/*	r187v: colour like the game's own log below the HP bars - a quoted
+			line is dialogue (init.hsp msg_write paints those 210,250,160),
+			anything else is the plain log white.  */
+		if ( strchr( rows[ row ], '"' ) != NULL ) {
+			sw_ovl_blit_small_rgb( panel, rows[ row ], 210, 250, 160, x, y + rrow * 15 );
+		} else {
+			sw_ovl_blit_small( panel, rows[ row ], 255, x, y + rrow * 15 );
+		}
+	}
 }
 
 static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
@@ -1309,6 +1337,25 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	if ( sw_ovl_party_sheet[0] != 0 ) {
 		sw_ovl_quad( sw_ovl_party_sheet[0], 0.0f, ly, (float)sw_ovl_party_sheet_w[0], (float)sheet_h );
 		sw_ovl_draw_face( 0, 0.0f, origin_x, ly );
+		/*	r187v: the player's grey bar slots sit in the same rows as the
+			pet's on the right strip (sw_ovl_party_build draws 3 *
+			SW_OVL_PARTY_STAT_PITCH); paint the colour strips over them here at
+			present time, mirroring the pet's block below.  */
+		{
+			int rows_y = sw_ovl_party_rows_y( origin_x );
+			int cur[3] = { sw_ovl_party_hp[0], sw_ovl_party_mp[0], sw_ovl_party_sp[0] };
+			int mxs[3] = { sw_ovl_party_mhp[0], sw_ovl_party_mmp[0], sw_ovl_party_msp[0] };
+			for ( i = 0; i < 3; i++ ) {
+				int fw;
+				if ( mxs[ i ] <= 0 || cur[ i ] <= 0 ) continue;
+				if ( cur[ i ] > mxs[ i ] ) cur[ i ] = mxs[ i ];
+				fw = (int)( ( origin_x - 16 ) * cur[ i ] / mxs[ i ] );
+				if ( fw < 1 ) fw = 1;
+				sw_ovl_quad_uv( sw_ovl_bar_tex[ i + 1 ], 8.0f,
+					ly - (float)( rows_y + i * SW_OVL_PARTY_STAT_PITCH + 17 ),
+					(float)fw, 8.0f, 0.0f, 0.0f, 1.0f, 1.0f );
+			}
+		}
 	}
 	if ( sw_ovl_party_sheet[1] != 0 && slot[1] >= 0 ) {
 		int rows_y = sw_ovl_party_rows_y( right_w );

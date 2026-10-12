@@ -280,6 +280,12 @@ void switch_input_poll( void )
 		for ( a = 0; a < 4; a++ ) {
 			int nw = ( ks && ks[ arrows[a] ] ) ? 1 : 0;
 			if ( nw != last[a] ) { sw_push_key( arrows[a], nw ); last[a] = nw; }
+			/*	r187v: the stick channel reads sw_keys[], not the synthetic
+				events - hgio_stick()'s sw_input_key() is get_key_state(sc) ||
+				switch_input_key_state(sc), and that reads this table.  A pushed
+				SDL event never reached it, so a physical arrow key moved nobody
+				on Eden; write the state on top of the push.  */
+			if ( arrows[a] < SW_KEY_STATE_MAX ) sw_keys[ arrows[a] ] = (Uint8)nw;
 		}
 	}
 	if ( sw_pad == NULL ) return;
