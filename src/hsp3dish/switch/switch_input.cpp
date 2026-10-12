@@ -260,12 +260,12 @@ void switch_input_poll( void )
 {
 	int i;
 
-#if !defined(__SWITCH__)
 	/*	Desktop / Eden fallback: the arrow keys drive movement straight from
 		the physical keyboard so no gamepad layer is needed to walk the map.
 		The events go through the same sw_push_key() path as the pad ones, so
-		is_pressed() / getkey()/stick all see them.  CSI >> nothing on the
-		real console where the d-pad owns these scancodes.  */
+		is_pressed() / getkey()/stick all see them.  On the real console there
+		is no physical keyboard, so the SDL keyboard state stays all-zero and
+		nothing changes.  */
 	{
 		const Uint8 *ks;
 		SDL_Scancode arrows[4];
@@ -282,7 +282,6 @@ void switch_input_poll( void )
 			if ( nw != last[a] ) { sw_push_key( arrows[a], nw ); last[a] = nw; }
 		}
 	}
-#endif
 	if ( sw_pad == NULL ) return;
 
 	/*	SDL refreshes the joystick/controller state from inside the event
