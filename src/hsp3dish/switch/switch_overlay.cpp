@@ -728,42 +728,55 @@ static const char *sw_ovl_utf8( const char *in )
 	cell backward (msgline itself has no reliable decode).			*/
 static const char *sw_ovl_msg_peek( const char *pet_name )
 {
-	int i, got = 0;
+	int i, got = 0, kk;
 	const char *hits[ SW_OVL_PET_ROWS ];
 	const char *s;
-	char key[ 64 ];
-	size_t n = 0;
+	char keys[4][ 64 ]; int nk = 0;
 	static int once = 0;
 	static int dbg = 0;
 	static char out[ 1200 ];
 
 	if ( sw_ovl_pv_msg == NULL ) return "";
 
-	/*	The game log quotes the pet by its short title, not the full
-		"title name.player" string the panel shows, so match on the leading
-		name segment (up to the first space) only.					*/
+	/*	The log quotes a pet by any of its name tokens (title, given name or
+		full "title name" string), so accept the line if it contains ANY one
+		of the tokens - a line can name the pet without the title prefix.  */
 	if ( pet_name != NULL ) {
-		while ( pet_name[ n ] != '\0' && pet_name[ n ] != ' ' && n < sizeof( key ) - 1 ) n++;
-		memcpy( key, pet_name, n );
-		key[ n ] = '\0';
+		const char *p = pet_name;
+		const char *p0 = pet_name;
+		int sl;
+		while ( *p != '\0' && nk < 4 ) {
+			sl = 0;
+			while ( p[ sl ] != '\0' && p[ sl ] != ' ' ) sl++;
+			if ( sl == 0 ) { if ( *p == '\0' ) break; p++; continue; }
+			if ( sl > 63 ) sl = 63;
+			memcpy( keys[ nk ], p, sl ); keys[ nk ][ sl ] = '\0'; nk++;
+			p += sl;
+			while ( *p == ' ' ) p++;
+		}
+		if ( nk > 0 ) {
+			/* keep the full string too - some lines quote the whole name */
+			sl = 0; while ( pet_name[ sl ] != '\0' && sl < 63 ) sl++;
+			memcpy( keys[ nk ], pet_name, sl ); keys[ nk ][ sl ] = '\0'; nk++;
+		}
 	}
 	if ( !once ) { once = 1;
-		printf( "ovlmsg: key=%s len1=%d\n", key, sw_ovl_pv_msg->len[1] ); fflush( stdout );
-		/*	once-only dump of the whole ring: shows the cell order and where
-			the write cursor sits, so the newest-first walk can be checked. */
+		printf( "ovlmsg: nk=%d \"%s\"\n", nk, nk ? keys[0] : "(none)" ); fflush( stdout );
 		for ( i = 0; i < (int)sw_ovl_pv_msg->len[1]; i++ ) {
 			s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
 			if ( s != NULL && s[0] != '\0' )
 				printf( "ovlmsg[%d]: %s\n", i, s ); fflush( stdout );
 		}
 	}
-	/*	Collect the latest pet lines into hits (newest first), then join
-		oldest-first: the panel reads top = old, bottom = new, and a fresh
-		line scrolls the older ones up like the game's own log.		*/
+	/*	Collect the latest pet lines (newest first).  A line counts if it
+		contains ANY of the name tokens.  Then join them oldest-first.  */
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0 && got < SW_OVL_PET_ROWS; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-		if ( s == NULL || key[ 0 ] == '\0' || strstr( s, key ) == NULL ) continue;
-		hits[ got++ ] = s;
+		if ( s == NULL || nk == 0 ) continue;
+		for ( kk = 0; kk < nk; kk++ )
+			if ( keys[ kk ][ 0 ] != '\0' && strstr( s, keys[ kk ] ) != NULL ) {
+				hits[ got++ ] = s; break;
+			}
 	}
 	out[ 0 ] = '\0';
 	while ( got > 0 ) {
@@ -775,7 +788,6 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 		if ( --got > 0 ) out[ o++ ] = '\n';
 		out[ o ] = '\0';
 	}
-	if ( dbg < 5 ) { dbg++; printf( "ovlmsg: got=%d %s\n", got, out[0] != '\0' ? out : "(none)" ); fflush( stdout ); }
 	return out;
 }
 
@@ -1014,18 +1026,19 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 
 static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
 {
-	char buf[ 200 ];
-	int len = (int)strlen( msg );
-	int row, s, maxw, n, cw, w, h;
+	char rows[ 128 ][ 256 ];
+	char buf[ 256 ];
+	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h;
 
+	if ( msg == NULL ) return;
+	len = (int)strlen( msg );
 	if ( len <= 0 ) return;
-	maxw = panel->w - x - 8;	/* 8px right margin keeps the frame clear */
+	maxw = panel->w - x - 8;
+	/*	Split the whole buffer into display rows first (each '\n' segment plus
+		width wraps).  If a line would overflow the scratch buffer the oldest row
+		is dropped so the newest rows are kept.  */
 	s = 0;
-	for ( row = 0; row < maxl && s < len; row++ ) {
-		/*	Collect one log line (up to the next '\n' or the end).  Whole
-			UTF-8 chars are added while the chunk still fits the strip's text
-			width, so a line fills the panel before wrapping; each '\n'
-			segment starts on its own row.							*/
+	while ( s < len ) {
 		n = 0;
 		while ( s + n < len && msg[ s + n ] != '\n' ) {
 			unsigned char b = (unsigned char)msg[ s + n ];
@@ -1033,19 +1046,27 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			if ( b >= 0xC2 && b <= 0xDF ) cw = 2;
 			else if ( b >= 0xE0 && b <= 0xEF ) cw = 3;
 			else if ( b >= 0xF0 && b <= 0xF4 ) cw = 4;
-			if ( n + cw > (int)sizeof( buf ) - 1 ) break;
-			memcpy( buf, msg + s, n + cw );
-			buf[ n + cw ] = '\0';
-			if ( TTF_SizeUTF8( sw_ovl_font, buf, &w, &h ) != 0 || w > maxw ) break;
+			if ( n + cw > 254 ) break;
+			memcpy( buf, msg + s, n + cw ); buf[ n + cw ] = '\0';
+			if ( TTF_SizeUTF8( sw_ovl_font_small, buf, &w, &h ) != 0 || w > maxw ) break;
 			n += cw;
 		}
-		if ( n <= 0 ) n = 1;	/* safety: at least one byte on a broken string */
-		memcpy( buf, msg + s, n );
-		buf[ n ] = '\0';
-		sw_ovl_blit_text( panel, buf, 210, x, y + row * 18 );
+		if ( n <= 0 ) n = 1;
+		if ( n > 255 ) n = 255;
+		memcpy( buf, msg + s, n ); buf[ n ] = '\0';
+		if ( nr >= 128 ) {
+			memmove( rows[ 0 ], rows[ 1 ], ( 128 - 1 ) * 256 );
+			nr = 127;
+		}
+		strncpy( rows[ nr ], buf, 255 ); rows[ nr ][ 255 ] = '\0'; nr++;
 		s += n;
 		if ( s < len && msg[ s ] == '\n' ) s++;
 	}
+	/*	Bottom-aligned: render only the newest maxl rows, old rows scroll off
+		the top; the newest message always shows in full at the bottom.  */
+	start = ( nr > maxl ) ? ( nr - maxl ) : 0;
+	for ( row = start, rrow = 0; row < nr; row++, rrow++ )
+		sw_ovl_blit_small( panel, rows[ row ], 255, x, y + rrow * 15 );
 }
 
 static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
@@ -1077,22 +1098,19 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	sw_ovl_party_draw_box( panel, strip_w );
 	y = sw_ovl_party_rows_y( strip_w );
 
-	if ( ix == 1 ) {
-		static const char *lbl[3] = { "HP", "MP", "SP" };
-		int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
-		int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
-		for ( i = 0; i < 3; i++ ) {
-			if ( mxs[ i ] <= 0 ) continue;
-			snprintf( buf, sizeof( buf ), "%s %d/%d", lbl[ i ], cur[ i ], mxs[ i ] );
-			sw_ovl_blit_text( panel, buf, 230, 8, y + i * SW_OVL_PARTY_STAT_PITCH );
-			r.x = 8; r.y = y + i * SW_OVL_PARTY_STAT_PITCH + 17; r.w = strip_w - 16; r.h = 8;
-			SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
+		{
+			static const char *lbl[3] = { "HP", "MP", "SP" };
+			int cur[3] = { sw_ovl_party_hp[ix], sw_ovl_party_mp[ix], sw_ovl_party_sp[ix] };
+			int mxs[3] = { sw_ovl_party_mhp[ix], sw_ovl_party_mmp[ix], sw_ovl_party_msp[ix] };
+			for ( i = 0; i < 3; i++ ) {
+				if ( mxs[ i ] <= 0 ) continue;
+				snprintf( buf, sizeof( buf ), "%s %d/%d", lbl[ i ], cur[ i ], mxs[ i ] );
+				sw_ovl_blit_text( panel, buf, 230, 8, y + i * SW_OVL_PARTY_STAT_PITCH );
+				r.x = 8; r.y = y + i * SW_OVL_PARTY_STAT_PITCH + 17; r.w = strip_w - 16; r.h = 8;
+				SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
+			}
+			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
-		y += 3 * SW_OVL_PARTY_STAT_PITCH;
-	}
-
-	for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
-		int nw;
 		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
 		sw_ovl_blit_text( panel, buf, 225, 8, y );
 		if ( TTF_SizeUTF8( sw_ovl_font, buf, &nw, NULL ) == 0 )
