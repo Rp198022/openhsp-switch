@@ -3870,7 +3870,7 @@ extern int code_getdebug_line( void );
 extern char *code_getdebug_name( void );
 
 #define SWMES_PROBE_SLOTS 4096
-static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s )
+static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s, void *ra )
 {
 	/*	r188dbg2: key the 2 s de-dup on (hash, y bucket) instead of (x,y,hash).
 		The 3x3 outline draws one string nine times at x..x+2 / y..y+2, which
@@ -3905,16 +3905,16 @@ static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s )
 	}
 	seen[slot].tick = now;
 	total++;
-	printf( "SWMES t=%u bm=%p sx=%d sy=%d x=%d y=%d fs=%d ln=%d fn=%.12s s=%s\n",
-		now, (void *)bm, bm->sx, bm->sy, x, y, tmes._fontsize,
+	printf( "SWMES t=%u ra=%p bm=%p sx=%d sy=%d x=%d y=%d fs=%d ln=%d fn=%.12s s=%s\n",
+		now, ra, (void *)bm, bm->sx, bm->sy, x, y, tmes._fontsize,
 		code_getdebug_line(),
 		code_getdebug_name() ? code_getdebug_name() : "(null)", s );
 	fflush( stdout );
 }
 
-static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
+static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s, void *ra )
 {
-	sw_mes_probe( bm, x, y, s );
+	sw_mes_probe( bm, x, y, s, ra );
 	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
 	sw_mes_drawn[sw_mes_drawn_ix].x = x;
 	sw_mes_drawn[sw_mes_drawn_ix].y = y;
@@ -4055,7 +4055,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
-		sw_mes_note_draw( bm, bm->cx, bm->cy, use );
+		sw_mes_note_draw( bm, bm->cx, bm->cy, use, __builtin_return_address(0) );
 	}
 
 	if (xsize > bm->printsizex) bm->printsizex = xsize;
