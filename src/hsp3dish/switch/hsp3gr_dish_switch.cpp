@@ -631,6 +631,33 @@ static int sw_kbd_take( void )
 	type into.  Offered once per selection, EXCEPT when the player closes it
 	without typing: that puts it straight back up (a cool-down apart, and only
 	a few times) because an empty line is not a valid answer to these boxes.	*/
+/*	A marker file turns the keyboard offer off.
+
+	Eden cannot serve the request: its software-keyboard HLE asserts on the
+	SwkbdConfig this port's libnx hands it - applet_software_keyboard.cpp:212,
+	"swkbd_config_data.size() == sizeof(SwkbdConfigCommon) +
+	sizeof(SwkbdConfigNew)" - and the emulator stops right there, so swkbdShow
+	never returns and the guest waits forever for a box it can never answer.
+	Every text prompt then hangs the game, including the name Elona asks for
+	at the end of character creation.  With the marker present the offer is
+	skipped and the pad letters - and keys.txt - stay the way to fill a
+	prompt; hardware, whose keyboard does work, is unaffected without it.	*/
+static int sw_kbd_off_cached = -1;
+static int sw_kbd_disabled( void )
+{
+	FILE *fp;
+
+	if ( sw_kbd_off_cached >= 0 ) return sw_kbd_off_cached;
+	fp = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
+	sw_kbd_off_cached = ( fp != NULL ) ? 1 : 0;
+	if ( fp != NULL ) {
+		fclose( fp );
+		printf( "hsp3switch: system keyboard off (noswkbd marker)\n" );
+		fflush( stdout );
+	}
+	return sw_kbd_off_cached;
+}
+
 static void sw_kbd_offer( void )
 {
 	/*	File scope, not stack: sw_key_tick() runs on every extended command,
@@ -639,6 +666,7 @@ static void sw_kbd_offer( void )
 	static char text[SW_KBD_MAX];
 	int r, n;
 
+	if ( sw_kbd_disabled() ) return;
 	if ( sw_objsel_id <= 0 ) {
 		sw_kbd_shown_for = -1;
 		sw_kbd_retry = 0;
