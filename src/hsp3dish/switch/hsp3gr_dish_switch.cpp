@@ -1077,6 +1077,13 @@ static int cmdfunc_extcmd( int cmd )
 		ptr = code_getdsi( "" );
 		code_stmpstr(ptr);
 		sw = code_getdi(0);
+		{	/*	SWMES2 probe: log pos-set cursor + embedded CR/LF count.	*/
+			int _n = 0, _cr = 0; const char *_p = ptr;
+			while ( *_p != 0 ) { if ( *_p == '\r' || *_p == '\n' ) _cr++; _p++; _n++; }
+			if ( bmscr->sx == 800 && bmscr->sy == 600 && _n > 2 ) {
+				printf( "SWMES2 cx=%d cy=%d len=%d cr=%d s=%.32s\n", bmscr->cx, bmscr->cy, _n, _cr, ptr );
+			}
+		}
 		bmscr->Print(ptr,sw);
 		break;
 		}
