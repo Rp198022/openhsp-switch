@@ -3965,7 +3965,7 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	the string, extra2 = number of embedded CR/LF).							*/
 void sw_mes_ring_add_cursor( void *bmp, int cx, int cy, int tag, int extra1, int extra2 )
 {
-	sw_mes_ring_add( (BMSCR *)bmp, cx, cy, "cursor", tag, extra1, extra2 );
+	sw_mes_ring_add( (BMSCR *)bmp, cx, cy, "cursor", tag, extra1, extra2, 0 );
 }
 
 int hgio_mes(BMSCR* bm, char* msg)
