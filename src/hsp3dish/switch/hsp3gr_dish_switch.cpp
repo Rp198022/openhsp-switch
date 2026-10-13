@@ -1075,7 +1075,7 @@ static int cmdfunc_extcmd( int cmd )
 		int sw;
 		char *ptr;
 		ptr = code_getdsi( "" );
-		code_stmpstr(ptr);
+		ptr = code_stmpstr(ptr);
 		sw = code_getdi(0);
 		{	/*	SWMES2 probe: log pos-set cursor + embedded CR/LF count.	*/
 			int _n = 0, _cr = 0; const char *_p = ptr;
