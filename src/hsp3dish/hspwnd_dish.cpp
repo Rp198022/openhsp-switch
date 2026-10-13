@@ -879,6 +879,17 @@ void Bmscr::Circle( int x1,int y1,int x2,int y2, int mode )
 
 /*----------------------------------------------------------------*/
 
+/*	The classic runtime never fails on a source rectangle that runs past the
+	end of the source bitmap: its Blt/StretchBlt simply clips to whatever part
+	of the bitmap the rectangle still covers.  This fork returned -1 instead,
+	and every caller turns that into HSPERR_UNSUPPORTED_FUNCTION, which ends
+	the script.  Elona reads outside a buffer in more than one place - the
+	class preview keeps its portrait sheet in the window it sized to
+	800x720 and then asks for the tile at y=896 of the 1280x1120 sheet on
+	disk - so the difference was enough to stop the game dead at the first
+	dialogue.  Clip the way the classic runtime does instead: trim the
+	rectangle to the source and, when nothing is left to draw, draw nothing.	*/
+
 int Bmscr::Copy( Bmscr *src, int xx, int yy, int s_psx, int s_psy )
 {
 	//		copy
@@ -890,14 +901,14 @@ int Bmscr::Copy( Bmscr *src, int xx, int yy, int s_psx, int s_psy )
 	texpy = yy + s_psy;
 
 	if (vp_flag == BMSCR_VPFLAG_NOUSE) {
-		if (texpx < 0) return -1;
+		if (texpx < 0) return 0;
 		if (texpx >= src->sx) {
-			if (xx >= src->sx) return -1;
+			if (xx >= src->sx) return 0;
 			psx = src->sx - xx;
 		}
-		if (texpy < 0) return -1;
+		if (texpy < 0) return 0;
 		if (texpy >= src->sy) {
-			if (yy >= src->sy) return -1;
+			if (yy >= src->sy) return 0;
 			psy = src->sy - yy;
 		}
 	}
@@ -917,14 +928,14 @@ int Bmscr::Zoom( int dx, int dy, Bmscr *src, int xx, int yy, int s_psx, int s_ps
 	texpx = xx + s_psx;
 	texpy = yy + s_psy;
 	if (vp_flag == BMSCR_VPFLAG_NOUSE) {
-		if (texpx < 0) return -1;
+		if (texpx < 0) return 0;
 		if (texpx >= src->sx) {
-			if (xx >= src->sx) return -1;
+			if (xx >= src->sx) return 0;
 			psx = src->sx - xx;
 		}
-		if (texpy < 0) return -1;
+		if (texpy < 0) return 0;
 		if (texpy >= src->sy) {
-			if (yy >= src->sy) return -1;
+			if (yy >= src->sy) return 0;
 			psy = src->sy - yy;
 		}
 	}
