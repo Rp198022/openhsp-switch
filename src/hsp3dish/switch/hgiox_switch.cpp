@@ -3942,7 +3942,7 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
 		}
 	}
 	sw_mes_ring_since++;
-	if ( sw_mes_ring_since >= 2000 ) {
+	if ( sw_mes_ring_since >= 200 ) {
 		sw_mes_ring_since = 0;
 		sw_mes_ring_dump( "auto", 200 );
 	}
