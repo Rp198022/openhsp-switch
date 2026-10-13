@@ -804,9 +804,9 @@ int Bmscr::PrintSub( char *mes )
 #endif
 	}
 
-//	if (spcur > 0) {
+	if (spcur > 0) {
 		hgio_mes((BMSCR *)this, (char*)st);
-//	}
+	}
 
 	return printsizex;
 }
