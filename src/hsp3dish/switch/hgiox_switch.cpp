@@ -3881,6 +3881,28 @@ static struct {
 static int sw_mes_ring_pos = 0;
 static int sw_mes_ring_n = 0;
 static int sw_mes_ring_check = 0;
+static int sw_mes_ring_since = 0;
+
+/*	Write the last cnt entries, oldest first.  Called both on the marker file
+	and on a rolling cadence, so the dump does not depend on the runtime's
+	file layer answering a probe (it caches misses).							*/
+static void sw_mes_ring_dump( const char *why, int cnt )
+{
+	int k, n = sw_mes_ring_n;
+	if ( cnt > n ) cnt = n;
+	printf( "MESR BEGIN %s n=%d cnt=%d\n", why, n, cnt );
+	for ( k = n - cnt; k < n; k++ ) {
+		int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
+		printf( "MESR %u tag=%d bm=%p ty=%d %dx%d x=%d y=%d fs=%d md=%d tsx=%d tsy=%d ln=%d fn=%.15s s=%.47s\n",
+			sw_mes_ring[idx].tick, sw_mes_ring[idx].tag, sw_mes_ring[idx].bm,
+			sw_mes_ring[idx].type, sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
+			sw_mes_ring[idx].x, sw_mes_ring[idx].y, sw_mes_ring[idx].fs,
+			sw_mes_ring[idx].mode, sw_mes_ring[idx].tsx, sw_mes_ring[idx].tsy,
+			sw_mes_ring[idx].ln, sw_mes_ring[idx].fn, sw_mes_ring[idx].s );
+	}
+	printf( "MESR END %s\n", why );
+	fflush( stdout );
+}
 
 static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
 	int tag, int mode, int tsx, int tsy )
@@ -3911,25 +3933,18 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
 	if ( sw_mes_ring_n < SWMES_RING ) sw_mes_ring_n++;
 
 	sw_mes_ring_check++;
-	if ( ( sw_mes_ring_check & 63 ) != 0 ) return;
-	{
+	if ( ( sw_mes_ring_check & 63 ) == 0 ) {
 		FILE *f = fopen( "sdmc:/switch/openhsp/mesdump", "rb" );
-		int k, n;
-		if ( f == NULL ) return;
-		fclose( f );
-		remove( "sdmc:/switch/openhsp/mesdump" );
-		n = sw_mes_ring_n;
-		for ( k = 0; k < n; k++ ) {
-			int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
-			printf( "MESR %u tag=%d bm=%p ty=%d %dx%d x=%d y=%d fs=%d md=%d tsx=%d tsy=%d ln=%d fn=%.15s s=%.47s\n",
-				sw_mes_ring[idx].tick, sw_mes_ring[idx].tag, sw_mes_ring[idx].bm,
-				sw_mes_ring[idx].type, sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
-				sw_mes_ring[idx].x, sw_mes_ring[idx].y, sw_mes_ring[idx].fs,
-				sw_mes_ring[idx].mode, sw_mes_ring[idx].tsx, sw_mes_ring[idx].tsy,
-				sw_mes_ring[idx].ln, sw_mes_ring[idx].fn, sw_mes_ring[idx].s );
+		if ( f != NULL ) {
+			fclose( f );
+			remove( "sdmc:/switch/openhsp/mesdump" );
+			sw_mes_ring_dump( "marker", SWMES_RING );
 		}
-		printf( "MESR END n=%d\n", n );
-		fflush( stdout );
+	}
+	sw_mes_ring_since++;
+	if ( sw_mes_ring_since >= 2000 ) {
+		sw_mes_ring_since = 0;
+		sw_mes_ring_dump( "auto", 200 );
 	}
 }
 
