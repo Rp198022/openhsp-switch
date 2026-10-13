@@ -3913,11 +3913,11 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
 	sw_mes_ring_check++;
 	if ( ( sw_mes_ring_check & 63 ) != 0 ) return;
 	{
-		FILE *f = fopen( "mesdump", "rb" );
+		FILE *f = fopen( "sdmc:/switch/openhsp/mesdump", "rb" );
 		int k, n;
 		if ( f == NULL ) return;
 		fclose( f );
-		remove( "mesdump" );
+		remove( "sdmc:/switch/openhsp/mesdump" );
 		n = sw_mes_ring_n;
 		for ( k = 0; k < n; k++ ) {
 			int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
