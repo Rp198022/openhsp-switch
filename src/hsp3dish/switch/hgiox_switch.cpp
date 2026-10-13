@@ -3860,112 +3860,14 @@ static void sw_mes_clean( char *dst, const char *msg, int *had_cr, int *ok )
 	}
 }
 
-/*	--- TEMP PROBE (book overlap) --------------------------------------------
-	Ring of the most recent text blits with their coordinates, font size and
-	the script site that asked for them.  Nothing is printed until a file named
-	"mesdump" appears in the working directory: the ring is then written out in
-	chronological order and the marker removed, so one dump captures the page
-	that is on screen at that moment.  Remove with the probe.					*/
-extern int code_getdebug_line( void );
-extern char *code_getdebug_name( void );
-
-#define SWMES_RING		4000
-static struct {
-	unsigned	tick;
-	void		*bm;
-	int		type, sx, sy, x, y, fs, ln;
-	int		tag, mode, tsx, tsy;
-	char		fn[16];
-	char		s[48];
-} sw_mes_ring[SWMES_RING];
-static int sw_mes_ring_pos = 0;
-static int sw_mes_ring_n = 0;
-static int sw_mes_ring_check = 0;
-static int sw_mes_ring_since = 0;
-
-/*	Write the last cnt entries, oldest first.  Called both on the marker file
-	and on a rolling cadence, so the dump does not depend on the runtime's
-	file layer answering a probe (it caches misses).							*/
-static void sw_mes_ring_dump( const char *why, int cnt )
-{
-	int k, n = sw_mes_ring_n;
-	if ( cnt > n ) cnt = n;
-	printf( "MESR BEGIN %s n=%d cnt=%d\n", why, n, cnt );
-	for ( k = n - cnt; k < n; k++ ) {
-		int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
-		printf( "MESR %u tag=%d bm=%p ty=%d %dx%d x=%d y=%d fs=%d md=%d tsx=%d tsy=%d ln=%d fn=%.15s s=%.47s\n",
-			sw_mes_ring[idx].tick, sw_mes_ring[idx].tag, sw_mes_ring[idx].bm,
-			sw_mes_ring[idx].type, sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
-			sw_mes_ring[idx].x, sw_mes_ring[idx].y, sw_mes_ring[idx].fs,
-			sw_mes_ring[idx].mode, sw_mes_ring[idx].tsx, sw_mes_ring[idx].tsy,
-			sw_mes_ring[idx].ln, sw_mes_ring[idx].fn, sw_mes_ring[idx].s );
-	}
-	printf( "MESR END %s\n", why );
-	fflush( stdout );
-}
-
-static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
-	int tag, int mode, int tsx, int tsy )
-{
-	int i = sw_mes_ring_pos;
-	char *nm;
-
-	if ( s == NULL ) s = "";
-	sw_mes_ring[i].tick = (unsigned)hgio_gettick();
-	sw_mes_ring[i].bm = (void *)bm;
-	sw_mes_ring[i].type = ( bm != NULL ) ? (int)bm->type : -1;
-	sw_mes_ring[i].sx = ( bm != NULL ) ? bm->sx : -1;
-	sw_mes_ring[i].sy = ( bm != NULL ) ? bm->sy : -1;
-	sw_mes_ring[i].x = x;
-	sw_mes_ring[i].y = y;
-	sw_mes_ring[i].fs = tmes._fontsize;
-	sw_mes_ring[i].ln = code_getdebug_line();
-	sw_mes_ring[i].tag = tag;
-	sw_mes_ring[i].mode = mode;
-	sw_mes_ring[i].tsx = tsx;
-	sw_mes_ring[i].tsy = tsy;
-	nm = code_getdebug_name();
-	strncpy( sw_mes_ring[i].fn, ( nm != NULL ) ? nm : "?", 15 );
-	sw_mes_ring[i].fn[15] = 0;
-	strncpy( sw_mes_ring[i].s, s, 47 );
-	sw_mes_ring[i].s[47] = 0;
-	sw_mes_ring_pos = ( i + 1 ) % SWMES_RING;
-	if ( sw_mes_ring_n < SWMES_RING ) sw_mes_ring_n++;
-
-	sw_mes_ring_check++;
-	if ( ( sw_mes_ring_check & 63 ) == 0 ) {
-		FILE *f = fopen( "sdmc:/switch/openhsp/mesdump", "rb" );
-		if ( f != NULL ) {
-			fclose( f );
-			remove( "sdmc:/switch/openhsp/mesdump" );
-			sw_mes_ring_dump( "marker", SWMES_RING );
-		}
-	}
-	sw_mes_ring_since++;
-	if ( sw_mes_ring_since >= 200 ) {
-		sw_mes_ring_since = 0;
-		sw_mes_ring_dump( "auto", 200 );
-	}
-}
-
 static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 {
-	sw_mes_ring_add( bm, x, y, s, 1, 0, 0, 0 );
 	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
 	sw_mes_drawn[sw_mes_drawn_ix].x = x;
 	sw_mes_drawn[sw_mes_drawn_ix].y = y;
 	sw_mes_drawn[sw_mes_drawn_ix].tick = (unsigned)hgio_gettick();
 	sw_mes_drawn[sw_mes_drawn_ix].hash = sw_text_hash( s );
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
-}
-
-/*	TEMP PROBE: the cursor as the script sets it (pos) and as the mes command
-	sees it, so the two can be compared against the coordinate the blit
-	actually lands on.  tag=3 pos, tag=4 mes dispatch (extra1 = byte length of
-	the string, extra2 = number of embedded CR/LF).							*/
-void sw_mes_ring_add_cursor( void *bmp, int cx, int cy, int tag, int extra1, int extra2 )
-{
-	sw_mes_ring_add( (BMSCR *)bmp, cx, cy, "cursor", tag, extra1, extra2, 0 );
 }
 
 int hgio_mes(BMSCR* bm, char* msg)
@@ -4198,10 +4100,6 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 			ysize = esy - y;
 			if (ysize <= 0) return -1;
 		}
-		/*	TEMP PROBE: the texmesPos path draws here and never reaches
-			hgio_mes, so the blit ring has to be fed from this site too.	*/
-		sw_mes_ring_add( bm, x, y, tpos->getString(), 2, (int)tpos->mode,
-			(int)sx, (int)sy );
 		hgio_fontcopy(bm, x, y, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, tx, ty);
 	}
 

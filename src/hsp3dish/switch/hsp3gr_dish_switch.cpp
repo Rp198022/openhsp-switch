@@ -1086,12 +1086,6 @@ static int cmdfunc_extcmd( int cmd )
 		code_estmppush( ptr );
 		sw = code_getdi(0);
 		ptr = code_estmppop();
-		/*	TEMP PROBE: cursor the mes command sees before Print runs, plus the
-			byte length and embedded CR/LF count of the string it was handed.	*/
-		{ extern void sw_mes_ring_add_cursor( void *, int, int, int, int, int );
-		  int _ln = 0, _cr = 0; const char *_p = ptr;
-		  while ( *_p != 0 ) { if ( *_p == '\r' || *_p == '\n' ) _cr++; _p++; _ln++; }
-		  sw_mes_ring_add_cursor( bmscr, bmscr->cx, bmscr->cy, 4, _ln, _cr ); }
 		bmscr->Print(ptr,sw);
 		break;
 		}
@@ -1105,9 +1099,6 @@ static int cmdfunc_extcmd( int cmd )
 	case 0x11:								// pos
 		bmscr->cx = code_getdi( bmscr->cx );
 		bmscr->cy = code_getdi( bmscr->cy );
-		/*	TEMP PROBE: record the cursor the script just set.	*/
-		{ extern void sw_mes_ring_add_cursor( void *, int, int, int, int, int );
-		  sw_mes_ring_add_cursor( bmscr, bmscr->cx, bmscr->cy, 3, 0, 0 ); }
 		break;
 
 	case 0x12:								// circle
