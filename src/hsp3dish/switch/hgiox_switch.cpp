@@ -3959,6 +3959,14 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
 }
 
+/*	TEMP PROBE: the cursor as the script sets it (pos) and as the mes command
+	sees it, so the two can be compared against the coordinate the blit
+	actually lands on.  tag=3 pos, tag=4 mes dispatch.						*/
+void sw_mes_ring_add_cursor( BMSCR *bm, int cx, int cy, int tag )
+{
+	sw_mes_ring_add( bm, cx, cy, "cursor", tag, 0, 0, 0 );
+}
+
 int hgio_mes(BMSCR* bm, char* msg)
 {
 	//		mes,print 文字表示
