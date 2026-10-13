@@ -3860,8 +3860,75 @@ static void sw_mes_clean( char *dst, const char *msg, int *had_cr, int *ok )
 	}
 }
 
+/*	--- TEMP PROBE (book overlap) --------------------------------------------
+	Ring of the most recent text blits with their coordinates, font size and
+	the script site that asked for them.  Nothing is printed until a file named
+	"mesdump" appears in the working directory: the ring is then written out in
+	chronological order and the marker removed, so one dump captures the page
+	that is on screen at that moment.  Remove with the probe.					*/
+extern int code_getdebug_line( void );
+extern char *code_getdebug_name( void );
+
+#define SWMES_RING		4000
+static struct {
+	unsigned	tick;
+	void		*bm;
+	int		type, sx, sy, x, y, fs, ln;
+	char		fn[16];
+	char		s[48];
+} sw_mes_ring[SWMES_RING];
+static int sw_mes_ring_pos = 0;
+static int sw_mes_ring_n = 0;
+static int sw_mes_ring_check = 0;
+
+static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s )
+{
+	int i = sw_mes_ring_pos;
+	char *nm;
+
+	if ( s == NULL ) s = "";
+	sw_mes_ring[i].tick = (unsigned)hgio_gettick();
+	sw_mes_ring[i].bm = (void *)bm;
+	sw_mes_ring[i].type = ( bm != NULL ) ? (int)bm->type : -1;
+	sw_mes_ring[i].sx = ( bm != NULL ) ? bm->sx : -1;
+	sw_mes_ring[i].sy = ( bm != NULL ) ? bm->sy : -1;
+	sw_mes_ring[i].x = x;
+	sw_mes_ring[i].y = y;
+	sw_mes_ring[i].fs = tmes._fontsize;
+	sw_mes_ring[i].ln = code_getdebug_line();
+	nm = code_getdebug_name();
+	strncpy( sw_mes_ring[i].fn, ( nm != NULL ) ? nm : "?", 15 );
+	sw_mes_ring[i].fn[15] = 0;
+	strncpy( sw_mes_ring[i].s, s, 47 );
+	sw_mes_ring[i].s[47] = 0;
+	sw_mes_ring_pos = ( i + 1 ) % SWMES_RING;
+	if ( sw_mes_ring_n < SWMES_RING ) sw_mes_ring_n++;
+
+	sw_mes_ring_check++;
+	if ( ( sw_mes_ring_check & 63 ) != 0 ) return;
+	{
+		FILE *f = fopen( "mesdump", "rb" );
+		int k, n;
+		if ( f == NULL ) return;
+		fclose( f );
+		remove( "mesdump" );
+		n = sw_mes_ring_n;
+		for ( k = 0; k < n; k++ ) {
+			int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
+			printf( "MESR %u bm=%p ty=%d %dx%d x=%d y=%d fs=%d ln=%d fn=%.15s s=%.47s\n",
+				sw_mes_ring[idx].tick, sw_mes_ring[idx].bm, sw_mes_ring[idx].type,
+				sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
+				sw_mes_ring[idx].x, sw_mes_ring[idx].y, sw_mes_ring[idx].fs,
+				sw_mes_ring[idx].ln, sw_mes_ring[idx].fn, sw_mes_ring[idx].s );
+		}
+		printf( "MESR END n=%d\n", n );
+		fflush( stdout );
+	}
+}
+
 static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 {
+	sw_mes_ring_add( bm, x, y, s );
 	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
 	sw_mes_drawn[sw_mes_drawn_ix].x = x;
 	sw_mes_drawn[sw_mes_drawn_ix].y = y;
