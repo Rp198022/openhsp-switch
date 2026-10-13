@@ -1281,17 +1281,17 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr = wnd->GetBmscrSafe( p1 );
 		cur_window = p1;
 		bmscr->Select( p2 );
-		/*	gmode belongs to each window (HSP documents it as a per-window
-			setting) and this build's Bmscr::Select() does not reset these
-			fields, so a window that has already set its own mode keeps it.
-			The remembered mode is carried over only into a window still
-			sitting at the defaults, which is the case the carry was added
-			for: Elona's display_customkey sets gmode 2, switches to another
-			screen and then copies.  Writing the last gmode into every window
-			instead let two windows overwrite each other's mode and size.	*/
-		if ( sw_gmode_set &&
-			 bmscr->gmode  == 0  && bmscr->gx     == 32 &&
-			 bmscr->gy     == 32 && bmscr->gfrate == 0 ) {
+		/*	T2.6: widened.  gmode belongs to each window and a window that has
+			already chosen one keeps it - that is what the guard below is for.
+			But requiring the target's geometry to still be the compile-time
+			default (32/32/0) as well refused the carry to every window the game
+			had already sized, which is exactly what 2.33's PCC composition does:
+			it sizes the screen and then copies, so its full-body portrait lost
+			the gmode 2 colour key and came out black, while 2.32 - whose windows
+			are still at the defaults when the carry runs - was unaffected.
+			Only gmode is checked now; the carry still never overwrites a window
+			that has set a mode of its own (the r164 regression).				*/
+		if ( sw_gmode_set && bmscr->gmode == 0 ) {
 			bmscr->gmode  = sw_gmode_g[0];
 			bmscr->gx     = sw_gmode_g[1];
 			bmscr->gy     = sw_gmode_g[2];
