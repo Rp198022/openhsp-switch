@@ -1075,8 +1075,17 @@ static int cmdfunc_extcmd( int cmd )
 		int sw;
 		char *ptr;
 		ptr = code_getdsi( "" );
-		ptr = code_stmpstr(ptr);
+		/*	The string operand points into a buffer the interpreter reuses: it is
+			stmp when the operand had to be converted or was a computed string,
+			and the option read below - like every later command - is free to
+			overwrite that buffer.  The classic backend pushes the pointer onto
+			the extended temporary buffer first and pops it back just before the
+			draw; without that the text Print receives is whatever the shared
+			buffer happens to hold, which is how the book reader drew the rest of
+			the page over and over, each row one glyph-height lower.			*/
+		code_estmppush( ptr );
 		sw = code_getdi(0);
+		ptr = code_estmppop();
 		/*	TEMP PROBE: cursor the mes command sees before Print runs, plus the
 			byte length and embedded CR/LF count of the string it was handed.	*/
 		{ extern void sw_mes_ring_add_cursor( void *, int, int, int, int, int );
