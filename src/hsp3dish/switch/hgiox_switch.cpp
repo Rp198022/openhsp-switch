@@ -3874,6 +3874,7 @@ static struct {
 	unsigned	tick;
 	void		*bm;
 	int		type, sx, sy, x, y, fs, ln;
+	int		tag, mode, tsx, tsy;
 	char		fn[16];
 	char		s[48];
 } sw_mes_ring[SWMES_RING];
@@ -3881,7 +3882,8 @@ static int sw_mes_ring_pos = 0;
 static int sw_mes_ring_n = 0;
 static int sw_mes_ring_check = 0;
 
-static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s )
+static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s,
+	int tag, int mode, int tsx, int tsy )
 {
 	int i = sw_mes_ring_pos;
 	char *nm;
@@ -3896,6 +3898,10 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_ring[i].y = y;
 	sw_mes_ring[i].fs = tmes._fontsize;
 	sw_mes_ring[i].ln = code_getdebug_line();
+	sw_mes_ring[i].tag = tag;
+	sw_mes_ring[i].mode = mode;
+	sw_mes_ring[i].tsx = tsx;
+	sw_mes_ring[i].tsy = tsy;
 	nm = code_getdebug_name();
 	strncpy( sw_mes_ring[i].fn, ( nm != NULL ) ? nm : "?", 15 );
 	sw_mes_ring[i].fn[15] = 0;
@@ -3915,10 +3921,11 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s )
 		n = sw_mes_ring_n;
 		for ( k = 0; k < n; k++ ) {
 			int idx = ( sw_mes_ring_pos - n + k + SWMES_RING * 2 ) % SWMES_RING;
-			printf( "MESR %u bm=%p ty=%d %dx%d x=%d y=%d fs=%d ln=%d fn=%.15s s=%.47s\n",
-				sw_mes_ring[idx].tick, sw_mes_ring[idx].bm, sw_mes_ring[idx].type,
-				sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
+			printf( "MESR %u tag=%d bm=%p ty=%d %dx%d x=%d y=%d fs=%d md=%d tsx=%d tsy=%d ln=%d fn=%.15s s=%.47s\n",
+				sw_mes_ring[idx].tick, sw_mes_ring[idx].tag, sw_mes_ring[idx].bm,
+				sw_mes_ring[idx].type, sw_mes_ring[idx].sx, sw_mes_ring[idx].sy,
 				sw_mes_ring[idx].x, sw_mes_ring[idx].y, sw_mes_ring[idx].fs,
+				sw_mes_ring[idx].mode, sw_mes_ring[idx].tsx, sw_mes_ring[idx].tsy,
 				sw_mes_ring[idx].ln, sw_mes_ring[idx].fn, sw_mes_ring[idx].s );
 		}
 		printf( "MESR END n=%d\n", n );
@@ -3928,7 +3935,7 @@ static void sw_mes_ring_add( BMSCR *bm, int x, int y, const char *s )
 
 static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 {
-	sw_mes_ring_add( bm, x, y, s );
+	sw_mes_ring_add( bm, x, y, s, 1, 0, 0, 0 );
 	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
 	sw_mes_drawn[sw_mes_drawn_ix].x = x;
 	sw_mes_drawn[sw_mes_drawn_ix].y = y;
@@ -4167,6 +4174,10 @@ int hgio_mestex(BMSCR *bm, texmesPos *tpos)
 			ysize = esy - y;
 			if (ysize <= 0) return -1;
 		}
+		/*	TEMP PROBE: the texmesPos path draws here and never reaches
+			hgio_mes, so the blit ring has to be fed from this site too.	*/
+		sw_mes_ring_add( bm, x, y, tpos->getString(), 2, (int)tpos->mode,
+			(int)sx, (int)sy );
 		hgio_fontcopy(bm, x, y, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, tx, ty);
 	}
 
