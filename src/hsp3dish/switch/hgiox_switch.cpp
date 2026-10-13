@@ -3869,18 +3869,25 @@ static void sw_mes_clean( char *dst, const char *msg, int *had_cr, int *ok )
 extern int code_getdebug_line( void );
 extern char *code_getdebug_name( void );
 
-#define SWMES_PROBE_SLOTS 256
+#define SWMES_PROBE_SLOTS 4096
 static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s )
 {
-	static struct { int x, y; unsigned hash, tick; } seen[SWMES_PROBE_SLOTS];
+	/*	r188dbg2: key the 2 s de-dup on (hash, y bucket) instead of (x,y,hash).
+		The 3x3 outline draws one string nine times at x..x+2 / y..y+2, which
+		burned the whole budget on copies of a single line before the book was
+		ever reached.  Binning y to 4px folds the outline in x away while a
+		genuine second copy - the overlap this probe is chasing - stays a
+		separate row.														*/
+	static struct { int yb; unsigned hash, tick; } seen[SWMES_PROBE_SLOTS];
 	static int used = 0, total = 0;
 	unsigned h = sw_text_hash( s );
 	unsigned now = (unsigned)hgio_gettick();
 	int i, slot = -1;
+	int yb = y >> 2;
 
-	if ( total >= 4000 ) return;
+	if ( total >= 120000 ) return;
 	for ( i = 0; i < used; i++ ) {
-		if ( seen[i].x == x && seen[i].y == y && seen[i].hash == h ) {
+		if ( seen[i].yb == yb && seen[i].hash == h ) {
 			if ( now - seen[i].tick < 2000 ) return;
 			slot = i;
 			break;
@@ -3894,7 +3901,7 @@ static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s )
 			for ( j = 1; j < used; j++ ) if ( seen[j].tick < seen[o].tick ) o = j;
 			slot = o;
 		}
-		seen[slot].x = x; seen[slot].y = y; seen[slot].hash = h;
+		seen[slot].yb = yb; seen[slot].hash = h;
 	}
 	seen[slot].tick = now;
 	total++;
