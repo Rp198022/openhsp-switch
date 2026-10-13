@@ -1078,7 +1078,7 @@ static int cmdfunc_extcmd( int cmd )
 		ptr = code_stmpstr(ptr);
 		sw = code_getdi(0);
 		/*	TEMP PROBE: cursor the mes command sees before Print runs.	*/
-		{ extern void sw_mes_ring_add_cursor( BMSCR *, int, int, int );
+		{ extern void sw_mes_ring_add_cursor( void *, int, int, int );
 		  sw_mes_ring_add_cursor( bmscr, bmscr->cx, bmscr->cy, 4 ); }
 		bmscr->Print(ptr,sw);
 		break;
@@ -1094,7 +1094,7 @@ static int cmdfunc_extcmd( int cmd )
 		bmscr->cx = code_getdi( bmscr->cx );
 		bmscr->cy = code_getdi( bmscr->cy );
 		/*	TEMP PROBE: record the cursor the script just set.	*/
-		{ extern void sw_mes_ring_add_cursor( BMSCR *, int, int, int );
+		{ extern void sw_mes_ring_add_cursor( void *, int, int, int );
 		  sw_mes_ring_add_cursor( bmscr, bmscr->cx, bmscr->cy, 3 ); }
 		break;
 
