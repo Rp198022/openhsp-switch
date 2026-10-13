@@ -1340,7 +1340,23 @@ static int cmdfunc_extcmd( int cmd )
 		p7 = code_getdi( bmscr->gy );
 		p8 = code_getdi( 0 );
 		src = wnd->GetBmscrSafe( p3 );
-		if ( bmscr->Zoom( p1, p2, src, p4, p5, p6, p7, p8 ) ) throw HSPERR_UNSUPPORTED_FUNCTION;
+		if ( bmscr->Zoom( p1, p2, src, p4, p5, p6, p7, p8 ) ) {
+			/*	T2.6 diagnostic (temporary): the script's gzoom ran off the
+				source buffer and Zoom() refused it.  Record the numbers so the
+				cause - a shrunken source, a stale rectangle, a wrong screen -
+				is visible instead of inferred.  Remove once resolved.				*/
+			FILE *fp = fopen( "gzoom_fail.log", "ab" );
+			if ( fp != NULL ) {
+				fprintf( fp, "gzoom FAIL dst=%dx%d srcid=%d src=%dx%d vp=%d "
+					"args=%d,%d,%d,%d,%d,%d,%d,%d\n",
+					bmscr->sx, bmscr->sy, p3,
+					( src != NULL ) ? src->sx : -1, ( src != NULL ) ? src->sy : -1,
+					( src != NULL ) ? src->vp_flag : -1,
+					p1, p2, p3, p4, p5, p6, p7, p8 );
+				fclose( fp );
+			}
+			throw HSPERR_UNSUPPORTED_FUNCTION;
+		}
 		break;
 		}
 
