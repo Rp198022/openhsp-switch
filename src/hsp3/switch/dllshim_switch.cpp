@@ -226,10 +226,46 @@ static int impl_hmm_ok( const DllArgValue *args, int argc )
 //
 //	The result is negated into stat, so "one file loaded" is -1, not 1.
 //
+//	Their two .ax declarations are NOT the same (2.32-borscht/main.hsp:44,52):
+//
+//		#func DSLOADFNAME "_DSLOADFNAME@16" pexinfo, nullptr, nullptr, nullptr
+//		#func DMLOADFNAME "_DMLOADFNAME@16" bmscr,  str,     int,     int
+//
+//	DSLOADFNAME's all-pointer form is the one read_arg() leaves untouched - the
+//	marshaller consumes no operand, whatever the script supplied - so the two
+//	operands the game really passes (`DSLOADFNAME sndload_filepath,
+//	sndload_sound_id`, init.hsp:6341) have to be read off the bytecode stream
+//	here, exactly like hspda's sortval/sortnote.  DMLOADFNAME is the typed shape,
+//	its operands are already consumed by read_arg(), so this body - which serves
+//	DMLOADFNAME - must touch the stream never.  Hence the split.
+//
 static int impl_hmm_load( const DllArgValue *args, int argc )
 {
 	(void)args;
 	(void)argc;
+	return -1;		/* stat = 1, see the OLDDLLINIT note above */
+}
+
+//	_DSLOADFNAME@16 - the old-DLL shape above: consume the script's own operands.
+//
+//	Read them generically through code_get() rather than as a typed pair: the two
+//	call sites pass variable references (a filepath and a sound-id), but the
+//	declaration says nothing about them, so nothing is assumed.  Stopping on
+//	PARAM_END/DEFAULT means a shorter or omitted list leaves the stream where the
+//	call wants it to end; the values themselves are discarded (the port has no
+//	audio, only the handle matters).
+//
+static int impl_hmm_dsloadfname( const DllArgValue *args, int argc )
+{
+	int i, chk;
+
+	(void)args;
+	(void)argc;
+
+	for ( i = 0; i < 2; i++ ) {		/* (filepath, sound-id) */
+		chk = code_get();
+		if ( chk <= PARAM_END ) break;
+	}
 	return -1;		/* stat = 1, see the OLDDLLINIT note above */
 }
 
@@ -1412,7 +1448,7 @@ static const DllImplEntry impl_table[] = {
 	{ "hmm.dll",		"_DSINIT@16",			impl_hmm_ok },
 	{ "hmm.dll",		"_DSEND@16",			impl_hmm_ok },
 	{ "hmm.dll",		"_DSRELEASE@16",		impl_hmm_ok },
-	{ "hmm.dll",		"_DSLOADFNAME@16",		impl_hmm_load },
+	{ "hmm.dll",		"_DSLOADFNAME@16",		impl_hmm_dsloadfname },
 	{ "hmm.dll",		"_DSPLAY@16",			impl_hmm_ok },
 	{ "hmm.dll",		"_DSSTOP@16",			impl_hmm_ok },
 	{ "hmm.dll",		"_DSSETVOLUME@16",		impl_hmm_ok },
