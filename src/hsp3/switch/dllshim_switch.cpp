@@ -559,19 +559,27 @@ static int impl_LCMapStringA( const DllArgValue *args, int argc )
 //	  _xnotesel@16  subid=-3 (DLL)  prmmax=4  PPVAL, INUM, INUM, INUM
 //	  _xnoteadd@16  subid=-3 (DLL)  prmmax=4  PBMSCR, LOCALSTRING, INUM, INUM
 //
-//	These are plain DLL entries, NOT OLDDLLINIT, so the marshaller already
-//	consumes the operands - read_arg() takes one for PPVAL (code_getva) and one
-//	for LOCALSTRING (code_gets).  An implementation that calls code_get*() again
-//	reads the *next* operand and leaves the caller's bytecode stream one short.
-//	r181 did exactly that and creation died one step past the ability screen;
-//	loading a save never reaches these two, which is why saves stayed healthy.
-//	A real implementation must take everything from args[] and touch the stream
-//	never.
+//	xnotesel/xnoteadd are plain typed DLL entries - in the 2.30 ax the finfo
+//	table declares them subid -3 (DLL) with PPVAL/INUM/INUM/INUM, so the
+//	marshaller already consumes the operands: read_arg() takes one for PPVAL
+//	(code_getva) and one for LOCALSTRING (code_gets).  An implementation that
+//	calls code_get*() again reads the *next* operand and leaves the caller's
+//	bytecode stream one short.  r181 did exactly that and creation died one step
+//	past the ability screen; loading a save never reaches these two, which is why
+//	saves stayed healthy.  They therefore take everything from args[] and touch
+//	the stream never.
 //
-//	sortval/sortstr/sortnote/sortget are NOT declared in this .ax - only the two
-//	entries above exist - and HSP 3.5+ answers those names from the built-ins in
-//	hsp3int.cpp.  The DLL implementations below can never be reached and stay
-//	stubs; they must not read the operand stream either.
+//	sortval/sortnote are absent from the 2.30 ax (HSP 3.5+ serves those names
+//	from the built-ins in hsp3int.cpp there) but BOTH 2.32 and 2.33 declare them
+//	as hspda.dll import entries - subid -6 (OLDDLLINIT) in 2.32, -5 (OLDDLL) in
+//	2.33 - with parameters (pexinfo, nullptr, nullptr, nullptr).  That is the
+//	old-DLL form the marshaller cannot fill: it consumes NO operand, so the
+//	implementation has to read the script's own arguments off the bytecode
+//	stream itself, exactly like _grotate@16 below.  Elona calls sortnote from
+//	userNpc_update; r182 assumed the 2.30 shape held for every .ax and stubbed
+//	both, so the call's operands were left unconsumed and the interpreter raised
+//	HSPERR_TOO_MANY_PARAMETERS (HspError 16) at start-up on 2.32/2.33.  Both
+//	bodies below therefore stay live and read the two operands (var, order) first.
 //
 //	A non-zero order sorts descending (same convention as the built-ins), and
 //	ties keep their original relative position via the recorded index.
@@ -731,11 +739,6 @@ static int impl_hspda_sortval( const DllArgValue *args, int argc )
 	APTR aptr;
 	int order, i, count;
 
-	/*	Not reachable - this .ax declares no sortval (see the section header)
-		and HSP 3.5+ serves the name from hsp3int.cpp.  The stub stays so that
-		nothing here can touch the caller's operand stream.					*/
-	return 0;
-
 	(void)args;
 	(void)argc;
 
@@ -781,9 +784,6 @@ static int impl_hspda_sortnote( const DllArgValue *args, int argc )
 	APTR aptr;
 	char *buf, *p, *dst;
 	int order, i, count, size, len;
-
-	/*	Not reachable - see sortval above.								*/
-	return 0;
 
 	(void)args;
 	(void)argc;
