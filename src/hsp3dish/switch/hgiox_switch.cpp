@@ -3860,61 +3860,8 @@ static void sw_mes_clean( char *dst, const char *msg, int *had_cr, int *ok )
 	}
 }
 
-/*	--- r188 temporary probe (remove once the book overlap is fixed) ---------
-	Records the first text blit of each (x,y,text) seen in a 2 s window, with
-	the script site that issued it, so one page's worth of lines shows up as a
-	handful of entries instead of one per frame.  The debug line/name pin the
-	draw to a point in the .ax; two entries for the same text at different y
-	are the overlapping copies this bug is about.							*/
-extern int code_getdebug_line( void );
-extern char *code_getdebug_name( void );
-
-#define SWMES_PROBE_SLOTS 4096
-static void sw_mes_probe( BMSCR *bm, int x, int y, const char *s, void *ra )
+static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 {
-	/*	r188dbg2: key the 2 s de-dup on (hash, y bucket) instead of (x,y,hash).
-		The 3x3 outline draws one string nine times at x..x+2 / y..y+2, which
-		burned the whole budget on copies of a single line before the book was
-		ever reached.  Binning y to 4px folds the outline in x away while a
-		genuine second copy - the overlap this probe is chasing - stays a
-		separate row.														*/
-	static struct { int yb; unsigned hash, tick; } seen[SWMES_PROBE_SLOTS];
-	static int used = 0, total = 0;
-	unsigned h = sw_text_hash( s );
-	unsigned now = (unsigned)hgio_gettick();
-	int i, slot = -1;
-	int yb = y >> 2;
-
-	if ( total >= 120000 ) return;
-	for ( i = 0; i < used; i++ ) {
-		if ( seen[i].yb == yb && seen[i].hash == h ) {
-			if ( now - seen[i].tick < 2000 ) return;
-			slot = i;
-			break;
-		}
-	}
-	if ( slot < 0 ) {
-		if ( used < SWMES_PROBE_SLOTS ) {
-			slot = used++;
-		} else {
-			int j, o = 0;
-			for ( j = 1; j < used; j++ ) if ( seen[j].tick < seen[o].tick ) o = j;
-			slot = o;
-		}
-		seen[slot].yb = yb; seen[slot].hash = h;
-	}
-	seen[slot].tick = now;
-	total++;
-	printf( "SWMES t=%u ra=%p bm=%p sx=%d sy=%d x=%d y=%d fs=%d ln=%d fn=%.12s s=%s\n",
-		now, ra, (void *)bm, bm->sx, bm->sy, x, y, tmes._fontsize,
-		code_getdebug_line(),
-		code_getdebug_name() ? code_getdebug_name() : "(null)", s );
-	fflush( stdout );
-}
-
-static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s, void *ra )
-{
-	sw_mes_probe( bm, x, y, s, ra );
 	sw_mes_drawn[sw_mes_drawn_ix].bm = (void *)bm;
 	sw_mes_drawn[sw_mes_drawn_ix].x = x;
 	sw_mes_drawn[sw_mes_drawn_ix].y = y;
@@ -4055,7 +4002,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
-		sw_mes_note_draw( bm, bm->cx, bm->cy, use, __builtin_return_address(0) );
+		sw_mes_note_draw( bm, bm->cx, bm->cy, use );
 	}
 
 	if (xsize > bm->printsizex) bm->printsizex = xsize;
