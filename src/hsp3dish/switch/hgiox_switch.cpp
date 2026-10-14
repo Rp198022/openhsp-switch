@@ -4038,15 +4038,24 @@ int hgio_mes(BMSCR* bm, char* msg)
 				measured on - instead of swallowing matching text in every
 				program this runtime runs.									*/
 			int sw_hide = 0;
+			/*	r197: the 2.33 translation shows the same class of data bug with a
+				different geometry.  meslog.txt (the r196 probe) shows the race
+				description redrawn into the attribute panel from cy 257, in all
+				three columns (cx 292/442/592), plus a black small-font copy at
+				cx 286 - not just the first column from cy 385 as on 2.30.  The
+				stray rows are 42-62 byte sentences with no double space, while
+				every real row in that panel is either a short "<name>: <grade>"
+				label (10 bytes) or a padded "<name><run of spaces><desc>".  So:
+				same GBK + 800x600 gate, a wider box, and a length floor.		*/
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
-				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+				 bm->cx >= 286 && bm->cy >= 250 && bm->cy <= 520 ) {
 			const char *sp = use;
 			int padded = 0;
 			while ( sp[0] != 0 && sp[1] != 0 ) {
 				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
 				sp++;
 			}
-			sw_hide = !padded;
+			sw_hide = ( !padded && (int)strlen( use ) >= 30 );
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
