@@ -4010,6 +4010,41 @@ int hgio_mes(BMSCR* bm, char* msg)
 				}
 				sw_hide = junk;
 			}
+		/*	r195: the 2.33 translation's reference panel draws the same string
+			twice - a small black copy and below it a larger blue one - which
+			reads as overlapping text.  No coordinate guard catches it, so each
+			mes remembers the buffer+text+size+colour it last drew; if the same
+			text is drawn again moments later at a different size or colour, it
+			is the duplicate copy and only its blit is dropped.  Log the first
+			few so the real call pattern is visible.					*/
+		{
+			static char sw_m2_txt[64];
+			static int sw_m2_len = 0, sw_m2_size = 0, sw_m2_col = 0, sw_m2_ok = 0, sw_m2_hits = 0;
+			static unsigned sw_m2_tick = 0;
+			unsigned tk = (unsigned)hgio_gettick();
+			int mlen = (int)strlen( (const char *)use );
+			int msize = tmes._fontsize;
+			int mcol = (int)bm->color;
+			if ( mlen > 63 ) mlen = 63;
+			if ( sw_m2_ok && mlen == sw_m2_len &&
+				 memcmp( sw_m2_txt, use, mlen ) == 0 &&
+				 ( sw_m2_size != msize || sw_m2_col != mcol ) &&
+				 tk - sw_m2_tick < 500 ) {
+				sw_hide = 1;
+				if ( sw_m2_hits < 30 ) {
+					sw_m2_hits++;
+					printf( "r195 dup size %d->%d col %06x->%06x at %d,%d |%.16s|\n",
+						sw_m2_size, msize, sw_m2_col & 0xffffff, mcol & 0xffffff, bm->cx, bm->cy, (const char *)use );
+					fflush( stdout );
+				}
+			}
+			memcpy( sw_m2_txt, use, mlen );
+			sw_m2_len = mlen;
+			sw_m2_size = msize;
+			sw_m2_col = mcol;
+			sw_m2_tick = tk;
+			sw_m2_ok = 1;
+		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
