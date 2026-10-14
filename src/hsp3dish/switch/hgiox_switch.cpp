@@ -279,7 +279,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	so they are off unless a capture explicitly asks for them.  The plain
 	stdout log stays on: it costs nothing and keeps a run readable.		*/
 #ifndef SW_FBO_HEAVY
-#define SW_FBO_HEAVY 0
+#define SW_FBO_HEAVY 1
 #endif
 
 #define SWTARGET_MAX 64
@@ -395,6 +395,12 @@ static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
 	if ( !SW_FBO_HEAVY ) return;
+	/*	r199 probe: keep only the PCC pipeline - create_pcpic's composite
+		buffer (384x198, the sheet every part is copied into) and the
+		rotated preview copy that reads it (grotate -> hgio_copyrot).
+		A whole-run trace fills SW_TRC_MAX long before the appearance
+		editor is ever reached.										*/
+	if ( ( ( bm == NULL ) || ( bm->sx != 384 ) ) && ( strcmp( tag, "copyrot" ) != 0 ) ) return;
 	char buf[224];
 	/*	5x5 message-board tiles are rebuilt every frame and ate the whole
 		budget before the world stage; drop anything that small. */
@@ -752,6 +758,36 @@ static int	sw_scratch_w = 0;
 static int	sw_scratch_h = 0;
 static int	sw_scratch_ok = 0;
 static int	sw_scratch_used = 0;
+
+/*	r199 probe counter.  The staged branch and the aliased branch used to
+	share one 24-print budget, so once the small tiles had printed it the
+	128x198 case create_pcpic needs was never visible in the log.		*/
+static int	sw_aliased_log = 0;
+
+/*	r199: create_pcpic moves every part INSIDE the same texture, with
+	copies that are 128x198 and do NOT overlap (chips.hsp: 128,0 -> 256,0
+	and then 256,0 -> 0,0).  Those fall outside the <=64x64 / overlapping
+	rule below, so they stay on the aliased direct path - the sheet is its
+	own colour attachment while the draw samples it, which is undefined.
+	The marker file sdmc:/switch/openhsp/pcc_stage turns staging on for
+	aliased OFFSCREEN copies only; the main screen keeps the direct path,
+	because routing that is what the r150 (message log wiped) and p3s195
+	(map whitened) regressions were about.  Read once per run.			*/
+static int	sw_pcc_stage_cached = -1;
+static int sw_pcc_stage_armed( void )
+{
+	FILE *fp;
+
+	if ( sw_pcc_stage_cached >= 0 ) return sw_pcc_stage_cached;
+	fp = fopen( "sdmc:/switch/openhsp/pcc_stage", "rb" );
+	sw_pcc_stage_cached = ( fp != NULL ) ? 1 : 0;
+	if ( fp != NULL ) {
+		fclose( fp );
+		printf( "hsp3dish: PCC self-copy staging ON (pcc_stage marker)\n" );
+		fflush( stdout );
+	}
+	return sw_pcc_stage_cached;
+}
 
 /*	ChangeTex() caches the last GL name it bound and skips a redundant
 	bind.  Several paths here bind a texture behind that cache's back - the
@@ -3098,7 +3134,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
 	if ( ( bm->texid == bmsrc->texid ) && ( sw_same == 0 ) &&
-		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
+		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ||
+		   ( sw_pcc_stage_armed() && ( bm->type != HSPWND_TYPE_MAIN ) ) ) ) {
 		int cyy = (int)yy;
 		/*	r185c: a main-screen source keeps row 0 at v=1 while an offscreen
 			screen keeps it at v=0 (sw_apply_target), so the capture - which
@@ -3110,7 +3147,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
-		if ( sw_selfblit_log < 24 ) {
+		if ( sw_selfblit_log < 2000 ) {
 			sw_selfblit_log++;
 			sw_fbo_log( "hgio: selfblit %d,%d %dx%d -> %g,%g gmode=%d tex=%d ret=%d "
 				"scratch=%dx%d err=0x%x\n",
@@ -3176,8 +3213,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			regressed (r150 staged the main screen and wiped the message log;
 			p3s195 raised the staging size and whitened the map) so this needs
 			a hardware comparison before the path is changed again.			*/
-		if ( sw_selfblit_log < 24 ) {
-			sw_selfblit_log++;
+		if ( sw_aliased_log < 2000 ) {
+			sw_aliased_log++;
 			sw_fbo_log( "hgio: aliased copy stays direct %d,%d %dx%d -> %g,%g "
 				"gmode=%d tex=%d main=%d ov=%d\n",
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)psx, (double)psy,
