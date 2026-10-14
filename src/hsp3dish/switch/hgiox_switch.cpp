@@ -3988,62 +3988,16 @@ int hgio_mes(BMSCR* bm, char* msg)
 				(charset.txt) and the 800x600 canvas the panel layout was
 				measured on - instead of swallowing matching text in every
 				program this runtime runs.									*/
-			/*	2026-10-06 F11: the Chinese 2.30 translation draws the tail rows
-				of the race description into the skill column of the reference
-				panel; it happens on the PC build too, so it is the translation's
-				data, not this port.  r194 widens the guard to the 2.33 layout as
-				well - its stray rows sit at cx ~268/295, cy ~349-560 instead of
-				2.30's 286-298/385-520 - and keys on a stronger tell than padding:
-				a description fragment carries a Chinese full stop, question mark
-				or exclamation, while a real skill/item name never does.  Only the
-				blit is skipped; everything before it still runs.  Gated on GBK
-				and the 800x600 metric panel so other programs are untouched.		*/
 			int sw_hide = 0;
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
-				 bm->cx >= 255 && bm->cx <= 312 && bm->cy >= 340 && bm->cy <= 560 ) {
-				const unsigned char *sp = (const unsigned char *)use;
-				int junk = 0;
-				while ( sp[0] && sp[1] ) {
-					/*	GBK sentence stops: ！=a1a1, 。=a1a3, ？=a1bf		*/
-					if ( sp[0]==0xa1 && ( sp[1]==0xa1 || sp[1]==0xa3 || sp[1]==0xbf ) ) { junk = 1; break; }
-					sp++;
-				}
-				sw_hide = junk;
+				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+			const char *sp = use;
+			int padded = 0;
+			while ( sp[0] != 0 && sp[1] != 0 ) {
+				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
+				sp++;
 			}
-		/*	r195: the 2.33 translation's reference panel draws the same string
-			twice - a small black copy and below it a larger blue one - which
-			reads as overlapping text.  No coordinate guard catches it, so each
-			mes remembers the buffer+text+size+colour it last drew; if the same
-			text is drawn again moments later at a different size or colour, it
-			is the duplicate copy and only its blit is dropped.  Log the first
-			few so the real call pattern is visible.					*/
-		{
-			static char sw_m2_txt[64];
-			static int sw_m2_len = 0, sw_m2_size = 0, sw_m2_col = 0, sw_m2_ok = 0, sw_m2_hits = 0;
-			static unsigned sw_m2_tick = 0;
-			unsigned tk = (unsigned)hgio_gettick();
-			int mlen = (int)strlen( (const char *)use );
-			int msize = tmes._fontsize;
-			int mcol = (int)bm->color;
-			if ( mlen > 63 ) mlen = 63;
-			if ( sw_m2_ok && mlen == sw_m2_len &&
-				 memcmp( sw_m2_txt, use, mlen ) == 0 &&
-				 ( sw_m2_size != msize || sw_m2_col != mcol ) &&
-				 tk - sw_m2_tick < 500 ) {
-				sw_hide = 1;
-				if ( sw_m2_hits < 30 ) {
-					sw_m2_hits++;
-					printf( "r195 dup size %d->%d col %06x->%06x at %d,%d |%.16s|\n",
-						sw_m2_size, msize, sw_m2_col & 0xffffff, mcol & 0xffffff, bm->cx, bm->cy, (const char *)use );
-					fflush( stdout );
-				}
-			}
-			memcpy( sw_m2_txt, use, mlen );
-			sw_m2_len = mlen;
-			sw_m2_size = msize;
-			sw_m2_col = mcol;
-			sw_m2_tick = tk;
-			sw_m2_ok = 1;
+			sw_hide = !padded;
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
