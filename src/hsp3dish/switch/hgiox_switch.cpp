@@ -3930,6 +3930,55 @@ int hgio_mes(BMSCR* bm, char* msg)
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
 	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
 
+	/*	r196 probe: in GBK builds dump every distinct mes call (pos + color +
+		font + raw bytes) to meslog.txt.  Deduped on (cx, cy, text hash) so a
+		redraw loop floods nothing; recording only, no behaviour change.	*/
+	{
+		static FILE *sw_mlog = NULL;
+		static unsigned sw_mlog_seen[1024];
+		static int sw_mlog_seen_ix = 0;
+		static int sw_mlog_init = 0;
+		if ( !sw_mlog_init ) {
+			int i;
+			for ( i = 0; i < 1024; i++ ) sw_mlog_seen[i] = 0;
+			sw_mlog_init = 1;
+		}
+		if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 && use != NULL ) {
+			int L = (int)strlen( use );
+			if ( L >= 8 && L < 400 ) {
+				unsigned key = sw_text_hash( use );
+				key ^= ( (unsigned)bm->cx * 2654435761u ) ^ ( (unsigned)bm->cy * 40503u );
+				if ( key != 0 ) {
+					int i, dup = 0;
+					for ( i = 0; i < 1024; i++ ) {
+						if ( sw_mlog_seen[i] == key ) { dup = 1; break; }
+					}
+					if ( !dup ) {
+						sw_mlog_seen[sw_mlog_seen_ix] = key;
+						sw_mlog_seen_ix = ( sw_mlog_seen_ix + 1 ) % 1024;
+						if ( sw_mlog == NULL ) {
+							sw_mlog = fopen( "sdmc:/switch/openhsp/meslog.txt", "wb" );
+						}
+						if ( sw_mlog != NULL ) {
+							int k;
+							fprintf( sw_mlog, "M x=%d y=%d len=%d col=%06x sz=%d hex[",
+								bm->cx, bm->cy, L, bm->color & 0xffffff, tmes._fontsize );
+							for ( k = 0; k < L && k < 48; k++ ) {
+								fprintf( sw_mlog, "%02x", (unsigned char)use[k] );
+							}
+							fprintf( sw_mlog, "] txt[" );
+							for ( k = 0; k < L && k < 48; k++ ) {
+								fputc( (unsigned char)use[k], sw_mlog );
+							}
+							fprintf( sw_mlog, "]\n" );
+							fflush( sw_mlog );
+						}
+					}
+				}
+			}
+		}
+	}
+
 	/*	r104: skip the shifted CR-terminated second copy			*/
 	if ( had_cr && clean_ok && clean[0] != 0 ) {
 		unsigned h = sw_text_hash( use );
