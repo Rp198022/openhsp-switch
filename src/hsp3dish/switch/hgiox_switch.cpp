@@ -3988,32 +3988,28 @@ int hgio_mes(BMSCR* bm, char* msg)
 				(charset.txt) and the 800x600 canvas the panel layout was
 				measured on - instead of swallowing matching text in every
 				program this runtime runs.									*/
+			/*	2026-10-06 F11: the Chinese 2.30 translation draws the tail rows
+				of the race description into the skill column of the reference
+				panel; it happens on the PC build too, so it is the translation's
+				data, not this port.  r194 widens the guard to the 2.33 layout as
+				well - its stray rows sit at cx ~268/295, cy ~349-560 instead of
+				2.30's 286-298/385-520 - and keys on a stronger tell than padding:
+				a description fragment carries a Chinese full stop, question mark
+				or exclamation, while a real skill/item name never does.  Only the
+				blit is skipped; everything before it still runs.  Gated on GBK
+				and the 800x600 metric panel so other programs are untouched.		*/
 			int sw_hide = 0;
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
-				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 680 ) {
-			const char *sp = use;
-			int padded = 0;
-			while ( sp[0] != 0 && sp[1] != 0 ) {
-				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
-				sp++;
+				 bm->cx >= 255 && bm->cx <= 312 && bm->cy >= 340 && bm->cy <= 560 ) {
+				const unsigned char *sp = (const unsigned char *)use;
+				int junk = 0;
+				while ( sp[0] && sp[1] ) {
+					/*	GBK sentence stops: ！=a1a1, 。=a1a3, ？=a1bf		*/
+					if ( sp[0]==0xa1 && ( sp[1]==0xa1 || sp[1]==0xa3 || sp[1]==0xbf ) ) { junk = 1; break; }
+					sp++;
+				}
+				sw_hide = junk;
 			}
-			sw_hide = !padded;
-		}
-		/*	r193 probe (temporary): log every mes in the lower detail panel so
-			the stray rows show their real bmscr size and coords.  GBK gate
-			keeps it off the non-translation builds.				*/
-		if ( sw_textconv_gbk() ) {
-			static int sw_r193n = 0;
-			const char *sp = use; int pd = 0;
-			while ( sp[0] && sp[1] ) { if ( sp[0]==' '&&sp[1]==' ' ) { pd=1; break; } sp++; }
-			if ( sw_r193n < 30000 ) {
-				sw_r193n++;
-				printf("r193h pad=%d ex0=%02x%02x |", pd, (unsigned char)use[0], (unsigned char)use[1]);
-				for ( int z=0; use[z] && z<48; z++ ) printf("%02x", (unsigned char)use[z]);
-				printf("| sx=%d sy=%d cx=%d cy=%d\n", bm->sx, bm->sy, bm->cx, bm->cy);
-				fflush(stdout);
-			}
-		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
