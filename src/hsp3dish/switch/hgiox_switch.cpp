@@ -4002,11 +4002,17 @@ int hgio_mes(BMSCR* bm, char* msg)
 		/*	r193 probe (temporary): log every mes in the lower detail panel so
 			the stray rows show their real bmscr size and coords.  GBK gate
 			keeps it off the non-translation builds.				*/
-		if ( sw_textconv_gbk() && bm->cy >= 340 && bm->cx >= 230 && bm->cx <= 360 ) {
+		if ( sw_textconv_gbk() ) {
 			static int sw_r193n = 0;
 			const char *sp = use; int pd = 0;
 			while ( sp[0] && sp[1] ) { if ( sp[0]==' '&&sp[1]==' ' ) { pd=1; break; } sp++; }
-			if ( sw_r193n < 150 ) { sw_r193n++; printf("r193probe sx=%d sy=%d cx=%d cy=%d pad=%d |%.16s|\n", bm->sx, bm->sy, bm->cx, bm->cy, pd, use); fflush(stdout); }
+			if ( sw_r193n < 900 ) {
+				sw_r193n++;
+				printf("r193h pad=%d ex0=%02x%02x |", pd, (unsigned char)use[0], (unsigned char)use[1]);
+				for ( int z=0; use[z] && z<48; z++ ) printf("%02x", (unsigned char)use[z]);
+				printf("| sx=%d sy=%d cx=%d cy=%d\n", bm->sx, bm->sy, bm->cx, bm->cy);
+				fflush(stdout);
+			}
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
