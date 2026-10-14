@@ -25,11 +25,20 @@
 ## 0. 一句话状态
 
 **真机运行中闪退已根治（r178）：根因是 HSP 引擎 typeinfo 表的「空档条目」从未被初始化，`call_eventfunc()` 从那个空槽开始遍历时调用了堆里的垃圾函数指针。2.30 汉化版与 2.32 官方版共用这套移植层，均已受益。**
-当前源码 **r202**；真机已验证 **r178**（用户确认「没问题了」）。
+当前源码 **r203**；真机已验证 **r178**（用户确认「没问题了」）。
 
 > ✅ **本轮结案（2026-10-14，2.33 汉化自用包）**
 > - 建角「肖像变更」预览框内小人静止、随部件切换不变 → **两个独立缺陷叠加**：**r200**（脚本开关失效）+ **r202**（渲染路径写空），Eden 2.33 实测恢复（完整证据链见 **附录 O**）
 > - 附带结论：2.33 的 `start.ax` 由本仓库 hspcmp 重编，`_HMMBITCHECK` 的 subid 由 `OLDDLLINIT(-6)` 变为 `OLDDLL(-5)` ⇒ **全篇 `cbit(..)==TRUE / !=TRUE` 判断失效**（骑乘/畜牧/隐身/抗性/祝福等一并受影响），r200 一并修好
+
+> 🔬 **r203 探针（2026-10-14，说话人/状态读取可行性）**
+> - **纠正一处既有注释**：`switch_overlay.cpp` 断言「Elona 的 .ax 没有调试变量名表，`code_getdebug_seekvar()` 一个都解不出来」——**这只对 2.30 成立**。
+>   2.33 的 `start.ax` 由本仓库 hspcmp 重编，带完整调试段（`max_dinfo=22568`，2859 个变量全部可解出名字）；
+>   2.30 汉化的 `start.ax` 调试段为空（`max_dinfo=2`），`seekvar` 确实一律返回 -1。
+> - 前置条件已核实：`code_debug_init()` 在 `src/hsp3/hsp3.cpp:319` **无条件调用**（不在 `#ifdef HSPDEBUG` 内），`mem_di` 也在 `:220` 无条件加载 ⇒ 名表在启动时就建好了。
+> - r203 只**新增读取与一条 `r203diag:` 打印**，不改绘制、不改归属逻辑、不碰 `hgio_mes` 与 r134 的 blit gate ⇒ **零行为变化**。
+>   待 Eden 2.33 回读 `chatc`（名表 ID 420）与好感度分量后，r204 再做实际接线。
+> - 二维数组索引方向**已定案**，无需实测：既有代码 `switch_overlay.cpp:623` 用的就是 `field + slot * len[1]`。
 
 > ✅ **已结案（2026-10-08）**
 > - 真机运行中闪退（fatal 2168-0001，`PC=fee63a00fee53a00`）→ **r178**（完整根因与证据链见 **附录 L**）
@@ -2387,3 +2396,68 @@ info->termfunc     = glue_exit_report;                       /* id 19 的退出�
 - 建角「肖像变更」：框内小人**随部件变化**并**播放四向动作** ✔
 - 地图小人、消息栏、存档读取 ✔
 - 构建：**r202**，`hsp3dish.nro` MD5 `A6F7A9F2AD4CE0AAA57CDED48A4D3593`
+
+
+---
+
+## 附录 P：`.ax` 调试变量名表 —— 谁能用、怎么用（2026-10-14）
+
+### P.1 一句话
+
+**兼容层可以直接读到 Elona 的全部全局变量**（`cdata`/`cdatan`/`gdata`/`sdata`/`msg`…），
+通道是 openhsp 自带的 `code_getdebug_seekvar()`，但**它依赖 `.ax` 里带调试段**，
+而调试段是否存在取决于该 `.ax` 是谁编的。
+
+### P.2 实测（扫描 `HSP3` 魔数后解析 `HSPHED`，`pt_dinfo` 在偏移 40、`max_dinfo` 在 44）
+
+| `start.ax` | `max_val` | `max_dinfo` | 名表 |
+|---|---|---|---|
+| Switch 2.33 汉化（本仓库 hspcmp 重编） | 2859 | 22568 | ✅ 可用 |
+| 项目产物 `start.ax` | 2850 | 22514 | ✅ 可用 |
+| Switch 2.30 汉化（随包发布） | 2832 | 2 | ❌ 空段 |
+
+**结论**：`switch_overlay.cpp:552-557` 的注释是 2.30 时代的结论，2.33 上不成立。
+`sw_ovl_party_resolve()` 里的名表路线（`seekvar` 优先、失败再退回按维度扫描）
+**在 2.33 上会直接命中**——既有诊断打印 `ovldiag: seek var id=…` 可当场复核。
+
+### P.3 通道链（全链已核实）
+
+| # | 环节 | 位置 |
+|---|---|---|
+| 1 | 图形层拿得到 VM | `HSP3TYPEINFO.hspctx` — `src/hsp3/hsp3struct.h:388` |
+| 2 | 变量表 | `HSPCTX.mem_var` — `hsp3struct.h:546` |
+| 3 | 变量名表 | `HSPCTX.mem_di` — `hsp3struct.h:537`；无条件加载 `hsp3.cpp:220` |
+| 4 | 建表 | `code_debug_init()` — `hsp3.cpp:319` 无条件调用 |
+| 5 | 按名查 ID | `code_getdebug_seekvar( const char* )` — 声明 `hsp3code.h:79`，实现 `hsp3code.cpp:2832` |
+| 6 | 运行时入口 | `switch_runtime_hspctx()` — `src/hsp3/switch/dllshim_switch.cpp:1747` |
+
+### P.4 常用变量 ID（2.33 `start.ax` 实测）
+
+| 变量 | ID | 变量 | ID |
+|---|---|---|---|
+| `cdata` | 58 | `msg` | 228 |
+| `cdatan` | 63 | `msgline` | 226 |
+| `gdata` | 65 | `cc` | 243 |
+| `sdata` | 82 | `tc` | 244 |
+| `userdatan` | 103 | **`chatc`** | **420** |
+| `usertxt` | 1030 | `userdata` | 1404 |
+
+完整 2859 条见工作区 `ax变量名表_2.33.txt`。**不要硬编码这些 ID**——跨版本会漂移，运行时 `seekvar` 查一次缓存即可。
+
+### P.5 用它能拿到什么（对侧栏 HUD 直接有用）
+
+| 项 | 表达式 | 说明 |
+|---|---|---|
+| **当前说话人** | `mem_var[seekvar("chatc")]` → charid | `chara_func.hsp:207` 每次自定义台词调度第一步赋值，全源码无清零点 ⇒ 搭话/随机冒话/战斗/死亡全场景有效 |
+| 说话人名字 | `cdatan( 0, charid )` | 即 `CDATAN_NAME` |
+| **好感度** | `cdata( 17, id ) + cdata( 169, id )` | `CDATA_IMPRESSION + CDATA_MASTER_SERVANT`；阈值 200/250/300（`action.hsp:1743-1746`） |
+| 关系枚举 | `cdata( 9, id )` | `CDATA_RELATION`（敌/中/友），**不是好感度** |
+
+> ⚠️ 现状：`switch_overlay.cpp:1283` 读的是 `cdata(9)`（关系枚举），
+> 而面板上显示成「Lv 12  1」那样的裸数字（`:1122`）。若要用真好感度，改用 P.5 第三行。
+
+### P.6 别踩的坑
+
+1. **2.30 走不通名表路线**，只能用现有的按维度扫描；数据层前缀（`[名字|标签]`）是那条线的退路。
+2. 将来若给 `.ax` 瘦身/重打包，**不要砍 `pt_dinfo` 段**，否则名表静默消失（`seekvar` 全返回 -1，不报错）。
+3. `.ax` 任何一次重编都可能改变变量 ID 与 `max_val`，所以一律运行时查表，别写死。

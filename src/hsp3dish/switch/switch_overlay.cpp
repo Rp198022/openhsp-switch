@@ -149,6 +149,15 @@ static PVal		*sw_ovl_pv_inv = NULL;	/* item data: dim 70,5480 INT	*/
 static PVal		*sw_ovl_pv_msg = NULL;
 static PVal		*sw_ovl_pv_msgline = NULL;
 static PVal		*sw_ovl_pv_inf_maxlog = NULL;
+
+/*	r203: the most recent custom-talk speaker.  chara_func.hsp:207 sets
+	`chatc = customtalk_charid` before dispatching any custom line and
+	nothing clears it, so it stays valid for every trigger.  Reaching it
+	needs the .ax variable-name table: present on the 2.33 build (hspcmp
+	emits the debug segment, max_dinfo=22568) but empty on the shipped
+	2.30 .ax (max_dinfo=2), where this stays NULL and the caller must
+	fall back to matching the speaker name written into the talk file. */
+static PVal		*sw_ovl_pv_chatc = NULL;
 static GLuint	sw_ovl_face_tex = 0;
 static GLuint	sw_ovl_bar_tex[4] = { 0, 0, 0, 0 };	/* white,hp,mp,sp	*/
 static int		sw_ovl_face_w = 0;
@@ -197,6 +206,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_pv_msg = NULL;
 	sw_ovl_pv_msgline = NULL;
 	sw_ovl_pv_inf_maxlog = NULL;
+	sw_ovl_pv_chatc = NULL;
 	sw_ovl_pv_inv = NULL;
 	sw_ovl_party_sheet[0] = 0;
 	sw_ovl_party_sheet[1] = 0;
@@ -564,6 +574,7 @@ static int sw_ovl_party_resolve( void )
 	sw_ovl_pv_msg = NULL;
 	sw_ovl_pv_msgline = NULL;
 	sw_ovl_pv_inf_maxlog = NULL;
+	sw_ovl_pv_chatc = NULL;
 
 	id = code_getdebug_seekvar( "cdata" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdata = &ctx->mem_var[ id ];
@@ -577,6 +588,9 @@ static int sw_ovl_party_resolve( void )
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msgline = &ctx->mem_var[ id ];
 	id = code_getdebug_seekvar( "inf_maxlog" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
+
+	id = code_getdebug_seekvar( "chatc" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_chatc = &ctx->mem_var[ id ];
 
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
@@ -621,6 +635,17 @@ static int sw_ovl_cdata( int field, int slot )
 	if ( field < 0 || field >= sw_ovl_pv_cdata->len[1] ) return 0;
 	if ( slot < 0 || slot >= sw_ovl_pv_cdata->len[2] ) return 0;
 	return ((int*)sw_ovl_pv_cdata->pt)[ field + slot * sw_ovl_pv_cdata->len[1] ];
+}
+
+/*	r203: charid of the last custom-talk speaker, or -1 when the name
+	table is unavailable (2.30) or the value is out of range. */
+static int sw_ovl_speaker( void )
+{
+	int id;
+	if ( sw_ovl_pv_chatc == NULL ) return -1;
+	id = ( (int *)sw_ovl_pv_chatc->pt )[ 0 ];
+	if ( id < 0 || id >= 245 ) return -1;
+	return id;
 }
 
 static int sw_ovl_sdata( int ability, int slot )
@@ -1282,6 +1307,27 @@ static int sw_ovl_party_refresh( int *slot )
 
 			{ int rr = sw_ovl_cdata( 9, s );
 			  if ( rr != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = rr; } }
+		/*	r203 probe: does the name-table route agree with the HUD's
+			dimension route, and is chatc actually pointing at a follower?
+			Prints once per run.  Remove with the rest of r203's probe. */
+		{
+			static int r203_once = 0;
+			if ( !r203_once ) {
+				int sp;
+				r203_once = 1;
+				sp = sw_ovl_speaker();
+				printf( "r203diag: cdata_by_name=%s chatc_var=%s speaker=%d "
+					"name=[%s] imp=%d master=%d affection=%d\n",
+					code_getdebug_seekvar( "cdata" ) >= 0 ? "yes" : "no",
+					sw_ovl_pv_chatc ? "found" : "NULL", sp,
+					sp >= 0 ? sw_ovl_cdatan( 0, sp ) : "-",
+					sp >= 0 ? sw_ovl_cdata( 17, sp ) : -1,
+					sp >= 0 ? sw_ovl_cdata( 169, sp ) : -1,
+					sp >= 0 ? sw_ovl_cdata( 17, sp ) + sw_ovl_cdata( 169, sp ) : -1 );
+				fflush( stdout );
+			}
+		}
+
 		if ( k == 1 ) {
 			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1] );
 			char mb[ 1200 ];
