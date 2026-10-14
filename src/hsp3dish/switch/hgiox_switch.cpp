@@ -4046,16 +4046,26 @@ int hgio_mes(BMSCR* bm, char* msg)
 				stray rows are 42-62 byte sentences with no double space, while
 				every real row in that panel is either a short "<name>: <grade>"
 				label (10 bytes) or a padded "<name><run of spaces><desc>".  So:
-				same GBK + 800x600 gate, a wider box, and a length floor.		*/
+				same GBK + 800x600 gate, a wider box, and a length floor.
+
+				r198: the class panel leaks shorter sentences too ("追加射击
+				触发率提升。" is 20 bytes), so the length floor misses them.
+				Every stray row is a prose sentence that carries GBK punctuation
+				(0xa1a3 "。" / 0xa1a2 "，"), while real panel rows never do -
+				attribute labels are "<name>: <grade>" and skill rows are
+				padded with double spaces.  Hide on punctuation as well.	*/
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
 				 bm->cx >= 286 && bm->cy >= 250 && bm->cy <= 520 ) {
 			const char *sp = use;
 			int padded = 0;
+			int punct = 0;
 			while ( sp[0] != 0 && sp[1] != 0 ) {
 				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
+				if ( (unsigned char)sp[0] == 0xa1 &&
+				     ( (unsigned char)sp[1] == 0xa3 || (unsigned char)sp[1] == 0xa2 ) ) { punct = 1; }
 				sp++;
 			}
-			sw_hide = ( !padded && (int)strlen( use ) >= 30 );
+			sw_hide = ( !padded && ( punct || (int)strlen( use ) >= 30 ) );
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
