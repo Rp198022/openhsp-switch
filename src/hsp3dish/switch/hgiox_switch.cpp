@@ -269,7 +269,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 0			/* shipping build: probes compiled out */
+#define SWITCH_DIAG 1			/* r201 probe: the PCC sheet readback needs it */
 #endif
 
 /*	The three heavy diagnostics: the SD-card copy of every log line, the
@@ -763,6 +763,15 @@ static int	sw_scratch_used = 0;
 	share one 24-print budget, so once the small tiles had printed it the
 	128x198 case create_pcpic needs was never visible in the log.		*/
 static int	sw_aliased_log = 0;
+
+/*	r201 probe counters.  create_pcpic moves each part inside its own 384x198
+	sheet with two 128x198 copies (128,0->256,0 then 256,0->0,0); those decide
+	whether the appearance editor's preview shows anything at all.  They get
+	their own budget because the selfblit log is spent on the title screen long
+	before the editor is reached, and the finished sheet is written out as
+	pccsheet_1.bmp / pccsheet_2.bmp so its contents can be looked at.		*/
+static int	sw_p198_log = 0;
+static int	sw_p198_dump = 0;
 
 /*	r199: create_pcpic moves every part INSIDE the same texture, with
 	copies that are 128x198 and do NOT overlap (chips.hsp: 128,0 -> 256,0
@@ -3129,6 +3138,22 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );	}
+
+	/*	r201 probe: the decision inputs of the two 128x198 copies create_pcpic
+		makes inside its own sheet, printed on their own budget.			*/
+	if ( ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_p198_log < 240 ) ) {
+		SWTARGET *p198t = sw_find( bm );
+		sw_p198_log++;
+		sw_fbo_log( "hgio: PCC198 #%d src=%d,%d dst=%g,%g srct=%d dstt=%d"
+			" srcType=%d dstType=%d same=%d ov=%d armed=%d small=%d tex=%u"
+			" dstfbo=%u curfbo=%u gm=%d rt=%d tick=%d\n",
+			sw_p198_log, (int)xx, (int)yy, (double)bm->cx, (double)bm->cy,
+			bmsrc->texid, bm->texid, bmsrc->type, bm->type,
+			sw_same, sw_ov, sw_pcc_stage_armed(), ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ),
+			(unsigned)tex->texid,
+			( p198t != NULL ) ? (unsigned)p198t->fbo : 0u, (unsigned)sw_real_fbo,
+			bm->gmode, (int)bm->gfrate, hgio_gettick() );
+	}
 	/*	r152: r150 tried to let the main screen stage its overlapping
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
@@ -3313,6 +3338,28 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			sw_dump_fbo( pnm, dfo, dw, dh );
 			sw_bfb(  dfo );
 		}
+	}
+
+	/*	r201 probe: the finished 384x198 sheet, written out right after the
+		tinted strip has been lifted back into its place - the same state the
+		appearance editor's preview samples from.  Two copies are kept, and the
+		left third is the part the preview reads (0..96 x 0..144).			*/
+	if ( ( srcsx == 128 ) && ( srcsy == 198 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 0 ) &&
+		 ( sw_p198_dump < 2 ) ) {
+		SWTARGET *ptgt = sw_find( bm );
+		unsigned dfo = (unsigned)sw_real_fbo;
+		int dw = (int)bm->sx;
+		int dh = (int)bm->sy;
+		char pnm[40];
+		if ( ( ptgt != NULL ) && ( ptgt->fbo != 0 ) ) dfo = (unsigned)ptgt->fbo;
+		if ( dw <= 0 ) dw = 384;
+		if ( dh <= 0 ) dh = 198;
+		sw_p198_dump++;
+		snprintf( pnm, sizeof( pnm ), "pccsheet_%d.bmp", sw_p198_dump );
+		sw_dump_fbo( pnm, dfo, dw, dh );
+		sw_bfb( dfo );
+		sw_fbo_log( "hgio: PCC198 sheet %d written %dx%d fbo=%u tick=%d\n",
+			sw_p198_dump, dw, dh, dfo, hgio_gettick() );
 	}
 }
 
