@@ -269,7 +269,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	the 1 ms watchdog thread are compiled out.  Build with
 	-DSWITCH_DIAG=1 (makefile.switch) when a run needs them back.		*/
 #ifndef SWITCH_DIAG
-#define SWITCH_DIAG 1			/* r201 probe: the PCC sheet readback needs it */
+#define SWITCH_DIAG 0			/* shipping build: probes compiled out */
 #endif
 
 /*	The three heavy diagnostics: the SD-card copy of every log line, the
@@ -279,7 +279,7 @@ static void gluPerspective(double fovy, double aspect, double zNear, double zFar
 	so they are off unless a capture explicitly asks for them.  The plain
 	stdout log stays on: it costs nothing and keeps a run readable.		*/
 #ifndef SW_FBO_HEAVY
-#define SW_FBO_HEAVY 1
+#define SW_FBO_HEAVY 0
 #endif
 
 #define SWTARGET_MAX 64
@@ -395,12 +395,6 @@ static void sw_trc_ex( const char *tag, const BMSCR *bm, float x, float y, float
 	int srctx, int sx, int sy, int sw_, int sh_ )
 {
 	if ( !SW_FBO_HEAVY ) return;
-	/*	r199 probe: keep only the PCC pipeline - create_pcpic's composite
-		buffer (384x198, the sheet every part is copied into) and the
-		rotated preview copy that reads it (grotate -> hgio_copyrot).
-		A whole-run trace fills SW_TRC_MAX long before the appearance
-		editor is ever reached.										*/
-	if ( ( ( bm == NULL ) || ( bm->sx != 384 ) ) && ( strcmp( tag, "copyrot" ) != 0 ) ) return;
 	char buf[224];
 	/*	5x5 message-board tiles are rebuilt every frame and ate the whole
 		budget before the world stage; drop anything that small. */
@@ -758,45 +752,6 @@ static int	sw_scratch_w = 0;
 static int	sw_scratch_h = 0;
 static int	sw_scratch_ok = 0;
 static int	sw_scratch_used = 0;
-
-/*	r199 probe counter.  The staged branch and the aliased branch used to
-	share one 24-print budget, so once the small tiles had printed it the
-	128x198 case create_pcpic needs was never visible in the log.		*/
-static int	sw_aliased_log = 0;
-
-/*	r201 probe counters.  create_pcpic moves each part inside its own 384x198
-	sheet with two 128x198 copies (128,0->256,0 then 256,0->0,0); those decide
-	whether the appearance editor's preview shows anything at all.  They get
-	their own budget because the selfblit log is spent on the title screen long
-	before the editor is reached, and the finished sheet is written out as
-	pccsheet_1.bmp / pccsheet_2.bmp so its contents can be looked at.		*/
-static int	sw_p198_log = 0;
-static int	sw_p198_dump = 0;
-
-/*	r199: create_pcpic moves every part INSIDE the same texture, with
-	copies that are 128x198 and do NOT overlap (chips.hsp: 128,0 -> 256,0
-	and then 256,0 -> 0,0).  Those fall outside the <=64x64 / overlapping
-	rule below, so they stay on the aliased direct path - the sheet is its
-	own colour attachment while the draw samples it, which is undefined.
-	The marker file sdmc:/switch/openhsp/pcc_stage turns staging on for
-	aliased OFFSCREEN copies only; the main screen keeps the direct path,
-	because routing that is what the r150 (message log wiped) and p3s195
-	(map whitened) regressions were about.  Read once per run.			*/
-static int	sw_pcc_stage_cached = -1;
-static int sw_pcc_stage_armed( void )
-{
-	FILE *fp;
-
-	if ( sw_pcc_stage_cached >= 0 ) return sw_pcc_stage_cached;
-	fp = fopen( "sdmc:/switch/openhsp/pcc_stage", "rb" );
-	sw_pcc_stage_cached = ( fp != NULL ) ? 1 : 0;
-	if ( fp != NULL ) {
-		fclose( fp );
-		printf( "hsp3dish: PCC self-copy staging ON (pcc_stage marker)\n" );
-		fflush( stdout );
-	}
-	return sw_pcc_stage_cached;
-}
 
 /*	ChangeTex() caches the last GL name it bound and skips a redundant
 	bind.  Several paths here bind a texture behind that cache's back - the
@@ -3138,29 +3093,12 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		sw_ov = ( sw_same == 0 ) &&
 				( sx0 < ( dx0 + (int)psx ) ) && ( dx0 < ( sx0 + (int)srcsx ) ) &&
 				( sy0 < ( dy0 + (int)psy ) ) && ( dy0 < ( sy0 + (int)srcsy ) );	}
-
-	/*	r201 probe: the decision inputs of the two 128x198 copies create_pcpic
-		makes inside its own sheet, printed on their own budget.			*/
-	if ( ( srcsx == 128 ) && ( srcsy == 198 ) && ( sw_p198_log < 240 ) ) {
-		SWTARGET *p198t = sw_find( bm );
-		sw_p198_log++;
-		sw_fbo_log( "hgio: PCC198 #%d src=%d,%d dst=%g,%g srct=%d dstt=%d"
-			" srcType=%d dstType=%d same=%d ov=%d armed=%d small=%d tex=%u"
-			" dstfbo=%u curfbo=%u gm=%d rt=%d tick=%d\n",
-			sw_p198_log, (int)xx, (int)yy, (double)bm->cx, (double)bm->cy,
-			bmsrc->texid, bm->texid, bmsrc->type, bm->type,
-			sw_same, sw_ov, sw_pcc_stage_armed(), ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ),
-			(unsigned)tex->texid,
-			( p198t != NULL ) ? (unsigned)p198t->fbo : 0u, (unsigned)sw_real_fbo,
-			bm->gmode, (int)bm->gfrate, hgio_gettick() );
-	}
 	/*	r152: r150 tried to let the main screen stage its overlapping
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
 	if ( ( bm->texid == bmsrc->texid ) && ( sw_same == 0 ) &&
-		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ||
-		   ( sw_pcc_stage_armed() && ( bm->type != HSPWND_TYPE_MAIN ) ) ) ) {
+		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
 		int cyy = (int)yy;
 		/*	r185c: a main-screen source keeps row 0 at v=1 while an offscreen
 			screen keeps it at v=0 (sw_apply_target), so the capture - which
@@ -3172,7 +3110,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		}
 		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
-		if ( sw_selfblit_log < 2000 ) {
+		if ( sw_selfblit_log < 24 ) {
 			sw_selfblit_log++;
 			sw_fbo_log( "hgio: selfblit %d,%d %dx%d -> %g,%g gmode=%d tex=%d ret=%d "
 				"scratch=%dx%d err=0x%x\n",
@@ -3238,8 +3176,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			regressed (r150 staged the main screen and wiped the message log;
 			p3s195 raised the staging size and whitened the map) so this needs
 			a hardware comparison before the path is changed again.			*/
-		if ( sw_aliased_log < 2000 ) {
-			sw_aliased_log++;
+		if ( sw_selfblit_log < 24 ) {
+			sw_selfblit_log++;
 			sw_fbo_log( "hgio: aliased copy stays direct %d,%d %dx%d -> %g,%g "
 				"gmode=%d tex=%d main=%d ov=%d\n",
 				(int)xx, (int)yy, (int)srcsx, (int)srcsy, (double)psx, (double)psy,
@@ -3338,28 +3276,6 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			sw_dump_fbo( pnm, dfo, dw, dh );
 			sw_bfb(  dfo );
 		}
-	}
-
-	/*	r201 probe: the finished 384x198 sheet, written out right after the
-		tinted strip has been lifted back into its place - the same state the
-		appearance editor's preview samples from.  Two copies are kept, and the
-		left third is the part the preview reads (0..96 x 0..144).			*/
-	if ( ( srcsx == 128 ) && ( srcsy == 198 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 0 ) &&
-		 ( sw_p198_dump < 2 ) ) {
-		SWTARGET *ptgt = sw_find( bm );
-		unsigned dfo = (unsigned)sw_real_fbo;
-		int dw = (int)bm->sx;
-		int dh = (int)bm->sy;
-		char pnm[40];
-		if ( ( ptgt != NULL ) && ( ptgt->fbo != 0 ) ) dfo = (unsigned)ptgt->fbo;
-		if ( dw <= 0 ) dw = 384;
-		if ( dh <= 0 ) dh = 198;
-		sw_p198_dump++;
-		snprintf( pnm, sizeof( pnm ), "pccsheet_%d.bmp", sw_p198_dump );
-		sw_dump_fbo( pnm, dfo, dw, dh );
-		sw_bfb( dfo );
-		sw_fbo_log( "hgio: PCC198 sheet %d written %dx%d fbo=%u tick=%d\n",
-			sw_p198_dump, dw, dh, dfo, hgio_gettick() );
 	}
 }
 
