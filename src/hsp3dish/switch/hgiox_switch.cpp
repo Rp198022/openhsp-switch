@@ -3990,7 +3990,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 				program this runtime runs.									*/
 			int sw_hide = 0;
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
-				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 520 ) {
+				 bm->cx >= 286 && bm->cx <= 298 && bm->cy >= 385 && bm->cy <= 680 ) {
 			const char *sp = use;
 			int padded = 0;
 			while ( sp[0] != 0 && sp[1] != 0 ) {
