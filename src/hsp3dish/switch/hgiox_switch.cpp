@@ -3999,6 +3999,15 @@ int hgio_mes(BMSCR* bm, char* msg)
 			}
 			sw_hide = !padded;
 		}
+		/*	r193 probe (temporary): log every mes in the lower detail panel so
+			the stray rows show their real bmscr size and coords.  GBK gate
+			keeps it off the non-translation builds.				*/
+		if ( sw_textconv_gbk() && bm->cy >= 340 && bm->cx >= 230 && bm->cx <= 360 ) {
+			static int sw_r193n = 0;
+			const char *sp = use; int pd = 0;
+			while ( sp[0] && sp[1] ) { if ( sp[0]==' '&&sp[1]==' ' ) { pd=1; break; } sp++; }
+			if ( sw_r193n < 150 ) { sw_r193n++; printf("r193probe sx=%d sy=%d cx=%d cy=%d pad=%d |%.16s|\n", bm->sx, bm->sy, bm->cx, bm->cy, pd, use); fflush(stdout); }
+		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
 		}
