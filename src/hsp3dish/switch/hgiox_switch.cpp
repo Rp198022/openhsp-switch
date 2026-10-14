@@ -4006,7 +4006,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 			static int sw_r193n = 0;
 			const char *sp = use; int pd = 0;
 			while ( sp[0] && sp[1] ) { if ( sp[0]==' '&&sp[1]==' ' ) { pd=1; break; } sp++; }
-			if ( sw_r193n < 900 ) {
+			if ( sw_r193n < 30000 ) {
 				sw_r193n++;
 				printf("r193h pad=%d ex0=%02x%02x |", pd, (unsigned char)use[0], (unsigned char)use[1]);
 				for ( int z=0; use[z] && z<48; z++ ) printf("%02x", (unsigned char)use[z]);
