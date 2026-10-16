@@ -7,6 +7,16 @@
 #include <string.h>
 #include "hsp3config.h"
 #include "strnote.h"
+/*	On the Switch the script strings are a legacy plane (CP932 or GBK),
+	never UTF-8, so the search helpers below must ask sw_script_is_lead()
+	(textconv_switch.cpp) instead of using the UTF-8 lead rule (>=0xC0).
+	That rule counted a GBK lead in 0x81-0xBF as single-byte and over-skipped
+	leads in 0xE0-0xFE, so instr() both exposed GBK trails (a trail of 0x7B
+	was taken for "{" -> "Unknown Code") and missed real braces.  The symbol
+	is linked only into the hsp3dish build, which runs games.			*/
+#if defined(__SWITCH__) && defined(HSPDISH)
+extern int sw_script_is_lead( unsigned char c );
+#endif
 
 #if defined(HSPLINUX) || defined(HSPMAC) || defined(HSPIOS) || defined(HSPNDK) || defined(HSPEMSCRIPTEN)
 // LFを改行として扱う
@@ -45,11 +55,15 @@ static char* strstr2(char* target, char* src)
 		}
 		p++;							// 検索位置を移動
 		if (a1 >= 128) {					// 多バイト文字チェック
+#if defined(__SWITCH__) && defined(HSPDISH)
+			if ( sw_script_is_lead( a1 ) && (*p != 0) ) p++;
+#else
 			if (a1 >= 192) p++;
 			if (a1 >= 224) p++;
 			if (a1 >= 240) p++;
 			if (a1 >= 248) p++;
 			if (a1 >= 252) p++;
+#endif
 		}
 	}
 	return NULL;
