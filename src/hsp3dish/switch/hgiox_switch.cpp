@@ -3326,6 +3326,38 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			}
 		}
 	}
+	/*	r213 probe: a small source rect drawn straight to the main screen is
+		the map-character path (neither create_pcpic nor chara_preparepic fires
+		there).  Read the source rect back and report its colour, so a wrong
+		cell and a source that really is black can be told apart.			*/
+	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
+		 ( srcsx > 0 ) && ( srcsx <= 96 ) && ( srcsy > 0 ) && ( srcsy <= 96 ) ) {
+		static int cd_n = 0;
+		if ( cd_n < 24 ) {
+			static unsigned char cdbuf[96*96*4];
+			SWTARGET *cst = sw_find( bmsrc );
+			int cbh = (int)bmsrc->sy;
+			int ci, cnb = 0;
+			long cr = 0, cg = 0, cb = 0;
+			cd_n++;
+			if ( ( cst != NULL ) && ( cbh >= (int)yy + srcsy ) && ( xx >= 0 ) && ( yy >= 0 ) ) {
+				glReadPixels( (int)xx, cbh - ( (int)yy + srcsy ), srcsx, srcsy,
+					GL_RGBA, GL_UNSIGNED_BYTE, cdbuf );
+				for ( ci = 0; ci < (int)srcsx * (int)srcsy; ci++ ) {
+					int v = cdbuf[ci*4] + cdbuf[ci*4+1] + cdbuf[ci*4+2];
+					if ( v > 24 ) { cnb++; cr += cdbuf[ci*4]; cg += cdbuf[ci*4+1]; cb += cdbuf[ci*4+2]; }
+				}
+				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+			sw_fbo_log( "hgio: chipdraw #%d tex=%d src=%d,%d %dx%d dst=%d,%d gm=%d key=%06x nonblack=%d avg=%ld,%ld,%ld\n",
+				cd_n, bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				(int)bm->cx, (int)bm->cy, bm->gmode, (unsigned)( bm->color & 0xffffff ),
+				cnb, cr / ( cnb ? cnb : 1 ), cg / ( cnb ? cnb : 1 ), cb / ( cnb ? cnb : 1 ) );
+		}
+	}
 	if ( ( sw_probe_dump == 1 ) && ( bmsrc != NULL ) &&
 		 ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) && ( bm != NULL ) &&
 		 ( bm->type == HSPWND_TYPE_MAIN ) ) {
