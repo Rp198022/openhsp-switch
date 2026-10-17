@@ -747,7 +747,9 @@ static int	sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game di
 static int	sw_notint = 0;			/* r220: 'notint' marker skips the tint	*/
 static int	sw_char_dump = 0;		/* r220: 'chardump' marker dumps the atlas	*/
 static int	sw_char_seen = 0;		/* staging blits seen so far				*/
-static int	sw_char_dumped = 0;		/* dumps written							*/
+static int	sw_char_dumped = 0;		/* distinct source buffers seen			*/
+static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
+static int	sw_char_dumped2[6];		/* blits seen for each					*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
@@ -3417,35 +3419,48 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		the chip already dark in the atlas, or does the blit darken it.		*/
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) &&
-		 ( bmsrc->texid == 4 ) ) {
+		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) ) {
+		/*	r222: several buffers keep a staging cell at (0,960) - the item
+			layer does, and so does the character layer - so the probe now
+			files a dump per source buffer instead of assuming one.  The
+			first distinct size seen wins; a second dump of the same size is
+			taken 40 blits later so the strip can be compared frame to frame.	*/
+		int bi, known = -1, distinct = 0;
 		sw_char_seen++;
-		if ( ( ( sw_char_seen % 30 ) == 0 ) && ( sw_char_dumped < 6 ) ) {
-			SWTARGET *dst = sw_find( bmsrc );
-			sw_char_dumped++;
-			if ( dst != NULL ) {
-				char nm[48];
-				sprintf( nm, "s%d_stage_f.bmp", sw_char_dumped );
-				sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
-				sprintf( nm, "s%d_stage_n.bmp", sw_char_dumped );
-				sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 0 );
-				sprintf( nm, "s%d_atlas_f.bmp", sw_char_dumped );
-				sw_dump_rect( nm, dst->fbo, (int)xx, (int)yy, 48, 48, (int)bmsrc->sy, 1 );
-				sprintf( nm, "s%d_atlas_n.bmp", sw_char_dumped );
-				sw_dump_rect( nm, dst->fbo, (int)xx, (int)yy, 48, 48, (int)bmsrc->sy, 0 );
-			}
-			sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
-			sw_apply_target( bm );
-			sw_cur = NULL;
-			{
-				char nm[48];
-				sprintf( nm, "s%d_scr.bmp", sw_char_dumped );
-				sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-					(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
-			}
-			sw_fbo_log( "hgio: chardump %d after %d staging blits src=%d,%d\n",
-				sw_char_dumped, sw_char_seen, (int)xx, (int)yy );
+		for ( bi = 0; bi < sw_char_dumped; bi++ ) {
+			if ( sw_char_sizes[bi] == ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy ) known = bi;
 		}
+		for ( bi = 0; bi < sw_char_dumped; bi++ ) distinct++;
+		if ( ( known < 0 ) && ( sw_char_dumped < 6 ) ) {
+			known = sw_char_dumped;
+			sw_char_sizes[sw_char_dumped++] = ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy;
+			sw_char_dumped2[known] = 0;
+		}
+		if ( known >= 0 ) {
+			sw_char_dumped2[known]++;
+			if ( ( sw_char_dumped2[known] == 1 ) || ( sw_char_dumped2[known] == 40 ) ) {
+				SWTARGET *dst = sw_find( bmsrc );
+				char nm[64];
+				int f, sc;
+				sprintf( nm, "b%d_%dx%d_%d_stage.bmp", known, (int)bmsrc->sx, (int)bmsrc->sy,
+					sw_char_dumped2[known] );
+				if ( dst != NULL ) {
+					sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
+				}
+				sc = ( sw_main_ok == 1 ) ? (int)sw_main_fbo : 0;
+				sw_bfb( (GLuint)sc );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+				sprintf( nm, "b%d_%dx%d_%d_scr.bmp", known, (int)bmsrc->sx, (int)bmsrc->sy,
+					sw_char_dumped2[known] );
+				sw_dump_rect( nm, (GLuint)sc, (int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
+				sw_fbo_log( "hgio: chardump buf%d %dx%d n=%d dst=%d,%d gm=%d rate=%d tex=%d\n",
+					known, (int)bmsrc->sx, (int)bmsrc->sy, sw_char_dumped2[known],
+					(int)bm->cx, (int)bm->cy, bm->gmode, bm->gfrate, bmsrc->texid );
+				(void)f;
+			}
+		}
+		(void)distinct;
 	}
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
