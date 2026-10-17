@@ -302,7 +302,24 @@ static int impl_hmm_bitcheck( const DllArgValue *args, int argc )
 	//
 	if ( argc < 2 ) return 0;
 	word = ( args[0].ptr != NULL ) ? *(int *)args[0].ptr : args[0].ival;
-	return ( ( word >> ( args[1].ival & 31 ) ) & 1 ) ? -1 : 0;	/* stat = 1 when set: OLDDLLINIT */
+
+	//	Elona tests this answer with `== TRUE`, and TRUE is declared as 1
+	//	(defines_2.32.hsp:333) - so the value has to be 1, not the -1 that
+	//	the OLDDLLINIT rule negates back into 1.  Which rule applies is a
+	//	property of the .ax rather than of this call: the compiler that built
+	//	the 2.32 .ax tagged this import OLDDLLINIT (-6, stat = -result), while
+	//	the in-tree hspcmp that built the 2.33 one tags it OLDDLL (-5, stat =
+	//	result untouched).  Under the second, the old -1 landed in stat as -1
+	//	and every `cbit(..) == TRUE` in the script read as false - which is
+	//	what left the appearance editor's preview on the chip branch instead
+	//	of the composited PCC (command.hsp:11230).  Writing stat here, with
+	//	the entry marked stat_owned so dllshim_exec leaves it alone, gives the
+	//	script's TRUE under either rule.
+	//
+	if ( hspctx != NULL ) {
+		hspctx->stat = ( ( word >> ( args[1].ival & 31 ) ) & 1 ) ? 1 : 0;
+	}
+	return -1;		/* stay negative: OLDDLLINIT reads a positive result as "await N ticks" */
 }
 
 //	_DIGETJOYNUM@16 / _DIGETJOYSTATE@16 - DirectInput enumeration.  The pad is
@@ -1420,6 +1437,12 @@ typedef struct {
 	const char *lib;
 	const char *func;
 	DllImplFunc impl;
+	/*	The imp writes hspctx->stat itself, so dllshim_exec must leave that
+		value alone - the subid rule there negates the result for OLDDLLINIT
+		and passes it through otherwise, and neither is right for an answer
+		the script compares with `== TRUE`.  _HMMBITCHECK is the one entry
+		that needs it (see its comment).								*/
+	int	stat_owned;
 } DllImplEntry;
 
 static const DllImplEntry impl_table[] = {
@@ -1464,7 +1487,7 @@ static const DllImplEntry impl_table[] = {
 	{ "hmm.dll",		"_DIGETJOYSTATE@16",	impl_hmm_joystate },
 	{ "hmm.dll",		"_HMMBITON@16",			impl_hmm_biton },
 	{ "hmm.dll",		"_HMMBITOFF@16",		impl_hmm_bitoff },
-	{ "hmm.dll",		"_HMMBITCHECK@16",		impl_hmm_bitcheck },
+	{ "hmm.dll",		"_HMMBITCHECK@16",		impl_hmm_bitcheck, 1 },
 
 	//	Windows UI layer - present but inert (see impl_win_true above).  The
 	//	library names are spelled exactly as the .ax declares them, including
@@ -1848,9 +1871,13 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 		if ( args[i].owned != NULL ) sbFree( args[i].owned );
 	}
 
-	//	Subid handling copied from hsp3extlib_ffi.cpp:734-753.  _exrand_randomize
-	//	is an OLDDLLINIT (subid -6) entry, so a positive return value would mean
-	//	"await N ticks" - we return 0 and land in the `stat = -result` branch.
+	//	Subid handling copied from hsp3extlib_ffi.cpp:734-753.  Which subid the
+	//	.ax carries is up to the compiler that produced it: the 2.32 .ax tags
+	//	every old-style import OLDDLLINIT (-6, a positive result means "await N
+	//	ticks" and the negative one is negated into stat), the in-tree hspcmp
+	//	that built the 2.33 .ax tags them OLDDLL (-5, no negation).  An imp
+	//	marked stat_owned has already put the answer in stat in the terms the
+	//	script expects and is left alone.
 	//
 	if ( st->subid == STRUCTPRM_SUBID_OLDDLLINIT ) {
 		if ( result > 0 ) {
@@ -1866,9 +1893,9 @@ int dllshim_exec( int cmd, int mask, char *desc, int descsize )
 			hspctx->runmode = RUNMODE_AWAIT;
 			return RUNMODE_AWAIT;
 		}
-		hspctx->stat = -result;
+		if ( !entry->stat_owned ) hspctx->stat = -result;
 	} else {
-		hspctx->stat = result;
+		if ( !entry->stat_owned ) hspctx->stat = result;
 	}
 
 	//	P3 DIAGNOSTIC: the pad entry points get their own trace, independent of
