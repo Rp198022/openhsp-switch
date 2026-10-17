@@ -960,6 +960,66 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 }
 
 
+/*	r221: dump one small rectangle of a target.  The full character buffer is
+	1584x2208 - a 14 MB read-back the pixel cap refuses - but the question is
+	only ever about three 48x48 cells: the staging cell, the atlas cell the
+	copy came from, and the screen cell the blit landed on.  'flip' selects
+	between the two y conventions so one run settles which one the target
+	really uses.															*/
+static void sw_dump_rect( const char *name, GLuint fbo, int gx, int gy, int w, int h, int dh, int flip )
+{
+	unsigned char *p;
+	FILE *fp;
+	unsigned char hdr[54];
+	int x, y;
+	int rowsz, filesize;
+	char full[96];
+
+	if ( ( sw_probe_dump != 1 ) || ( w <= 0 ) || ( h <= 0 ) || ( w > 128 ) || ( h > 128 ) ) return;
+	p = (unsigned char *)mem_ini( w * h * 4 );
+	if ( p == NULL ) return;
+	sw_bfb( fbo );
+	glReadPixels( gx, flip ? ( dh - ( gy + h ) ) : gy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
+
+	rowsz = w * 4;
+	filesize = 54 + rowsz * h;
+	for ( x = 0; x < 54; x++ ) hdr[x] = 0;
+	hdr[0] = 'B'; hdr[1] = 'M';
+	hdr[2] = (unsigned char)( filesize & 0xff );
+	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
+	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
+	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
+	hdr[10] = 54;
+	hdr[14] = 40;
+	hdr[18] = (unsigned char)( w & 0xff );
+	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
+	hdr[22] = (unsigned char)( h & 0xff );
+	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
+	hdr[26] = 1;
+	hdr[28] = 32;
+	snprintf( full, sizeof( full ), "sdmc:/dump/%s", name );
+	fp = fopen( full, "wb" );
+	if ( fp == NULL ) {
+		mem_bye( p );
+		return;
+	}
+	fwrite( hdr, 1, 54, fp );
+	for ( y = 0; y < h; y++ ) {
+		unsigned char *src = p + (size_t)y * rowsz;
+		unsigned char px[4];
+		for ( x = 0; x < w; x++ ) {
+			px[0] = src[x*4+2];
+			px[1] = src[x*4+1];
+			px[2] = src[x*4+0];
+			px[3] = 255;
+			fwrite( px, 1, 4, fp );
+		}
+	}
+	fclose( fp );
+	mem_bye( p );
+	sw_fbo_log( "hgio: rect %s %dx%d at %d,%d flip=%d\n", name, w, h, gx, gy, flip );
+}
+
 static void sw_dump_all( const char *pfx )
 {
 	int i;
@@ -3360,20 +3420,31 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) &&
 		 ( bmsrc->texid == 4 ) ) {
 		sw_char_seen++;
-		if ( ( ( sw_char_seen % 400 ) == 0 ) && ( sw_char_dumped < 6 ) ) {
-			char nm[32];
+		if ( ( ( sw_char_seen % 30 ) == 0 ) && ( sw_char_dumped < 6 ) ) {
 			SWTARGET *dst = sw_find( bmsrc );
 			sw_char_dumped++;
-			sprintf( nm, "char_%d.bmp", sw_char_dumped );
 			if ( dst != NULL ) {
-				sw_dump_fbo( nm, dst->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+				char nm[48];
+				sprintf( nm, "s%d_stage_f.bmp", sw_char_dumped );
+				sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
+				sprintf( nm, "s%d_stage_n.bmp", sw_char_dumped );
+				sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 0 );
+				sprintf( nm, "s%d_atlas_f.bmp", sw_char_dumped );
+				sw_dump_rect( nm, dst->fbo, (int)xx, (int)yy, 48, 48, (int)bmsrc->sy, 1 );
+				sprintf( nm, "s%d_atlas_n.bmp", sw_char_dumped );
+				sw_dump_rect( nm, dst->fbo, (int)xx, (int)yy, 48, 48, (int)bmsrc->sy, 0 );
 			}
 			sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
 			sw_apply_target( bm );
 			sw_cur = NULL;
-			sprintf( nm, "scr_%d.bmp", sw_char_dumped );
-			sw_dump_fbo( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->sx, (int)bm->sy );
-			sw_fbo_log( "hgio: chardump %d after %d staging blits\n", sw_char_dumped, sw_char_seen );
+			{
+				char nm[48];
+				sprintf( nm, "s%d_scr.bmp", sw_char_dumped );
+				sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+					(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
+			}
+			sw_fbo_log( "hgio: chardump %d after %d staging blits src=%d,%d\n",
+				sw_char_dumped, sw_char_seen, (int)xx, (int)yy );
 		}
 	}
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
