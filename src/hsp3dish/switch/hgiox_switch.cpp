@@ -889,8 +889,8 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 {
-	if ( !SW_FBO_HEAVY ) return;
-	if ( !SWITCH_DIAG ) return;
+	if ( ( !SW_FBO_HEAVY ) && ( sw_probe_dump != 1 ) ) return;
+	if ( ( !SWITCH_DIAG ) && ( sw_probe_dump != 1 ) ) return;
 	unsigned char *p;
 	FILE *fp;
 	unsigned char hdr[54];
@@ -1216,6 +1216,11 @@ static void sw_redraw_time( BMSCR *bm )
 
 void hgio_init( int mode, int sx, int sy, void *hwnd )
 {
+	{
+		FILE *pf = fopen( "probedump", "rb" );
+		sw_probe_dump = ( pf != NULL ) ? 1 : 0;
+		if ( pf != NULL ) fclose( pf );
+	}
 #ifdef HSPIOS
 	gb_init();	//		IOS グラフィック初期化
     gb_reset( sx, sy );
@@ -2816,6 +2821,7 @@ static int sw_pcc_copy_trace = 0;
 	the equation they arm.
 							*/
 
+static int		sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game dir */
 static int		sw_fc_lock_x = 0;			/* gfini xsize (0 = whole width)	*/
 static int		sw_fc_lock_y = 0;			/* gfini ysize (0 = whole height)	*/
 static int		sw_fc_lock_px = 0;			/* lock top-left = pos at gfini		*/
@@ -2842,6 +2848,16 @@ extern "C" void sw_fcgraph_lock( int xs, int ys )
 //
 static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
+	{
+		static int tint_log = 0;
+		if ( ( sw_probe_dump == 1 ) && ( tint_log < 12 ) &&
+			 ( sw_fc_lock_px == 0 ) && ( sw_fc_lock_py == 960 ) ) {
+			tint_log++;
+			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d lock=%dx%d bm=%p cur=%p\n",
+				tint_log, r, g, b, add, sw_fc_lock_x, sw_fc_lock_y,
+				(void *)sw_fc_lock_bm, (void *)sw_cur );
+		}
+	}
 	GLfloat vert[8];
 	GLfloat cols[16];
 	BMSCR *bm = sw_fc_lock_bm;
@@ -3286,6 +3302,45 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			sprintf( pnm, "panel_%d.bmp", sw_panel_a );
 			sw_dump_fbo( pnm, dfo, dw, dh );
 			sw_bfb(  dfo );
+		}
+	}
+	if ( sw_probe_dump == 1 ) {
+		if ( ( bmsrc != NULL ) && ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) ) {
+			static int seen[4];
+			static int seen_n = 0;
+			int k, have = 0;
+			for ( k = 0; k < seen_n; k++ ) if ( seen[k] == bmsrc->texid ) have = 1;
+			if ( ( have == 0 ) && ( seen_n < 4 ) ) {
+				SWTARGET *st = sw_find( bmsrc );
+				seen[seen_n++] = bmsrc->texid;
+				if ( st != NULL ) {
+					char nm[32];
+					sprintf( nm, "pcc_%d.bmp", bmsrc->texid );
+					sw_dump_fbo( nm, st->fbo, 384, 198 );
+					sw_bfb( st->fbo );
+					sw_apply_target( bmsrc );
+					sw_cur = NULL;
+				}
+			}
+		}
+		if ( ( bm != NULL ) && ( bm->cx == 0 ) && ( bm->cy == 960 ) &&
+			 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
+			static int chip_n = 0;
+			int dh = (int)bm->sy;
+			if ( ( chip_n < 6 ) && ( dh >= 960 + (int)srcsy ) ) {
+				unsigned char px[64*64*4];
+				int i2, nonblack = 0;
+				chip_n++;
+				glReadPixels( 0, dh - ( 960 + (int)srcsy ), srcsx, srcsy,
+					GL_RGBA, GL_UNSIGNED_BYTE, px );
+				for ( i2 = 0; i2 < (int)srcsx * (int)srcsy; i2++ ) {
+					if ( px[i2*4] + px[i2*4+1] + px[i2*4+2] > 24 ) nonblack++;
+				}
+				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d nonblack=%d/%d p0=%d,%d,%d\n",
+					chip_n, (int)srcsx, (int)srcsy, bm->texid, (int)xx, (int)yy,
+					bm->gmode, nonblack, (int)(srcsx*srcsy),
+					px[0], px[1], px[2] );
+			}
 		}
 	}
 }
