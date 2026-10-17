@@ -751,6 +751,10 @@ static int	sw_char_dumped = 0;		/* distinct source buffers seen			*/
 static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
 static int	sw_char_dumped2[6];		/* blits seen for each					*/
 static int	sw_atlas_done = 0;		/* r228: full-buffer dump taken		*/
+static int	sw_layer_n = 0;			/* r230: layer buffers seen			*/
+static int	sw_layer_tex[10];
+static int	sw_layer_w[10];
+static int	sw_layer_h[10];
 static int	sw_blit_n = 0;			/* r225: pre/post samples written		*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
@@ -3480,6 +3484,37 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		r219: only the staging cell (0,960) blit counts.  The r213 filter let
 		map tiles through and the 200-entry budget was gone before a single
 		character was drawn - which is why the map probe never saw one.		*/
+	/*	r230: inventory of the layers that draw 48-wide sprites to the map.
+		Every distinct source buffer is written out once, so the buffer that
+		actually holds the character chips can be identified instead of
+		guessed - the dumps so far were all the item atlas.					*/
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
+		 ( srcsx == 48 ) && ( sw_layer_n < 10 ) ) {
+		int li, known = 0;
+		for ( li = 0; li < sw_layer_n; li++ ) {
+			if ( ( sw_layer_tex[li] == bmsrc->texid ) &&
+				 ( sw_layer_w[li] == (int)bmsrc->sx ) && ( sw_layer_h[li] == (int)bmsrc->sy ) ) known = 1;
+		}
+		if ( known == 0 ) {
+			SWTARGET *lst = sw_find( bmsrc );
+			char nm[48];
+			sw_layer_tex[sw_layer_n] = bmsrc->texid;
+			sw_layer_w[sw_layer_n] = (int)bmsrc->sx;
+			sw_layer_h[sw_layer_n] = (int)bmsrc->sy;
+			sprintf( nm, "buf_%d.bmp", sw_layer_n );
+			sw_layer_n++;
+			if ( lst != NULL ) {
+				sw_dump_fbo( nm, lst->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+			sw_fbo_log( "hgio: layer %d tex=%d sz=%dx%d src=%d,%d dst=%d,%d gm=%d\n",
+				sw_layer_n - 1, bmsrc->texid, (int)bmsrc->sx, (int)bmsrc->sy,
+				(int)xx, (int)yy, (int)bm->cx, (int)bm->cy, bm->gmode );
+		}
+	}
 	/*	r220: the character buffer and the screen, written out whenever the
 		run has drawn enough characters to be on the map.  A picture of the
 		atlas settles in one look what the averaged read-backs could not: is
