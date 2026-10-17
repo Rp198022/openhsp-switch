@@ -3840,6 +3840,20 @@ typedef struct {
 static SWMESDRAWN sw_mes_drawn[SWMES_DRAWN_KEEP];
 static int sw_mes_drawn_ix = 0;
 
+/*	r207: the 2.33 translation redraws the race/class description into the
+	attribute panel by issuing the same text again at panel coordinates.  Keep
+	what has been drawn in the description column (cx < 286) so the gate in
+	hgio_mes can tell a stray copy from a row that belongs to the panel.  A
+	panel row never repeats a description-column string, so this hits only the
+	copy (the r205 ']' rule caught class tails but missed plain race prose).	*/
+#define SWMES_LEFT_KEEP 128
+typedef struct {
+	unsigned	tick;
+	unsigned	hash;
+} SWMESLEFT;
+static SWMESLEFT sw_mes_left[SWMES_LEFT_KEEP];
+static int sw_mes_left_ix = 0;
+
 /*	Copy msg, trimming any line-ending CR/LF from the tail.  *had_cr tells
 	whether the original ended with one (that is the spurious-copy marker),
 	*ok says the string fit the buffer and can be used as the clean text.	*/
@@ -3868,6 +3882,11 @@ static void sw_mes_note_draw( BMSCR *bm, int x, int y, const char *s )
 	sw_mes_drawn[sw_mes_drawn_ix].tick = (unsigned)hgio_gettick();
 	sw_mes_drawn[sw_mes_drawn_ix].hash = sw_text_hash( s );
 	sw_mes_drawn_ix = ( sw_mes_drawn_ix + 1 ) % SWMES_DRAWN_KEEP;
+	if ( x < 286 && sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 ) {
+		sw_mes_left[sw_mes_left_ix].tick = (unsigned)hgio_gettick();
+		sw_mes_left[sw_mes_left_ix].hash = sw_text_hash( s );
+		sw_mes_left_ix = ( sw_mes_left_ix + 1 ) % SWMES_LEFT_KEEP;
+	}
 }
 
 int hgio_mes(BMSCR* bm, char* msg)
@@ -4082,7 +4101,23 @@ int hgio_mes(BMSCR* bm, char* msg)
 					sp += 2;
 				}
 			}
-			sw_hide = ( !padded && bracketed );
+			int dup_left = 0;
+			/*	A stray copy is byte-identical to a row already drawn in the
+				description column (cx ~270).  Real panel rows - "<name>: <grade>"
+				labels, space-padded skill rows, talent text - never repeat one,
+				and the 12-byte floor keeps short labels out of the comparison.	*/
+			if ( !padded && strlen( use ) >= 12 ) {
+				unsigned h = sw_text_hash( use );
+				unsigned now = (unsigned)hgio_gettick();
+				int i;
+				for ( i = 0; i < SWMES_LEFT_KEEP; i++ ) {
+					if ( sw_mes_left[i].hash != h ) continue;
+					if ( now - sw_mes_left[i].tick > 8000 ) continue;
+					dup_left = 1;
+					break;
+				}
+			}
+			sw_hide = ( !padded && ( bracketed || dup_left ) );
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
