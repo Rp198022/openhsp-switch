@@ -3494,13 +3494,14 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			taken 40 blits later so the strip can be compared frame to frame.	*/
 		int bi, known = -1, distinct = 0;
 		sw_char_seen++;
-		if ( ( sw_char_seen == 400 ) && ( sw_atlas_done == 0 ) ) {
+		if ( ( sw_char_seen == 1200 ) && ( sw_atlas_done == 0 ) ) {
 			/*	r228: the whole character buffer, once.  If the humanoid chips
 				are already dark here, nothing downstream can fix them.		*/
 			SWTARGET *ast = sw_find( bmsrc );
 			sw_atlas_done = 1;
 			if ( ast != NULL ) {
 				sw_dump_fbo( "atlas.bmp", ast->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+				sw_dump_fbo( "atlas_b.bmp", ast->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
 				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
 				sw_apply_target( bm );
 				sw_cur = NULL;
