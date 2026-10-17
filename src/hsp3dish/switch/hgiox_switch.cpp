@@ -3332,9 +3332,9 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		cell and a source that really is black can be told apart.			*/
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx > 0 ) && ( srcsx <= 96 ) && ( srcsy > 0 ) && ( srcsy <= 96 ) ) {
+		 ( srcsx >= 40 ) && ( srcsx <= 64 ) && ( srcsy >= 40 ) && ( srcsy <= 80 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 200 ) {
+		if ( cd_n < 60 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
@@ -3577,6 +3577,17 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		create_pcpic wipes its 384x198 PCC buffer that way and the buffer kept
 		a stray cyan rectangle behind the character.						*/
 	sw_glColorKey( 0, 0 );
+	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( srcsx >= 40 ) && ( srcsx <= 64 ) && ( srcsy >= 40 ) && ( srcsy <= 80 ) ) {
+		static int rd_n = 0;
+		if ( rd_n < 20 ) {
+			rd_n++;
+			sw_fbo_log( "hgio: rotdraw #%d tex=%d src=%d,%d %dx%d dst=%g,%g gm=%d key=%06x ang=%g\n",
+				rd_n, bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				(double)psx, (double)psy, bm->gmode, (unsigned)( bm->color & 0xffffff ), (double)ang );
+		}
+	}
+
 }
 
 
