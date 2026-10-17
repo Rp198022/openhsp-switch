@@ -2850,11 +2850,12 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
 	{
 		static int tint_log = 0;
-		if ( ( sw_probe_dump == 1 ) && ( tint_log < 12 ) &&
+		if ( ( sw_probe_dump == 1 ) && ( tint_log < 24 ) &&
 			 ( sw_fc_lock_px == 0 ) && ( sw_fc_lock_py == 960 ) ) {
 			tint_log++;
-			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d lock=%dx%d bm=%p cur=%p\n",
-				tint_log, r, g, b, add, sw_fc_lock_x, sw_fc_lock_y,
+			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d at=%d,%d lock=%dx%d bm=%p cur=%p\n",
+				tint_log, r, g, b, add, sw_fc_lock_px, sw_fc_lock_py,
+				sw_fc_lock_x, sw_fc_lock_y,
 				(void *)sw_fc_lock_bm, (void *)sw_cur );
 		}
 	}
@@ -3329,12 +3330,15 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	/*	r213 probe: a small source rect drawn straight to the main screen is
 		the map-character path (neither create_pcpic nor chara_preparepic fires
 		there).  Read the source rect back and report its colour, so a wrong
-		cell and a source that really is black can be told apart.			*/
+		cell and a source that really is black can be told apart.
+		r219: only the staging cell (0,960) blit counts.  The r213 filter let
+		map tiles through and the 200-entry budget was gone before a single
+		character was drawn - which is why the map probe never saw one.		*/
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx == 48 ) && ( srcsy == 48 ) ) {
+		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( srcsy >= 32 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 200 ) {
+		if ( cd_n < 600 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
@@ -3416,10 +3420,14 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
 			static int chip_n = 0;
 			int dh = (int)bm->sy;
-			if ( ( chip_n < 6 ) && ( dh >= 960 + (int)srcsy ) ) {
+			/*	r219: raise the budget (six was spent during the intro) and
+				read the atlas cell the copy came from as well, so the log
+				shows whether the source was already black or the staging
+				step is what empties it.									*/
+			if ( ( chip_n < 60 ) && ( dh >= 960 + (int)srcsy ) ) {
 				unsigned char px[64*64*4];
-				int i2, nonblack = 0;
-				long sr = 0, sg = 0, sb = 0;
+				int i2, nonblack = 0, snb = 0;
+				long sr = 0, sg = 0, sb = 0, ar = 0, ag = 0, ab = 0;
 				int mx = 0;
 				chip_n++;
 				glReadPixels( 0, dh - ( 960 + (int)srcsy ), srcsx, srcsy,
@@ -3429,9 +3437,20 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 					if ( v > 24 ) { nonblack++; sr += px[i2*4]; sg += px[i2*4+1]; sb += px[i2*4+2]; }
 					if ( v > mx ) mx = v;
 				}
-				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d rate=%d nonblack=%d/%d avg=%ld,%ld,%ld max=%d\n",
+				if ( ( xx >= 0 ) && ( yy >= 0 ) && ( dh >= (int)yy + (int)srcsy ) ) {
+					glReadPixels( (int)xx, dh - ( (int)yy + (int)srcsy ), srcsx, srcsy,
+						GL_RGBA, GL_UNSIGNED_BYTE, px );
+					for ( i2 = 0; i2 < (int)srcsx * (int)srcsy; i2++ ) {
+						int v = px[i2*4] + px[i2*4+1] + px[i2*4+2];
+						if ( v > 24 ) { snb++; ar += px[i2*4]; ag += px[i2*4+1]; ab += px[i2*4+2]; }
+					}
+				}
+				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d rate=%d atlas=%d/%d,%ld,%ld,%ld stage=%d/%d,%ld,%ld,%ld max=%d\n",
 					chip_n, (int)srcsx, (int)srcsy, bm->texid, (int)xx, (int)yy,
-					bm->gmode, bm->gfrate, nonblack, (int)(srcsx*srcsy),
+					bm->gmode, bm->gfrate,
+					snb, (int)(srcsx*srcsy),
+					ar / ( snb ? snb : 1 ), ag / ( snb ? snb : 1 ), ab / ( snb ? snb : 1 ),
+					nonblack, (int)(srcsx*srcsy),
 					sr / ( nonblack ? nonblack : 1 ), sg / ( nonblack ? nonblack : 1 ),
 					sb / ( nonblack ? nonblack : 1 ), mx / 3 );
 			}
