@@ -3304,6 +3304,28 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			sw_bfb(  dfo );
 		}
 	}
+	if ( ( sw_probe_dump == 1 ) && ( bmsrc != NULL ) &&
+		 ( bm->texid == bmsrc->texid ) && ( srcsx == 128 ) && ( srcsy == 198 ) ) {
+		static int pcc_n = 0;
+		if ( pcc_n < 20 ) {
+			static unsigned char pcpix[128*198*4];
+			SWTARGET *pst = sw_find( bm );
+			int pdh = (int)bm->sy;
+			int pi, pnb = 0;
+			pcc_n++;
+			sw_fbo_log( "hgio: pcccopy #%d src=%d,%d dst=%d,%d gm=%d realfbo=%u want=%u cur=%p bm=%p\n",
+				pcc_n, (int)xx, (int)yy, (int)bm->cx, (int)bm->cy, bm->gmode,
+				(unsigned)sw_real_fbo, (unsigned)( pst ? pst->fbo : 0 ),
+				(void *)sw_cur, (void *)bm );
+			if ( ( pdh >= 198 ) && ( (int)bm->cy >= 0 ) && ( (int)bm->cy + 198 <= pdh ) ) {
+				glReadPixels( 0, pdh - ( (int)bm->cy + 198 ), 128, 198, GL_RGBA, GL_UNSIGNED_BYTE, pcpix );
+				for ( pi = 0; pi < 128 * 198; pi++ ) {
+					if ( pcpix[pi*4] + pcpix[pi*4+1] + pcpix[pi*4+2] > 24 ) pnb++;
+				}
+				sw_fbo_log( "hgio: pcccopy #%d dest nonblack=%d/%d\n", pcc_n, pnb, 128*198 );
+			}
+		}
+	}
 	if ( sw_probe_dump == 1 ) {
 		if ( ( bmsrc != NULL ) && ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) ) {
 			static int seen[24];
