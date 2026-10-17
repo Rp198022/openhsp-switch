@@ -750,6 +750,7 @@ static int	sw_char_seen = 0;		/* staging blits seen so far				*/
 static int	sw_char_dumped = 0;		/* distinct source buffers seen			*/
 static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
 static int	sw_char_dumped2[6];		/* blits seen for each					*/
+static int	sw_blit_n = 0;			/* r225: pre/post samples written		*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
@@ -3346,8 +3347,9 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		turns a bright staging cell into a dark cell, the copy is at fault.	*/
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( ( sw_char_seen == 400 ) || ( sw_char_seen == 500 ) || ( sw_char_seen == 600 ) ) ) {
+		 ( ( sw_char_seen % 100 ) == 0 ) && ( sw_blit_n < 12 ) ) {
 		char nm[48];
+		sw_blit_n++;
 		sprintf( nm, "pre_%d.bmp", sw_char_seen );
 		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
 			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
@@ -3361,7 +3363,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( ( sw_char_seen == 400 ) || ( sw_char_seen == 500 ) || ( sw_char_seen == 600 ) ) ) {
+		 ( ( sw_char_seen % 100 ) == 0 ) && ( sw_blit_n < 12 ) ) {
 		char nm[48];
 		sprintf( nm, "post_%d.bmp", sw_char_seen );
 		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
