@@ -3097,8 +3097,19 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		self-copies and wiped the message log instead, so the main screen
 		is excluded again.  Whatever fixes the band has to work without
 		relying on the main screen's texture holding live pixels.			*/
+	/*	r208 A/B: a marker file next to the .ax sends non-overlapping small
+		self-copies down the direct path instead of the scratch stage.  The
+		chip preparation (chara_preparepic: BUFFER_CHR -> (0,960), 24x24) is
+		exactly that shape, and the map shows its output black until a reload,
+		which points at the staged path rather than at the copy itself.		*/
+	static int sw_selfdirect = -1;
+	if ( sw_selfdirect < 0 ) {
+		FILE *mk = fopen( "selfdirect", "rb" );
+		sw_selfdirect = ( mk != NULL ) ? 1 : 0;
+		if ( mk != NULL ) fclose( mk );
+	}
 	if ( ( bm->texid == bmsrc->texid ) && ( sw_same == 0 ) &&
-		 ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) || sw_ov ) ) {
+		 ( sw_ov || ( ( ( srcsx <= 64 ) && ( srcsy <= 64 ) ) && ( sw_selfdirect == 0 ) ) ) ) {
 		int cyy = (int)yy;
 		/*	r185c: a main-screen source keeps row 0 at v=1 while an offscreen
 			screen keeps it at v=0 (sw_apply_target), so the capture - which
