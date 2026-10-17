@@ -3334,12 +3334,14 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
 		 ( srcsx > 0 ) && ( srcsx <= 96 ) && ( srcsy > 0 ) && ( srcsy <= 96 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 24 ) {
+		if ( cd_n < 200 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
 			int ci, cnb = 0;
 			long cr = 0, cg = 0, cb = 0;
+			long dr = 0, dg = 0, db = 0;
+			int dnb = 0;
 			cd_n++;
 			if ( ( cst != NULL ) && ( cbh >= (int)yy + srcsy ) && ( xx >= 0 ) && ( yy >= 0 ) ) {
 				glReadPixels( (int)xx, cbh - ( (int)yy + srcsy ), srcsx, srcsy,
@@ -3351,11 +3353,21 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
 				sw_apply_target( bm );
 				sw_cur = NULL;
+				dnb = 0; dr = dg = db = 0;
+				if ( cbh >= 0 && (int)bm->cy + srcsy <= (int)bm->sy ) {
+					glReadPixels( (int)bm->cx, (int)bm->sy - ( (int)bm->cy + srcsy ), srcsx, srcsy,
+						GL_RGBA, GL_UNSIGNED_BYTE, cdbuf );
+					for ( ci = 0; ci < (int)srcsx * (int)srcsy; ci++ ) {
+						int v2 = cdbuf[ci*4] + cdbuf[ci*4+1] + cdbuf[ci*4+2];
+						if ( v2 > 24 ) { dnb++; dr += cdbuf[ci*4]; dg += cdbuf[ci*4+1]; db += cdbuf[ci*4+2]; }
+					}
+				}
 			}
-			sw_fbo_log( "hgio: chipdraw #%d tex=%d src=%d,%d %dx%d dst=%d,%d gm=%d key=%06x nonblack=%d avg=%ld,%ld,%ld\n",
+			sw_fbo_log( "hgio: chipdraw #%d tex=%d src=%d,%d %dx%d dst=%d,%d gm=%d key=%06x nonblack=%d avg=%ld,%ld,%ld dst=%d/%d,%ld,%ld,%ld\n",
 				cd_n, bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
 				(int)bm->cx, (int)bm->cy, bm->gmode, (unsigned)( bm->color & 0xffffff ),
-				cnb, cr / ( cnb ? cnb : 1 ), cg / ( cnb ? cnb : 1 ), cb / ( cnb ? cnb : 1 ) );
+				cnb, cr / ( cnb ? cnb : 1 ), cg / ( cnb ? cnb : 1 ), cb / ( cnb ? cnb : 1 ),
+				dnb, (int)(srcsx*srcsy), dr / ( dnb ? dnb : 1 ), dg / ( dnb ? dnb : 1 ), db / ( dnb ? dnb : 1 ) );
 		}
 	}
 	if ( ( sw_probe_dump == 1 ) && ( bmsrc != NULL ) &&
