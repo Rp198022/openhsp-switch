@@ -743,6 +743,7 @@ static void sw_main_ensure( void )
 	copies, so Elona relies on them.  Capture the rectangle 1:1 into a
 	scratch texture and draw from that instead.								*/
 #define SW_SCRATCH_MAX 1024
+static int	sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game dir */
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
@@ -2821,7 +2822,6 @@ static int sw_pcc_copy_trace = 0;
 	the equation they arm.
 							*/
 
-static int		sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game dir */
 static int		sw_fc_lock_x = 0;			/* gfini xsize (0 = whole width)	*/
 static int		sw_fc_lock_y = 0;			/* gfini ysize (0 = whole height)	*/
 static int		sw_fc_lock_px = 0;			/* lock top-left = pos at gfini		*/
