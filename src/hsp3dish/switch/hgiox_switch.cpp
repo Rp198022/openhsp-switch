@@ -750,6 +750,7 @@ static int	sw_char_seen = 0;		/* staging blits seen so far				*/
 static int	sw_char_dumped = 0;		/* distinct source buffers seen			*/
 static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
 static int	sw_char_dumped2[6];		/* blits seen for each					*/
+static int	sw_atlas_done = 0;		/* r228: full-buffer dump taken		*/
 static int	sw_blit_n = 0;			/* r225: pre/post samples written		*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
@@ -892,7 +893,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 }
 
 
-#define SW_DUMP_MAX_PIXELS 2000000L
+#define SW_DUMP_MAX_PIXELS 4000000L
 
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
@@ -3493,6 +3494,18 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			taken 40 blits later so the strip can be compared frame to frame.	*/
 		int bi, known = -1, distinct = 0;
 		sw_char_seen++;
+		if ( ( sw_char_seen == 400 ) && ( sw_atlas_done == 0 ) ) {
+			/*	r228: the whole character buffer, once.  If the humanoid chips
+				are already dark here, nothing downstream can fix them.		*/
+			SWTARGET *ast = sw_find( bmsrc );
+			sw_atlas_done = 1;
+			if ( ast != NULL ) {
+				sw_dump_fbo( "atlas.bmp", ast->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+		}
 		for ( bi = 0; bi < sw_char_dumped; bi++ ) {
 			if ( sw_char_sizes[bi] == ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy ) known = bi;
 		}
