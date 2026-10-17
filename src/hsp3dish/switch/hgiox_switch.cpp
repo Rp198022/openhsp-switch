@@ -3431,14 +3431,14 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			if ( sw_char_sizes[bi] == ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy ) known = bi;
 		}
 		for ( bi = 0; bi < sw_char_dumped; bi++ ) distinct++;
-		if ( ( known < 0 ) && ( sw_char_dumped < 6 ) ) {
+		if ( ( known < 0 ) && ( sw_char_dumped < 8 ) && ( sw_char_seen > 300 ) ) {
 			known = sw_char_dumped;
 			sw_char_sizes[sw_char_dumped++] = ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy;
 			sw_char_dumped2[known] = 0;
 		}
 		if ( known >= 0 ) {
 			sw_char_dumped2[known]++;
-			if ( ( sw_char_dumped2[known] == 1 ) || ( sw_char_dumped2[known] == 40 ) ) {
+			if ( sw_char_dumped2[known] == 1 ) {
 				SWTARGET *dst = sw_find( bmsrc );
 				char nm[64];
 				int f, sc;
