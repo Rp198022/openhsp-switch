@@ -744,6 +744,10 @@ static void sw_main_ensure( void )
 	scratch texture and draw from that instead.								*/
 #define SW_SCRATCH_MAX 1024
 static int	sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game dir */
+static int	sw_notint = 0;			/* r220: 'notint' marker skips the tint	*/
+static int	sw_char_dump = 0;		/* r220: 'chardump' marker dumps the atlas	*/
+static int	sw_char_seen = 0;		/* staging blits seen so far				*/
+static int	sw_char_dumped = 0;		/* dumps written							*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
@@ -1220,6 +1224,18 @@ void hgio_init( int mode, int sx, int sy, void *hwnd )
 	{
 		FILE *pf = fopen( "probedump", "rb" );
 		sw_probe_dump = ( pf != NULL ) ? 1 : 0;
+		if ( pf != NULL ) fclose( pf );
+	}
+	/*	r220: two switches for one run.  'notint' turns gfdec2/gfinc into a
+		no-op, so a sprite that comes back coloured proves the tint is what
+		darkens it; 'chardump' writes the character buffer and the screen out
+		as BMP whenever the run reaches the map.							*/
+	{
+		FILE *pf = fopen( "notint", "rb" );
+		sw_notint = ( pf != NULL ) ? 1 : 0;
+		if ( pf != NULL ) fclose( pf );
+		pf = fopen( "chardump", "rb" );
+		sw_char_dump = ( pf != NULL ) ? 1 : 0;
 		if ( pf != NULL ) fclose( pf );
 	}
 #ifdef HSPIOS
@@ -2848,6 +2864,7 @@ extern "C" void sw_fcgraph_lock( int xs, int ys )
 //
 static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
+	if ( sw_notint == 1 ) return;		/* r220: A/B switch, see hgio_init	*/
 	{
 		static int tint_log = 0;
 		if ( ( sw_probe_dump == 1 ) && ( tint_log < 24 ) &&
@@ -3334,6 +3351,31 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		r219: only the staging cell (0,960) blit counts.  The r213 filter let
 		map tiles through and the 200-entry budget was gone before a single
 		character was drawn - which is why the map probe never saw one.		*/
+	/*	r220: the character buffer and the screen, written out whenever the
+		run has drawn enough characters to be on the map.  A picture of the
+		atlas settles in one look what the averaged read-backs could not: is
+		the chip already dark in the atlas, or does the blit darken it.		*/
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
+		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) &&
+		 ( bmsrc->texid == 4 ) ) {
+		sw_char_seen++;
+		if ( ( ( sw_char_seen % 400 ) == 0 ) && ( sw_char_dumped < 6 ) ) {
+			char nm[32];
+			SWTARGET *dst = sw_find( bmsrc );
+			sw_char_dumped++;
+			sprintf( nm, "char_%d.bmp", sw_char_dumped );
+			if ( dst != NULL ) {
+				sw_dump_fbo( nm, dst->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+			}
+			sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+			sw_apply_target( bm );
+			sw_cur = NULL;
+			sprintf( nm, "scr_%d.bmp", sw_char_dumped );
+			sw_dump_fbo( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->sx, (int)bm->sy );
+			sw_fbo_log( "hgio: chardump %d after %d staging blits\n", sw_char_dumped, sw_char_seen );
+		}
+	}
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
 		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( srcsy >= 32 ) ) {
