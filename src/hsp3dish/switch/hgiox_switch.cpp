@@ -1775,6 +1775,24 @@ static void setColorTex_color( float alpha )
 	}
 }
 
+/*	r224: the colour-key copy does not tint.  Elona draws a character's
+	shadow with `color 0,0,0` and then blits the character itself with
+	gmode 2 - still black - and the classic runtime ignores the drawing
+	colour for that mode: the key is the only thing it uses it for.  This
+	port multiplied the copy by mulcolorvalue, so every sprite drawn in
+	that state came out black.  Same array, forced to white.				*/
+static void setColorTex_white( float alpha )
+{
+	GLfloat *flp = _panelColorsTex;
+	int i;
+	for ( i = 0; i < 4; i++ ) {
+		*flp++ = 1.0f;
+		*flp++ = 1.0f;
+		*flp++ = 1.0f;
+		*flp++ = alpha;
+	}
+}
+
 static void setColorTex_mulcolor( float alpha )
 {
 	BMSCR *cbm = ( sw_colorbm != NULL ) ? sw_colorbm : mainbm;
@@ -1888,7 +1906,11 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		} else {
 			alpha = 1.0f;
 		}
-		setColorTex_mulcolor(alpha);
+		if ( mode == 2 ) {
+			setColorTex_white(alpha);		/* r224: key copy never tints	*/
+		} else {
+			setColorTex_mulcolor(alpha);
+		}
         glEnableClientState(GL_COLOR_ARRAY);
         glColorPointer(4,GL_FLOAT,0,_panelColorsTex);
     }
