@@ -3347,7 +3347,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		turns a bright staging cell into a dark cell, the copy is at fault.	*/
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( ( sw_char_seen % 100 ) == 0 ) && ( sw_blit_n < 12 ) ) {
+		 ( sw_char_seen >= 320 ) && ( sw_char_seen < 332 ) ) {
 		char nm[48];
 		sw_blit_n++;
 		{
@@ -3376,7 +3376,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( ( sw_char_seen % 100 ) == 0 ) && ( sw_blit_n < 12 ) ) {
+		 ( sw_char_seen >= 320 ) && ( sw_char_seen < 332 ) ) {
 		char nm[48];
 		sprintf( nm, "post_%d.bmp", sw_char_seen );
 		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
