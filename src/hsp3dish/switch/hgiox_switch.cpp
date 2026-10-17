@@ -3350,6 +3350,19 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		 ( ( sw_char_seen % 100 ) == 0 ) && ( sw_blit_n < 12 ) ) {
 		char nm[48];
 		sw_blit_n++;
+		{
+			/*	r227: the cell the copy is about to read, sampled with the
+				screen pair, so atlas -> staging -> screen is one chain.		*/
+			SWTARGET *sst = sw_find( bmsrc );
+			if ( sst != NULL ) {
+				char sn[48];
+				sprintf( sn, "src_%d.bmp", sw_char_seen );
+				sw_dump_rect( sn, sst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
+				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+		}
 		sprintf( nm, "pre_%d.bmp", sw_char_seen );
 		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
 			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
