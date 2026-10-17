@@ -3352,16 +3352,21 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			if ( ( chip_n < 6 ) && ( dh >= 960 + (int)srcsy ) ) {
 				unsigned char px[64*64*4];
 				int i2, nonblack = 0;
+				long sr = 0, sg = 0, sb = 0;
+				int mx = 0;
 				chip_n++;
 				glReadPixels( 0, dh - ( 960 + (int)srcsy ), srcsx, srcsy,
 					GL_RGBA, GL_UNSIGNED_BYTE, px );
 				for ( i2 = 0; i2 < (int)srcsx * (int)srcsy; i2++ ) {
-					if ( px[i2*4] + px[i2*4+1] + px[i2*4+2] > 24 ) nonblack++;
+					int v = px[i2*4] + px[i2*4+1] + px[i2*4+2];
+					if ( v > 24 ) { nonblack++; sr += px[i2*4]; sg += px[i2*4+1]; sb += px[i2*4+2]; }
+					if ( v > mx ) mx = v;
 				}
-				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d nonblack=%d/%d p0=%d,%d,%d\n",
+				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d rate=%d nonblack=%d/%d avg=%ld,%ld,%ld max=%d\n",
 					chip_n, (int)srcsx, (int)srcsy, bm->texid, (int)xx, (int)yy,
-					bm->gmode, nonblack, (int)(srcsx*srcsy),
-					px[0], px[1], px[2] );
+					bm->gmode, bm->gfrate, nonblack, (int)(srcsx*srcsy),
+					sr / ( nonblack ? nonblack : 1 ), sg / ( nonblack ? nonblack : 1 ),
+					sb / ( nonblack ? nonblack : 1 ), mx / 3 );
 			}
 		}
 	}
