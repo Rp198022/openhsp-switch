@@ -4053,19 +4053,36 @@ int hgio_mes(BMSCR* bm, char* msg)
 				Every stray row is a prose sentence that carries GBK punctuation
 				(0xa1a3 "。" / 0xa1a2 "，"), while real panel rows never do -
 				attribute labels are "<name>: <grade>" and skill rows are
-				padded with double spaces.  Hide on punctuation as well.	*/
+				padded with double spaces.  Hide on punctuation as well.
+
+				r205: r197/r198 turned out to over-hide.  A decoded dump of the
+				2.33 meslog.txt shows the gate was also eating genuine panel
+				text, which the user sees as blank cells - the talent panel's
+				effect descriptions (e.g. the 34-byte "着眼于土地蕴含的能量并
+				探寻其操控法") and the re-roll-experience page's background
+				lines (14-24 bytes ending in "。").  Those are real rows; only
+				the leaked copy should go.  The one feature that actually
+				separates a leaked copy from real panel text is a half-width
+				"]" (0x5d): every stray row is the last line of a class
+				description and carries an ability tag such as "[魔力循环]",
+				"[猛攻]" or "[丰收]".  Attribute, skill and talent rows never
+				contain "]".  So drop the byte-length floor and the punctuation
+				rule and hide only rows that carry "]".						*/
 			if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 &&
 				 bm->cx >= 286 && bm->cy >= 250 && bm->cy <= 520 ) {
 			const char *sp = use;
 			int padded = 0;
-			int punct = 0;
+			int bracketed = 0;
 			while ( sp[0] != 0 && sp[1] != 0 ) {
 				if ( sp[0] == ' ' && sp[1] == ' ' ) { padded = 1; break; }
-				if ( (unsigned char)sp[0] == 0xa1 &&
-				     ( (unsigned char)sp[1] == 0xa3 || (unsigned char)sp[1] == 0xa2 ) ) { punct = 1; }
-				sp++;
+				if ( (unsigned char)sp[0] < 0x80 ) {
+					if ( sp[0] == ']' ) { bracketed = 1; }
+					sp++;
+				} else {
+					sp += 2;
+				}
 			}
-			sw_hide = ( !padded && ( punct || (int)strlen( use ) >= 30 ) );
+			sw_hide = ( !padded && bracketed );
 		}
 		if ( !sw_hide ) {
 			hgio_fontcopy(bm, bm->cx, bm->cy, tex->ratex, tex->ratey, xsize, ysize, tex->_texture, 0, 0);
