@@ -3326,6 +3326,29 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			}
 		}
 	}
+	if ( ( sw_probe_dump == 1 ) && ( bmsrc != NULL ) &&
+		 ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) && ( bm != NULL ) &&
+		 ( bm->type == HSPWND_TYPE_MAIN ) ) {
+		static int dseen[8];
+		static int dn = 0;
+		int k, have = 0;
+		for ( k = 0; k < dn; k++ ) if ( dseen[k] == bmsrc->texid ) have = 1;
+		if ( ( have == 0 ) && ( dn < 8 ) ) {
+			SWTARGET *st = sw_find( bmsrc );
+			dseen[dn++] = bmsrc->texid;
+			sw_fbo_log( "hgio: pccdraw #%d tex=%d src=%d,%d %dx%d dst=%d,%d gm=%d\n",
+				dn, bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
+				(int)bm->cx, (int)bm->cy, bm->gmode );
+			if ( st != NULL ) {
+				char nm[32];
+				sprintf( nm, "pccdraw_%d.bmp", bmsrc->texid );
+				sw_dump_fbo( nm, st->fbo, 384, 198 );
+				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+		}
+	}
 	if ( sw_probe_dump == 1 ) {
 		if ( ( bmsrc != NULL ) && ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) ) {
 			static int seen[24];
