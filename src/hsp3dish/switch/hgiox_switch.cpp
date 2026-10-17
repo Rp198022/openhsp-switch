@@ -3332,9 +3332,9 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		cell and a source that really is black can be told apart.			*/
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx >= 40 ) && ( srcsx <= 64 ) && ( srcsy >= 40 ) && ( srcsy <= 80 ) ) {
+		 ( srcsx == 48 ) && ( srcsy == 48 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 2000 ) {
+		if ( cd_n < 200 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
@@ -3578,13 +3578,29 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		a stray cyan rectangle behind the character.						*/
 	sw_glColorKey( 0, 0 );
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( srcsx >= 40 ) && ( srcsx <= 64 ) && ( srcsy >= 40 ) && ( srcsy <= 80 ) ) {
+		 ( bmsrc != NULL ) && ( srcsx == 48 ) && ( srcsy == 48 ) ) {
 		static int rd_n = 0;
-		if ( rd_n < 20 ) {
+		if ( rd_n < 60 ) {
+			static unsigned char rdbuf[48*48*4];
+			SWTARGET *rst = sw_find( bmsrc );
+			int rbh = (int)bmsrc->sy;
+			int ri, rnb = 0;
+			long rr = 0, rg = 0, rb = 0;
 			rd_n++;
-			sw_fbo_log( "hgio: rotdraw #%d tex=%d src=%d,%d %dx%d dst=%g,%g gm=%d key=%06x ang=%g\n",
-				rd_n, bmsrc->texid, (int)xx, (int)yy, (int)srcsx, (int)srcsy,
-				(double)psx, (double)psy, bm->gmode, (unsigned)( bm->color & 0xffffff ), (double)ang );
+			if ( ( rst != NULL ) && ( rbh >= (int)yy + 48 ) && ( xx >= 0 ) && ( yy >= 0 ) ) {
+				glReadPixels( (int)xx, rbh - ( (int)yy + 48 ), 48, 48, GL_RGBA, GL_UNSIGNED_BYTE, rdbuf );
+				for ( ri = 0; ri < 48*48; ri++ ) {
+					int v = rdbuf[ri*4] + rdbuf[ri*4+1] + rdbuf[ri*4+2];
+					if ( v > 24 ) { rnb++; rr += rdbuf[ri*4]; rg += rdbuf[ri*4+1]; rb += rdbuf[ri*4+2]; }
+				}
+				sw_bfb(  ( sw_main_ok == 1 ) ? sw_main_fbo : 0 );
+				sw_apply_target( bm );
+				sw_cur = NULL;
+			}
+			sw_fbo_log( "hgio: rotdraw #%d tex=%d src=%d,%d 48x48 dst=%g,%g gm=%d key=%06x nonblack=%d avg=%ld,%ld,%ld ang=%g\n",
+				rd_n, bmsrc->texid, (int)xx, (int)yy, (double)psx, (double)psy,
+				bm->gmode, (unsigned)( bm->color & 0xffffff ), rnb,
+				rr / ( rnb ? rnb : 1 ), rg / ( rnb ? rnb : 1 ), rb / ( rnb ? rnb : 1 ), (double)ang );
 		}
 	}
 
