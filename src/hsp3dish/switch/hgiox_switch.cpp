@@ -3306,11 +3306,11 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	}
 	if ( sw_probe_dump == 1 ) {
 		if ( ( bmsrc != NULL ) && ( bmsrc->sx == 384 ) && ( bmsrc->sy == 198 ) ) {
-			static int seen[4];
+			static int seen[24];
 			static int seen_n = 0;
 			int k, have = 0;
 			for ( k = 0; k < seen_n; k++ ) if ( seen[k] == bmsrc->texid ) have = 1;
-			if ( ( have == 0 ) && ( seen_n < 4 ) ) {
+			if ( ( have == 0 ) && ( seen_n < 24 ) ) {
 				SWTARGET *st = sw_find( bmsrc );
 				seen[seen_n++] = bmsrc->texid;
 				if ( st != NULL ) {
