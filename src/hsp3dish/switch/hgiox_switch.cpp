@@ -3339,8 +3339,37 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
+	/*	r225: the same 48x48 cell before and after the character blit.  What
+		the blit itself changes is then a fact, not an average: if the cell
+		already held a dark sprite the copy overwrote it with the staging
+		content and something else darkens the screen later; if the blit
+		turns a bright staging cell into a dark cell, the copy is at fault.	*/
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
+		 ( ( sw_char_seen == 400 ) || ( sw_char_seen == 500 ) || ( sw_char_seen == 600 ) ) ) {
+		char nm[48];
+		sprintf( nm, "pre_%d.bmp", sw_char_seen );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
+		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+		sw_apply_target( bm );
+		sw_cur = NULL;
+		sw_fbo_log( "hgio: blitdiff pre %d dst=%d,%d gm=%d tex=%d rate=%d\n",
+			sw_char_seen, (int)bm->cx, (int)bm->cy, bm->gmode, bmsrc->texid, bm->gfrate );
+	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
+		 ( ( sw_char_seen == 400 ) || ( sw_char_seen == 500 ) || ( sw_char_seen == 600 ) ) ) {
+		char nm[48];
+		sprintf( nm, "post_%d.bmp", sw_char_seen );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
+		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+		sw_apply_target( bm );
+		sw_cur = NULL;
+	}
 
 	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
 		draw.  Left set, it also keyed the next draw that never asked for one,
