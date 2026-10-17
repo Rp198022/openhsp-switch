@@ -3334,7 +3334,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
 		 ( srcsx >= 40 ) && ( srcsx <= 64 ) && ( srcsy >= 40 ) && ( srcsy <= 80 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 60 ) {
+		if ( cd_n < 2000 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
