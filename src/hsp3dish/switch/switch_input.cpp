@@ -197,6 +197,7 @@ static int sw_entry_down( int i )
 	return 0;
 }
 
+static int sw_inject_release = -1;
 static void sw_push_key( SDL_Scancode sc, int down )
 {
 	SDL_Event ev;
@@ -259,6 +260,11 @@ int switch_input_ask_text( char *out, int outsize )
 void switch_input_poll( void )
 {
 	int i;
+
+	if ( sw_inject_release >= 0 ) {
+		sw_push_key( (SDL_Scancode)sw_inject_release, 0 );
+		sw_inject_release = -1;
+	}
 
 	/*	Desktop / Eden fallback: the arrow keys drive movement straight from
 		the physical keyboard so no gamepad layer is needed to walk the map.
@@ -609,6 +615,12 @@ unsigned int switch_input_pad_bits( void )
 /*----------------------------------------------------------------*/
 /*	Install														  */
 /*----------------------------------------------------------------*/
+
+void switch_input_inject_scancode( int sc )
+{
+	sw_push_key( (SDL_Scancode)sc, 1 );
+	sw_inject_release = sc;
+}
 
 void switch_input_install( void *hspctx )
 {

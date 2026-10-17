@@ -28,6 +28,10 @@ int switch_input_take_keys( char *out, int max );
 	reused Linux glue indexes its keys[] table.  hgiox_switch.cpp consults this in
 	addition to get_key_state() so the pad still reaches getkey/stick when the
 	synthetic SDL events are not consumed by the event loop.				*/
+/*	Harness hook: type a scancode instead of a character.  Elona's birth
+	screen waits on getkey(13), which a typed CR cannot satisfy. */
+void switch_input_inject_scancode( int sc );
+
 int switch_input_key_state( int scancode );
 
 /*	DirectInput-shaped pad state for Elona's own gamepad path: bits 0-3 are

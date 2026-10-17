@@ -520,6 +520,13 @@ static void sw_key_read( void )
 	sw_key_len = n;
 	sw_key_target = 0;
 
+	if ( ( n > 3 ) && ( sw_key_buf[0] == '@' ) && ( sw_key_buf[1] == 'k' ) &&
+		 ( sw_key_buf[2] == ':' ) ) {
+		switch_input_inject_scancode( atoi( sw_key_buf + 3 ) );
+		fp = fopen( "sdmc:/switch/openhsp/keys.txt", "wb" );
+		if ( fp != NULL ) fclose( fp );
+		return;
+	}
 	if ( sw_key_buf[0] == '@' ) {
 		int i = 1, id = 0;
 		while ( i < n && sw_key_buf[i] >= '0' && sw_key_buf[i] <= '9' ) {
@@ -602,6 +609,7 @@ static int	sw_kbd_empty_tries = 0;
 #define SW_KBD_GIVE_UP		6			/* cancels before the pad takes over*/
 
 extern int switch_input_ask_text( char *out, int outsize );
+extern void switch_input_inject_scancode( int sc );
 extern int sw_utf8_to_cp932( const char *in, char *out, int outsz );
 extern int sw_script_is_lead( unsigned char c );
 
