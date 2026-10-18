@@ -3718,6 +3718,15 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
 	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
 
+	/*	r233: an unrotated grotate is a plain copy, and Elona draws every map
+		character that way.  The rotated path samples its source differently
+		and those sprites come out dark, so hand the angle-zero case to the
+		straight copy, which is the path the item layer already uses.		*/
+	if ( ( ang == 0.0f ) && ( s_ofsx == 0.0f ) && ( s_ofsy == 0.0f ) ) {
+		hgio_copy( bm, xx, yy, srcsx, srcsy, bmsrc, psx, psy );
+		return;
+	}
+
     GLfloat *flp;
     float ratex,ratey;
 
