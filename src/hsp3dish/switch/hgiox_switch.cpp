@@ -744,28 +744,6 @@ static void sw_main_ensure( void )
 	scratch texture and draw from that instead.								*/
 #define SW_SCRATCH_MAX 1024
 static int	sw_probe_dump = -1;		/* r209 probe: 'probedump' marker in the game dir */
-static int	sw_notint = 0;			/* r220: 'notint' marker skips the tint	*/
-static int	sw_char_dump = 0;		/* r220: 'chardump' marker dumps the atlas	*/
-static int	sw_char_seen = 0;		/* staging blits seen so far				*/
-static int	sw_char_dumped = 0;		/* distinct source buffers seen			*/
-static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
-static int	sw_char_dumped2[6];		/* blits seen for each					*/
-static int	sw_atlas_done = 0;		/* r228: full-buffer dump taken		*/
-static int	sw_layer_n = 0;			/* r230: layer buffers seen			*/
-static BMSCR	*sw_pic_chr_bm = NULL;	/* r234: the buffer character.bmp went into */
-static int	sw_pic_chr_cx = 0;
-static int	sw_pic_chr_cy = 0;
-static char	sw_pic_chr_name[128];
-static int	sw_atlas_fixed = 0;
-static int	sw_tint_log = 0;
-static int	sw_rot_n = 0;
-static int	sw_chip_log = 0;
-static int	sw_ch3_n = 0;			/* r237: chip chain samples			*/
-static int	sw_rot_all = 0;				/* r231: rotated-path samples			*/
-static int	sw_layer_tex[10];
-static int	sw_layer_w[10];
-static int	sw_layer_h[10];
-static int	sw_blit_n = 0;			/* r225: pre/post samples written		*/
 static int	sw_selfblit_log = 0;
 static int	sw_scratch_dumped = 0;
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h );
@@ -907,7 +885,7 @@ static int sw_scratch_capture( GLuint srctex, float ratex, float ratey,
 }
 
 
-#define SW_DUMP_MAX_PIXELS 4000000L
+#define SW_DUMP_MAX_PIXELS 2000000L
 
 
 static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
@@ -977,66 +955,6 @@ static void sw_dump_fbo( const char *name, GLuint fbo, int w, int h )
 	sw_fbo_log( "hgio: dumped %s %dx%d fbo=%u\n", name, w, h, (unsigned)fbo );
 }
 
-
-/*	r221: dump one small rectangle of a target.  The full character buffer is
-	1584x2208 - a 14 MB read-back the pixel cap refuses - but the question is
-	only ever about three 48x48 cells: the staging cell, the atlas cell the
-	copy came from, and the screen cell the blit landed on.  'flip' selects
-	between the two y conventions so one run settles which one the target
-	really uses.															*/
-static void sw_dump_rect( const char *name, GLuint fbo, int gx, int gy, int w, int h, int dh, int flip )
-{
-	unsigned char *p;
-	FILE *fp;
-	unsigned char hdr[54];
-	int x, y;
-	int rowsz, filesize;
-	char full[96];
-
-	if ( ( sw_probe_dump != 1 ) || ( w <= 0 ) || ( h <= 0 ) || ( w > 128 ) || ( h > 128 ) ) return;
-	p = (unsigned char *)mem_ini( w * h * 4 );
-	if ( p == NULL ) return;
-	sw_bfb( fbo );
-	glReadPixels( gx, flip ? ( dh - ( gy + h ) ) : gy, w, h, GL_RGBA, GL_UNSIGNED_BYTE, p );
-
-	rowsz = w * 4;
-	filesize = 54 + rowsz * h;
-	for ( x = 0; x < 54; x++ ) hdr[x] = 0;
-	hdr[0] = 'B'; hdr[1] = 'M';
-	hdr[2] = (unsigned char)( filesize & 0xff );
-	hdr[3] = (unsigned char)( ( filesize >> 8 ) & 0xff );
-	hdr[4] = (unsigned char)( ( filesize >> 16 ) & 0xff );
-	hdr[5] = (unsigned char)( ( filesize >> 24 ) & 0xff );
-	hdr[10] = 54;
-	hdr[14] = 40;
-	hdr[18] = (unsigned char)( w & 0xff );
-	hdr[19] = (unsigned char)( ( w >> 8 ) & 0xff );
-	hdr[22] = (unsigned char)( h & 0xff );
-	hdr[23] = (unsigned char)( ( h >> 8 ) & 0xff );
-	hdr[26] = 1;
-	hdr[28] = 32;
-	snprintf( full, sizeof( full ), "sdmc:/dump/%s", name );
-	fp = fopen( full, "wb" );
-	if ( fp == NULL ) {
-		mem_bye( p );
-		return;
-	}
-	fwrite( hdr, 1, 54, fp );
-	for ( y = 0; y < h; y++ ) {
-		unsigned char *src = p + (size_t)y * rowsz;
-		unsigned char px[4];
-		for ( x = 0; x < w; x++ ) {
-			px[0] = src[x*4+2];
-			px[1] = src[x*4+1];
-			px[2] = src[x*4+0];
-			px[3] = 255;
-			fwrite( px, 1, 4, fp );
-		}
-	}
-	fclose( fp );
-	mem_bye( p );
-	sw_fbo_log( "hgio: rect %s %dx%d at %d,%d flip=%d\n", name, w, h, gx, gy, flip );
-}
 
 static void sw_dump_all( const char *pfx )
 {
@@ -1161,17 +1079,21 @@ static void sw_main_present( void )
 		sw_trc_total = SW_TRC_MAX;
 	}
 
-	if ( !sw_dumped && ( hgio_gettick() > 15000 ) ) {
+	/*	r242: these three write a full set of buffers (~40 MB) to the SD card
+		during an ordinary session.  They were diagnostics for the panel work;
+		keep them behind the probe marker so normal play does not touch the
+		card.																*/
+	if ( sw_probe_dump == 1 && !sw_dumped && ( hgio_gettick() > 15000 ) ) {
 		sw_dumped = 1;
 		sw_dump_all( "smp" );
 	}
 	/*	t23: the world stage needs its own snapshot - the first dump always
 		lands on the title screen.											*/
-	if ( ( sw_dumped == 1 ) && ( hgio_gettick() > 120000 ) ) {
+	if ( sw_probe_dump == 1 && ( sw_dumped == 1 ) && ( hgio_gettick() > 120000 ) ) {
 		sw_dumped = 2;
 		sw_dump_all( "sw" );
 	}
-	if ( ( sw_dumped == 2 ) && ( hgio_gettick() > 200000 ) ) {
+	if ( sw_probe_dump == 1 && ( sw_dumped == 2 ) && ( hgio_gettick() > 200000 ) ) {
 		sw_dumped = 3;
 		sw_dump_all( "sw2" );
 	}
@@ -1302,18 +1224,6 @@ void hgio_init( int mode, int sx, int sy, void *hwnd )
 	{
 		FILE *pf = fopen( "probedump", "rb" );
 		sw_probe_dump = ( pf != NULL ) ? 1 : 0;
-		if ( pf != NULL ) fclose( pf );
-	}
-	/*	r220: two switches for one run.  'notint' turns gfdec2/gfinc into a
-		no-op, so a sprite that comes back coloured proves the tint is what
-		darkens it; 'chardump' writes the character buffer and the screen out
-		as BMP whenever the run reaches the map.							*/
-	{
-		FILE *pf = fopen( "notint", "rb" );
-		sw_notint = ( pf != NULL ) ? 1 : 0;
-		if ( pf != NULL ) fclose( pf );
-		pf = fopen( "chardump", "rb" );
-		sw_char_dump = ( pf != NULL ) ? 1 : 0;
 		if ( pf != NULL ) fclose( pf );
 	}
 #ifdef HSPIOS
@@ -1791,24 +1701,6 @@ static void setColorTex_color( float alpha )
 	}
 }
 
-/*	r224: the colour-key copy does not tint.  Elona draws a character's
-	shadow with `color 0,0,0` and then blits the character itself with
-	gmode 2 - still black - and the classic runtime ignores the drawing
-	colour for that mode: the key is the only thing it uses it for.  This
-	port multiplied the copy by mulcolorvalue, so every sprite drawn in
-	that state came out black.  Same array, forced to white.				*/
-static void setColorTex_white( float alpha )
-{
-	GLfloat *flp = _panelColorsTex;
-	int i;
-	for ( i = 0; i < 4; i++ ) {
-		*flp++ = 1.0f;
-		*flp++ = 1.0f;
-		*flp++ = 1.0f;
-		*flp++ = alpha;
-	}
-}
-
 static void setColorTex_mulcolor( float alpha )
 {
 	BMSCR *cbm = ( sw_colorbm != NULL ) ? sw_colorbm : mainbm;
@@ -1922,16 +1814,7 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		} else {
 			alpha = 1.0f;
 		}
-		/*	r238: neither gcopy nor grotate tints by the drawing colour in the
-			classic runtime - gmode 2 uses the colour as the key and gmode 3/4
-			use the rate as alpha, nothing else.  This port multiplied every
-			textured copy by mulcolorvalue, which is the current drawing
-			colour, so Elona's `color 0,0,0` before a semi-transparent sprite
-			turned that sprite into a black silhouette.  The whole town was
-			drawn that way - gm=4, rate 110, colour 0,0,0 - while the player,
-			drawn with gmode 2, stayed correct.  Alpha still comes from the
-			rate; only the RGB tint goes.									*/
-		setColorTex_white(alpha);
+		setColorTex_mulcolor(alpha);
         glEnableClientState(GL_COLOR_ARRAY);
         glColorPointer(4,GL_FLOAT,0,_panelColorsTex);
     }
@@ -2376,14 +2259,7 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 
 	if ( sw_texload_report < 64 ) {
 		sw_texload_report++;
-		if ( strstr( fname, "character" ) != NULL ) {
-		sw_pic_chr_bm = bm;
-		sw_pic_chr_cx = (int)bm->cx;
-		sw_pic_chr_cy = (int)bm->cy;
-		sw_pic_chr_name[0] = 0;
-		strncpy( sw_pic_chr_name, fname, sizeof( sw_pic_chr_name ) - 1 );
-	}
-	sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
+		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
 			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
 			(int)bm->cx, (int)bm->cy );
 	}
@@ -2976,17 +2852,14 @@ extern "C" void sw_fcgraph_lock( int xs, int ys )
 //
 static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
-	if ( sw_notint == 1 ) return;		/* r220: A/B switch, see hgio_init	*/
 	{
-		/*	r235: every non-zero tint the staging cell gets, uncapped.  The
-			question is whether the map characters are drawn with a colour
-			index the game means them to have or with one it never set.		*/
-		if ( ( sw_probe_dump == 1 ) && ( ( r != 0 ) || ( g != 0 ) || ( b != 0 ) ) &&
-			 ( sw_fc_lock_py == 960 ) && ( sw_tint_log < 400 ) ) {
-			sw_tint_log++;
-			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d at=%d,%d lock=%dx%d cur=%p\n",
-				sw_tint_log, r, g, b, add, sw_fc_lock_px, sw_fc_lock_py,
-				sw_fc_lock_x, sw_fc_lock_y, (void *)sw_cur );
+		static int tint_log = 0;
+		if ( ( sw_probe_dump == 1 ) && ( tint_log < 12 ) &&
+			 ( sw_fc_lock_px == 0 ) && ( sw_fc_lock_py == 960 ) ) {
+			tint_log++;
+			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d lock=%dx%d bm=%p cur=%p\n",
+				tint_log, r, g, b, add, sw_fc_lock_x, sw_fc_lock_y,
+				(void *)sw_fc_lock_bm, (void *)sw_cur );
 		}
 	}
 	GLfloat vert[8];
@@ -3266,36 +3139,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			float fh = (float)tex->sy;
 			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
 		}
-		/*	r239: which atlas chip each character is prepared from, and with what
-		subtraction.  chip = (y/48)*33 + x/48 is Elona's own numbering, so the
-		number can be checked against the picture instead of guessed.		*/
-	if ( ( sw_chip_log < 40 ) && ( sw_rot_all > 3 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) ) {
-		sw_chip_log++;
-		sw_fbo_log( "hgio: chipidx %d chip=%d src=%d,%d sz=%dx%d gm=%d col=%d,%d,%d\n",
-			sw_chip_log, ( (int)yy / 48 ) * 33 + ( (int)xx / 48 ), (int)xx, (int)yy,
-			(int)srcsx, (int)srcsy, bm->gmode,
-			((int)bm->mulcolor >> 16) & 0xff, ((int)bm->mulcolor >> 8) & 0xff, (int)bm->mulcolor & 0xff );
-	}
-	/*	r237: the atlas cell a chip is prepared from, then (in copyrot) the
-		staging result and the screen - one character at a time, so the step
-		that darkens can be named instead of inferred.						*/
-	if ( ( sw_char_dump == 1 ) && ( sw_ch3_n < 10 ) &&
-		 ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) && ( (int)srcsx == 48 ) ) {
-		SWTARGET *at = sw_find( bmsrc );
-		char an[40];
-		sw_ch3_n++;
-		sprintf( an, "ch%d_a.bmp", sw_ch3_n );
-		if ( at != NULL ) {
-			sw_dump_rect( an, at->fbo, (int)xx, (int)yy, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
-			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-			sw_apply_target( bm );
-			sw_cur = NULL;
-		}
-		sw_fbo_log( "hgio: chip3 %d atlas=%d,%d gm=%d col=%d,%d,%d\n", sw_ch3_n,
-			(int)xx, (int)yy, bm->gmode,
-			((int)bm->mulcolor >> 16) & 0xff, ((int)bm->mulcolor >> 8) & 0xff, (int)bm->mulcolor & 0xff );
-	}
-	int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
+		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
 			sw_selfblit_log++;
@@ -3397,51 +3241,8 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
     glVertexPointer( 2, GL_FLOAT,0,vertf2D );
     glTexCoordPointer( 2,GL_FLOAT,0,uvf2D );
 
-	/*	r225: the same 48x48 cell before and after the character blit.  What
-		the blit itself changes is then a fact, not an average: if the cell
-		already held a dark sprite the copy overwrote it with the staging
-		content and something else darkens the screen later; if the blit
-		turns a bright staging cell into a dark cell, the copy is at fault.	*/
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( sw_char_seen >= 320 ) && ( sw_char_seen < 332 ) ) {
-		char nm[48];
-		sw_blit_n++;
-		{
-			/*	r227: the cell the copy is about to read, sampled with the
-				screen pair, so atlas -> staging -> screen is one chain.		*/
-			SWTARGET *sst = sw_find( bmsrc );
-			if ( sst != NULL ) {
-				char sn[48];
-				sprintf( sn, "src_%d.bmp", sw_char_seen );
-				sw_dump_rect( sn, sst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
-				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-				sw_apply_target( bm );
-				sw_cur = NULL;
-			}
-		}
-		sprintf( nm, "pre_%d.bmp", sw_char_seen );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
-		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-		sw_apply_target( bm );
-		sw_cur = NULL;
-		sw_fbo_log( "hgio: blitdiff pre %d dst=%d,%d gm=%d tex=%d rate=%d\n",
-			sw_char_seen, (int)bm->cx, (int)bm->cy, bm->gmode, bmsrc->texid, bm->gfrate );
-	}
 	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( xx == 0 ) && ( yy == 960 ) &&
-		 ( sw_char_seen >= 320 ) && ( sw_char_seen < 332 ) ) {
-		char nm[48];
-		sprintf( nm, "post_%d.bmp", sw_char_seen );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-			(int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
-		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-		sw_apply_target( bm );
-		sw_cur = NULL;
-	}
 
 	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
 		draw.  Left set, it also keyed the next draw that never asked for one,
@@ -3532,127 +3333,12 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 	/*	r213 probe: a small source rect drawn straight to the main screen is
 		the map-character path (neither create_pcpic nor chara_preparepic fires
 		there).  Read the source rect back and report its colour, so a wrong
-		cell and a source that really is black can be told apart.
-		r219: only the staging cell (0,960) blit counts.  The r213 filter let
-		map tiles through and the 200-entry budget was gone before a single
-		character was drawn - which is why the map probe never saw one.		*/
-	/*	r230: inventory of the layers that draw 48-wide sprites to the map.
-		Every distinct source buffer is written out once, so the buffer that
-		actually holds the character chips can be identified instead of
-		guessed - the dumps so far were all the item atlas.					*/
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( srcsx == 48 ) && ( sw_layer_n < 10 ) ) {
-		int li, known = 0;
-		for ( li = 0; li < sw_layer_n; li++ ) {
-			if ( ( sw_layer_tex[li] == bmsrc->texid ) &&
-				 ( sw_layer_w[li] == (int)bmsrc->sx ) && ( sw_layer_h[li] == (int)bmsrc->sy ) ) known = 1;
-		}
-		if ( known == 0 ) {
-			SWTARGET *lst = sw_find( bmsrc );
-			char nm[48];
-			sw_layer_tex[sw_layer_n] = bmsrc->texid;
-			sw_layer_w[sw_layer_n] = (int)bmsrc->sx;
-			sw_layer_h[sw_layer_n] = (int)bmsrc->sy;
-			sprintf( nm, "buf_%d.bmp", sw_layer_n );
-			sw_layer_n++;
-			if ( lst != NULL ) {
-				sw_dump_fbo( nm, lst->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
-				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-				sw_apply_target( bm );
-				sw_cur = NULL;
-			}
-			sw_fbo_log( "hgio: layer %d tex=%d sz=%dx%d src=%d,%d dst=%d,%d gm=%d\n",
-				sw_layer_n - 1, bmsrc->texid, (int)bmsrc->sx, (int)bmsrc->sy,
-				(int)xx, (int)yy, (int)bm->cx, (int)bm->cy, bm->gmode );
-		}
-	}
-	/*	r220: the character buffer and the screen, written out whenever the
-		run has drawn enough characters to be on the map.  A picture of the
-		atlas settles in one look what the averaged read-backs could not: is
-		the chip already dark in the atlas, or does the blit darken it.		*/
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) ) {
-		/*	r222: several buffers keep a staging cell at (0,960) - the item
-			layer does, and so does the character layer - so the probe now
-			files a dump per source buffer instead of assuming one.  The
-			first distinct size seen wins; a second dump of the same size is
-			taken 40 blits later so the strip can be compared frame to frame.	*/
-		int bi, known = -1, distinct = 0;
-		sw_char_seen++;
-		/*	r234: re-blit character.bmp into its buffer once the map is up.
-			Elona's character buffer keeps a working cell at (0,960) that sits
-			inside the atlas, so preparing a chip overwrites row 20 of it; the
-			load path re-runs userNpc_update, which reloads the picture and
-			heals those rows, and a freshly created character never does.	*/
-		if ( ( sw_atlas_fixed == 0 ) && ( sw_char_seen == 320 ) && ( sw_pic_chr_bm != NULL ) ) {
-			int scx = (int)sw_pic_chr_bm->cx;
-			int scy = (int)sw_pic_chr_bm->cy;
-			sw_atlas_fixed = 1;
-			sw_pic_chr_bm->cx = (short)sw_pic_chr_cx;
-			sw_pic_chr_bm->cy = (short)sw_pic_chr_cy;
-			hgio_picload_overwrite( sw_pic_chr_bm, sw_pic_chr_name );
-			sw_pic_chr_bm->cx = (short)scx;
-			sw_pic_chr_bm->cy = (short)scy;
-			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-			sw_apply_target( bm );
-			sw_cur = NULL;
-			sw_fbo_log( "hgio: atlas healed at blit %d from '%s'\n", sw_char_seen, sw_pic_chr_name );
-		}
-		if ( ( sw_char_seen == 1200 ) && ( sw_atlas_done == 0 ) ) {
-			/*	r228: the whole character buffer, once.  If the humanoid chips
-				are already dark here, nothing downstream can fix them.		*/
-			SWTARGET *ast = sw_find( bmsrc );
-			sw_atlas_done = 1;
-			if ( ast != NULL ) {
-				sw_dump_fbo( "atlas.bmp", ast->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
-				sw_dump_fbo( "atlas_b.bmp", ast->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
-				sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-				sw_apply_target( bm );
-				sw_cur = NULL;
-			}
-		}
-		for ( bi = 0; bi < sw_char_dumped; bi++ ) {
-			if ( sw_char_sizes[bi] == ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy ) known = bi;
-		}
-		for ( bi = 0; bi < sw_char_dumped; bi++ ) distinct++;
-		if ( ( known < 0 ) && ( sw_char_dumped < 8 ) && ( sw_char_seen > 300 ) ) {
-			known = sw_char_dumped;
-			sw_char_sizes[sw_char_dumped++] = ( (int)bmsrc->sx << 16 ) + (int)bmsrc->sy;
-			sw_char_dumped2[known] = 0;
-		}
-		if ( known >= 0 ) {
-			sw_char_dumped2[known]++;
-			if ( sw_char_dumped2[known] == 1 ) {
-				SWTARGET *dst = sw_find( bmsrc );
-				char nm[64];
-				int f, sc;
-				sprintf( nm, "b%d_%dx%d_%d_stage.bmp", known, (int)bmsrc->sx, (int)bmsrc->sy,
-					sw_char_dumped2[known] );
-				if ( dst != NULL ) {
-					sw_dump_rect( nm, dst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
-				}
-				sc = ( sw_main_ok == 1 ) ? (int)sw_main_fbo : 0;
-				sw_bfb( (GLuint)sc );
-				sw_apply_target( bm );
-				sw_cur = NULL;
-				sprintf( nm, "b%d_%dx%d_%d_scr.bmp", known, (int)bmsrc->sx, (int)bmsrc->sy,
-					sw_char_dumped2[known] );
-				sw_dump_rect( nm, (GLuint)sc, (int)bm->cx, (int)bm->cy, (int)srcsx, (int)srcsy, (int)bm->sy, 1 );
-				sw_fbo_log( "hgio: chardump buf%d %dx%d n=%d dst=%d,%d gm=%d rate=%d tex=%d\n",
-					known, (int)bmsrc->sx, (int)bmsrc->sy, sw_char_dumped2[known],
-					(int)bm->cx, (int)bm->cy, bm->gmode, bm->gfrate, bmsrc->texid );
-				(void)f;
-			}
-		}
-		(void)distinct;
-	}
+		cell and a source that really is black can be told apart.			*/
 	if ( ( sw_probe_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
 		 ( bmsrc != NULL ) && ( bmsrc->type != HSPWND_TYPE_MAIN ) &&
-		 ( xx == 0 ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( srcsy >= 32 ) ) {
+		 ( srcsx == 48 ) && ( srcsy == 48 ) ) {
 		static int cd_n = 0;
-		if ( cd_n < 600 ) {
+		if ( cd_n < 200 ) {
 			static unsigned char cdbuf[96*96*4];
 			SWTARGET *cst = sw_find( bmsrc );
 			int cbh = (int)bmsrc->sy;
@@ -3734,14 +3420,10 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			 ( srcsx <= 64 ) && ( srcsy <= 64 ) ) {
 			static int chip_n = 0;
 			int dh = (int)bm->sy;
-			/*	r219: raise the budget (six was spent during the intro) and
-				read the atlas cell the copy came from as well, so the log
-				shows whether the source was already black or the staging
-				step is what empties it.									*/
-			if ( ( chip_n < 60 ) && ( dh >= 960 + (int)srcsy ) ) {
+			if ( ( chip_n < 6 ) && ( dh >= 960 + (int)srcsy ) ) {
 				unsigned char px[64*64*4];
-				int i2, nonblack = 0, snb = 0;
-				long sr = 0, sg = 0, sb = 0, ar = 0, ag = 0, ab = 0;
+				int i2, nonblack = 0;
+				long sr = 0, sg = 0, sb = 0;
 				int mx = 0;
 				chip_n++;
 				glReadPixels( 0, dh - ( 960 + (int)srcsy ), srcsx, srcsy,
@@ -3751,20 +3433,9 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 					if ( v > 24 ) { nonblack++; sr += px[i2*4]; sg += px[i2*4+1]; sb += px[i2*4+2]; }
 					if ( v > mx ) mx = v;
 				}
-				if ( ( xx >= 0 ) && ( yy >= 0 ) && ( dh >= (int)yy + (int)srcsy ) ) {
-					glReadPixels( (int)xx, dh - ( (int)yy + (int)srcsy ), srcsx, srcsy,
-						GL_RGBA, GL_UNSIGNED_BYTE, px );
-					for ( i2 = 0; i2 < (int)srcsx * (int)srcsy; i2++ ) {
-						int v = px[i2*4] + px[i2*4+1] + px[i2*4+2];
-						if ( v > 24 ) { snb++; ar += px[i2*4]; ag += px[i2*4+1]; ab += px[i2*4+2]; }
-					}
-				}
-				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d rate=%d atlas=%d/%d,%ld,%ld,%ld stage=%d/%d,%ld,%ld,%ld max=%d\n",
+				sw_fbo_log( "hgio: chipcopy #%d %dx%d bmtex=%d src=%d,%d gm=%d rate=%d nonblack=%d/%d avg=%ld,%ld,%ld max=%d\n",
 					chip_n, (int)srcsx, (int)srcsy, bm->texid, (int)xx, (int)yy,
-					bm->gmode, bm->gfrate,
-					snb, (int)(srcsx*srcsy),
-					ar / ( snb ? snb : 1 ), ag / ( snb ? snb : 1 ), ab / ( snb ? snb : 1 ),
-					nonblack, (int)(srcsx*srcsy),
+					bm->gmode, bm->gfrate, nonblack, (int)(srcsx*srcsy),
 					sr / ( nonblack ? nonblack : 1 ), sg / ( nonblack ? nonblack : 1 ),
 					sb / ( nonblack ? nonblack : 1 ), mx / 3 );
 			}
@@ -3787,15 +3458,6 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 	TEXINF mtex;
 	TEXINF *tex = sw_tex_src( bmsrc, &mtex );
 	if ( ( tex == NULL ) || ( tex->mode == TEXMODE_NONE ) ) return;
-
-	/*	r233: an unrotated grotate is a plain copy, and Elona draws every map
-		character that way.  The rotated path samples its source differently
-		and those sprites come out dark, so hand the angle-zero case to the
-		straight copy, which is the path the item layer already uses.		*/
-	if ( ( ang == 0.0f ) && ( s_ofsx == 0.0f ) && ( s_ofsy == 0.0f ) ) {
-		hgio_copy( bm, xx, yy, srcsx, srcsy, bmsrc, psx, psy );
-		return;
-	}
 
     GLfloat *flp;
     float ratex,ratey;
@@ -3898,62 +3560,7 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-		/*	r236: the character buffer itself, twice, once the map is well up.
-		Everything else has been ruled out by A/B - with the tint chain
-		disabled the map still comes out dark - so the question is now whether
-		the chip the copy reads is the one character.bmp has there.		*/
-	sw_rot_all++;
-	/*	r237: what the screen gets for the character just prepared			*/
-	if ( ( sw_char_dump == 1 ) && ( yy == 960 ) && ( sw_ch3_n > 0 ) && ( sw_ch3_n <= 10 ) ) {
-		char cn[40];
-		sprintf( cn, "ch%d_c.bmp", sw_ch3_n );
-		sw_dump_rect( cn, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
-			(int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 48, 48, (int)bm->sy, 1 );
-		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-		sw_apply_target( bm );
-		sw_cur = NULL;
-	}
-	if ( ( sw_char_dump == 1 ) && ( bmsrc != NULL ) && ( yy == 960 ) &&
-		 ( ( sw_rot_all == 400 ) || ( sw_rot_all == 800 ) ) ) {
-		SWTARGET *cbt = sw_find( bmsrc );
-		char nm[32];
-		if ( cbt != NULL ) {
-			sprintf( nm, "charbuf_%d.bmp", sw_rot_all );
-			sw_dump_fbo( nm, cbt->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
-			sprintf( nm, "stage_%d.bmp", sw_rot_all );
-			sw_dump_rect( nm, cbt->fbo, 0, 960, 48, 64, (int)bmsrc->sy, 1 );
-			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-			sw_apply_target( bm );
-			sw_cur = NULL;
-			sw_fbo_log( "hgio: charbuf dumped at rot %d %dx%d dst=%d,%d gm=%d\n",
-				sw_rot_all, (int)bmsrc->sx, (int)bmsrc->sy, (int)bm->cx, (int)bm->cy, bm->gmode );
-		}
-	}
-	/*	r231: the rotated sprite path is the one the map uses, so it needs the
-		same three-way sample the straight copy has: staging cell, screen cell
-		before, screen cell after.  Only 12 of them, right after the map opens. */
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( sw_rot_n < 12 ) ) {
-		char nm[48];
-		SWTARGET *rst = sw_find( bmsrc );
-		glFinish();
-		if ( rst != NULL ) {
-			sprintf( nm, "rot%d_src.bmp", sw_rot_n );
-			sw_dump_rect( nm, rst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
-			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-			sw_apply_target( bm );
-			sw_cur = NULL;
-		}
-		sprintf( nm, "rot%d_pre.bmp", sw_rot_n );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 64, 64, (int)bm->sy, 1 );
-		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-		sw_apply_target( bm );
-		sw_cur = NULL;
-		sw_fbo_log( "hgio: rot sample %d src=%d,%d dst=%d,%d gm=%d tex=%d sz=%dx%d\n",
-			sw_rot_n, (int)xx, (int)yy, (int)bm->cx, (int)bm->cy, bm->gmode, bmsrc->texid,
-			(int)srcsx, (int)srcsy );
-	}
-hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
 
 	/*	The appearance editor's preview is a grotate from the PCC buffer the
@@ -3967,18 +3574,6 @@ hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 		when the appearance changes.									*/
 	glFinish();
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
-	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
-		 ( bmsrc != NULL ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( sw_rot_n < 12 ) ) {
-		char nm[48];
-		glFinish();
-		sprintf( nm, "rot%d_post.bmp", sw_rot_n );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 64, 64, (int)bm->sy, 1 );
-		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
-		sw_apply_target( bm );
-		sw_cur = NULL;
-		sw_rot_n++;
-	}
-
 
 	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
 		draw.  Left set, it also keyed the next draw that never asked for one,
