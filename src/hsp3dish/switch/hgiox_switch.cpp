@@ -3269,7 +3269,7 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 		/*	r239: which atlas chip each character is prepared from, and with what
 		subtraction.  chip = (y/48)*33 + x/48 is Elona's own numbering, so the
 		number can be checked against the picture instead of guessed.		*/
-	if ( ( sw_chip_log < 60 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) ) {
+	if ( ( sw_chip_log < 40 ) && ( sw_rot_all > 3 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) ) {
 		sw_chip_log++;
 		sw_fbo_log( "hgio: chipidx %d chip=%d src=%d,%d sz=%dx%d gm=%d col=%d,%d,%d\n",
 			sw_chip_log, ( (int)yy / 48 ) * 33 + ( (int)xx / 48 ), (int)xx, (int)yy,
