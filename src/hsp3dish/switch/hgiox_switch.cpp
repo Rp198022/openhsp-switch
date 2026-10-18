@@ -757,6 +757,7 @@ static int	sw_pic_chr_cx = 0;
 static int	sw_pic_chr_cy = 0;
 static char	sw_pic_chr_name[128];
 static int	sw_atlas_fixed = 0;
+static int	sw_tint_log = 0;
 static int	sw_rot_n = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
 static int	sw_layer_w[10];
@@ -2969,14 +2970,15 @@ static void sw_fcgraph_tint( int r, int g, int b, int add )
 {
 	if ( sw_notint == 1 ) return;		/* r220: A/B switch, see hgio_init	*/
 	{
-		static int tint_log = 0;
-		if ( ( sw_probe_dump == 1 ) && ( tint_log < 24 ) &&
-			 ( sw_fc_lock_px == 0 ) && ( sw_fc_lock_py == 960 ) ) {
-			tint_log++;
-			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d at=%d,%d lock=%dx%d bm=%p cur=%p\n",
-				tint_log, r, g, b, add, sw_fc_lock_px, sw_fc_lock_py,
-				sw_fc_lock_x, sw_fc_lock_y,
-				(void *)sw_fc_lock_bm, (void *)sw_cur );
+		/*	r235: every non-zero tint the staging cell gets, uncapped.  The
+			question is whether the map characters are drawn with a colour
+			index the game means them to have or with one it never set.		*/
+		if ( ( sw_probe_dump == 1 ) && ( ( r != 0 ) || ( g != 0 ) || ( b != 0 ) ) &&
+			 ( sw_fc_lock_py == 960 ) && ( sw_tint_log < 400 ) ) {
+			sw_tint_log++;
+			sw_fbo_log( "hgio: chiptune #%d r=%d g=%d b=%d add=%d at=%d,%d lock=%dx%d cur=%p\n",
+				sw_tint_log, r, g, b, add, sw_fc_lock_px, sw_fc_lock_py,
+				sw_fc_lock_x, sw_fc_lock_y, (void *)sw_cur );
 		}
 	}
 	GLfloat vert[8];
