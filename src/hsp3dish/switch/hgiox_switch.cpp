@@ -752,6 +752,7 @@ static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
 static int	sw_char_dumped2[6];		/* blits seen for each					*/
 static int	sw_atlas_done = 0;		/* r228: full-buffer dump taken		*/
 static int	sw_layer_n = 0;			/* r230: layer buffers seen			*/
+static int	sw_rot_n = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
 static int	sw_layer_w[10];
 static int	sw_layer_h[10];
@@ -3818,7 +3819,31 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-	hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
+		/*	r231: the rotated sprite path is the one the map uses, so it needs the
+		same three-way sample the straight copy has: staging cell, screen cell
+		before, screen cell after.  Only 12 of them, right after the map opens. */
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( sw_rot_n < 12 ) ) {
+		char nm[48];
+		SWTARGET *rst = sw_find( bmsrc );
+		glFinish();
+		if ( rst != NULL ) {
+			sprintf( nm, "rot%d_src.bmp", sw_rot_n );
+			sw_dump_rect( nm, rst->fbo, 0, 960, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
+			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+			sw_apply_target( bm );
+			sw_cur = NULL;
+		}
+		sprintf( nm, "rot%d_pre.bmp", sw_rot_n );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx, (int)bm->cy, 48, 64, (int)bm->sy, 1 );
+		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+		sw_apply_target( bm );
+		sw_cur = NULL;
+		sw_fbo_log( "hgio: rot sample %d src=%d,%d dst=%d,%d gm=%d tex=%d sz=%dx%d\n",
+			sw_rot_n, (int)xx, (int)yy, (int)bm->cx, (int)bm->cy, bm->gmode, bmsrc->texid,
+			(int)srcsx, (int)srcsy );
+	}
+hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 //    glDisableClientState(GL_COLOR_ARRAY);
 
 	/*	The appearance editor's preview is a grotate from the PCC buffer the
@@ -3832,6 +3857,18 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		when the appearance changes.									*/
 	glFinish();
 	glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
+		 ( bmsrc != NULL ) && ( yy == 960 ) && ( srcsx >= 32 ) && ( sw_rot_n < 12 ) ) {
+		char nm[48];
+		glFinish();
+		sprintf( nm, "rot%d_post.bmp", sw_rot_n );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx, (int)bm->cy, 48, 64, (int)bm->sy, 1 );
+		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+		sw_apply_target( bm );
+		sw_cur = NULL;
+		sw_rot_n++;
+	}
+
 
 	/*	The colour key hgio_setTexBlendMode() just armed belongs to this one
 		draw.  Left set, it also keyed the next draw that never asked for one,
