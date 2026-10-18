@@ -759,6 +759,7 @@ static char	sw_pic_chr_name[128];
 static int	sw_atlas_fixed = 0;
 static int	sw_tint_log = 0;
 static int	sw_rot_n = 0;
+static int	sw_ch3_n = 0;			/* r237: chip chain samples			*/
 static int	sw_rot_all = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
 static int	sw_layer_w[10];
@@ -3259,7 +3260,26 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			float fh = (float)tex->sy;
 			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
 		}
-		int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
+		/*	r237: the atlas cell a chip is prepared from, then (in copyrot) the
+		staging result and the screen - one character at a time, so the step
+		that darkens can be named instead of inferred.						*/
+	if ( ( sw_char_dump == 1 ) && ( sw_ch3_n < 10 ) &&
+		 ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) && ( (int)srcsx == 48 ) ) {
+		SWTARGET *at = sw_find( bmsrc );
+		char an[40];
+		sw_ch3_n++;
+		sprintf( an, "ch%d_a.bmp", sw_ch3_n );
+		if ( at != NULL ) {
+			sw_dump_rect( an, at->fbo, (int)xx, (int)yy, (int)srcsx, (int)srcsy, (int)bmsrc->sy, 1 );
+			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+			sw_apply_target( bm );
+			sw_cur = NULL;
+		}
+		sw_fbo_log( "hgio: chip3 %d atlas=%d,%d gm=%d col=%d,%d,%d\n", sw_ch3_n,
+			(int)xx, (int)yy, bm->gmode,
+			((int)bm->mulcolor >> 16) & 0xff, ((int)bm->mulcolor >> 8) & 0xff, (int)bm->mulcolor & 0xff );
+	}
+	int scret = sw_scratch_capture( (GLuint)tex->texid, tex->ratex, tex->ratey,
 				(int)xx, cyy, (int)srcsx, (int)srcsy );
 		if ( sw_selfblit_log < 24 ) {
 			sw_selfblit_log++;
@@ -3867,6 +3887,16 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 		disabled the map still comes out dark - so the question is now whether
 		the chip the copy reads is the one character.bmp has there.		*/
 	sw_rot_all++;
+	/*	r237: what the screen gets for the character just prepared			*/
+	if ( ( sw_char_dump == 1 ) && ( yy == 960 ) && ( sw_ch3_n > 0 ) && ( sw_ch3_n <= 10 ) ) {
+		char cn[40];
+		sprintf( cn, "ch%d_c.bmp", sw_ch3_n );
+		sw_dump_rect( cn, ( sw_main_ok == 1 ) ? sw_main_fbo : 0,
+			(int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 48, 48, (int)bm->sy, 1 );
+		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+		sw_apply_target( bm );
+		sw_cur = NULL;
+	}
 	if ( ( sw_char_dump == 1 ) && ( bmsrc != NULL ) && ( yy == 960 ) &&
 		 ( ( sw_rot_all == 400 ) || ( sw_rot_all == 800 ) ) ) {
 		SWTARGET *cbt = sw_find( bmsrc );
