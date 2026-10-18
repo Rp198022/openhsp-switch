@@ -3835,7 +3835,7 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
 			sw_cur = NULL;
 		}
 		sprintf( nm, "rot%d_pre.bmp", sw_rot_n );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx, (int)bm->cy, 48, 64, (int)bm->sy, 1 );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 64, 64, (int)bm->sy, 1 );
 		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
 		sw_apply_target( bm );
 		sw_cur = NULL;
@@ -3862,7 +3862,7 @@ hgio_setTexBlendMode( bm, bm->gmode, bm->gfrate );
 		char nm[48];
 		glFinish();
 		sprintf( nm, "rot%d_post.bmp", sw_rot_n );
-		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx, (int)bm->cy, 48, 64, (int)bm->sy, 1 );
+		sw_dump_rect( nm, ( sw_main_ok == 1 ) ? sw_main_fbo : 0, (int)bm->cx - (int)(srcsx/2), (int)bm->cy - (int)(srcsy/2), 64, 64, (int)bm->sy, 1 );
 		sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
 		sw_apply_target( bm );
 		sw_cur = NULL;
