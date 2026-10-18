@@ -1921,11 +1921,16 @@ static void hgio_setTexBlendMode( BMSCR *bm, int mode, int aval )
 		} else {
 			alpha = 1.0f;
 		}
-		if ( mode == 2 ) {
-			setColorTex_white(alpha);		/* r224: key copy never tints	*/
-		} else {
-			setColorTex_mulcolor(alpha);
-		}
+		/*	r238: neither gcopy nor grotate tints by the drawing colour in the
+			classic runtime - gmode 2 uses the colour as the key and gmode 3/4
+			use the rate as alpha, nothing else.  This port multiplied every
+			textured copy by mulcolorvalue, which is the current drawing
+			colour, so Elona's `color 0,0,0` before a semi-transparent sprite
+			turned that sprite into a black silhouette.  The whole town was
+			drawn that way - gm=4, rate 110, colour 0,0,0 - while the player,
+			drawn with gmode 2, stayed correct.  Alpha still comes from the
+			rate; only the RGB tint goes.									*/
+		setColorTex_white(alpha);
         glEnableClientState(GL_COLOR_ARRAY);
         glColorPointer(4,GL_FLOAT,0,_panelColorsTex);
     }
