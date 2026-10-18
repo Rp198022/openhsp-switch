@@ -752,6 +752,11 @@ static int	sw_char_sizes[6];		/* sx<<16 | sy of each of them			*/
 static int	sw_char_dumped2[6];		/* blits seen for each					*/
 static int	sw_atlas_done = 0;		/* r228: full-buffer dump taken		*/
 static int	sw_layer_n = 0;			/* r230: layer buffers seen			*/
+static BMSCR	*sw_pic_chr_bm = NULL;	/* r234: the buffer character.bmp went into */
+static int	sw_pic_chr_cx = 0;
+static int	sw_pic_chr_cy = 0;
+static char	sw_pic_chr_name[128];
+static int	sw_atlas_fixed = 0;
 static int	sw_rot_n = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
 static int	sw_layer_w[10];
@@ -2362,7 +2367,14 @@ int hgio_picload_overwrite( BMSCR *bm, char *fname )
 
 	if ( sw_texload_report < 64 ) {
 		sw_texload_report++;
-		sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
+		if ( strstr( fname, "character" ) != NULL ) {
+		sw_pic_chr_bm = bm;
+		sw_pic_chr_cx = (int)bm->cx;
+		sw_pic_chr_cy = (int)bm->cy;
+		sw_pic_chr_name[0] = 0;
+		strncpy( sw_pic_chr_name, fname, sizeof( sw_pic_chr_name ) - 1 );
+	}
+	sw_fbo_log( "hgio: picload overwrite bm=%p '%s' texid=%d %gx%g keep %dx%d at %d,%d\n",
 			(void *)bm, fname, texid, (double)w, (double)h, bm->sx, bm->sy,
 			(int)bm->cx, (int)bm->cy );
 	}
@@ -3530,6 +3542,25 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			taken 40 blits later so the strip can be compared frame to frame.	*/
 		int bi, known = -1, distinct = 0;
 		sw_char_seen++;
+		/*	r234: re-blit character.bmp into its buffer once the map is up.
+			Elona's character buffer keeps a working cell at (0,960) that sits
+			inside the atlas, so preparing a chip overwrites row 20 of it; the
+			load path re-runs userNpc_update, which reloads the picture and
+			heals those rows, and a freshly created character never does.	*/
+		if ( ( sw_atlas_fixed == 0 ) && ( sw_char_seen == 320 ) && ( sw_pic_chr_bm != NULL ) ) {
+			int scx = (int)sw_pic_chr_bm->cx;
+			int scy = (int)sw_pic_chr_bm->cy;
+			sw_atlas_fixed = 1;
+			sw_pic_chr_bm->cx = (short)sw_pic_chr_cx;
+			sw_pic_chr_bm->cy = (short)sw_pic_chr_cy;
+			hgio_picload_overwrite( sw_pic_chr_bm, sw_pic_chr_name );
+			sw_pic_chr_bm->cx = (short)scx;
+			sw_pic_chr_bm->cy = (short)scy;
+			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+			sw_apply_target( bm );
+			sw_cur = NULL;
+			sw_fbo_log( "hgio: atlas healed at blit %d from '%s'\n", sw_char_seen, sw_pic_chr_name );
+		}
 		if ( ( sw_char_seen == 1200 ) && ( sw_atlas_done == 0 ) ) {
 			/*	r228: the whole character buffer, once.  If the humanoid chips
 				are already dark here, nothing downstream can fix them.		*/
