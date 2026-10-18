@@ -759,6 +759,7 @@ static char	sw_pic_chr_name[128];
 static int	sw_atlas_fixed = 0;
 static int	sw_tint_log = 0;
 static int	sw_rot_n = 0;
+static int	sw_chip_log = 0;
 static int	sw_ch3_n = 0;			/* r237: chip chain samples			*/
 static int	sw_rot_all = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
@@ -3265,7 +3266,17 @@ void hgio_copy( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, BMSCR *
 			float fh = (float)tex->sy;
 			cyy = (int)( fh - ( (float)yy + (float)srcsy ) );
 		}
-		/*	r237: the atlas cell a chip is prepared from, then (in copyrot) the
+		/*	r239: which atlas chip each character is prepared from, and with what
+		subtraction.  chip = (y/48)*33 + x/48 is Elona's own numbering, so the
+		number can be checked against the picture instead of guessed.		*/
+	if ( ( sw_chip_log < 60 ) && ( (int)bm->cx == 0 ) && ( (int)bm->cy == 960 ) ) {
+		sw_chip_log++;
+		sw_fbo_log( "hgio: chipidx %d chip=%d src=%d,%d sz=%dx%d gm=%d col=%d,%d,%d\n",
+			sw_chip_log, ( (int)yy / 48 ) * 33 + ( (int)xx / 48 ), (int)xx, (int)yy,
+			(int)srcsx, (int)srcsy, bm->gmode,
+			((int)bm->mulcolor >> 16) & 0xff, ((int)bm->mulcolor >> 8) & 0xff, (int)bm->mulcolor & 0xff );
+	}
+	/*	r237: the atlas cell a chip is prepared from, then (in copyrot) the
 		staging result and the screen - one character at a time, so the step
 		that darkens can be named instead of inferred.						*/
 	if ( ( sw_char_dump == 1 ) && ( sw_ch3_n < 10 ) &&
