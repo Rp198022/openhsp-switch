@@ -1327,7 +1327,19 @@ static int cmdfunc_extcmd( int cmd )
 			are still at the defaults when the carry runs - was unaffected.
 			Only gmode is checked now; the carry still never overwrites a window
 			that has set a mode of its own (the r164 regression).				*/
-		if ( sw_gmode_set && bmscr->gmode == 0 ) {
+		/*	r241: carry the last gmode into the window being selected, as this
+			port did before the r180 audit.  Elona prepares a character chip by
+			selecting BUFFER_CHR and copying the atlas cell into the working
+			cell at (0,960) *without* setting gmode first - it relies on the
+			mode the previous character draw left behind.  Since r180 the mode
+			is kept per window and the carry only happens at the defaults, so
+			that copy runs with whatever gmode the buffer still holds (usually
+			the 4/110 of the shadow pass), and the chip is prepared through a
+			black alpha blend: every NPC turns into the dark silhouette the
+			player has been reporting, while the player - prepared by its own
+			path with an explicit gmode - stays correct.  r173, which carries
+			unconditionally, renders the town correctly.						*/
+		if ( sw_gmode_set ) {
 			bmscr->gmode  = sw_gmode_g[0];
 			bmscr->gx     = sw_gmode_g[1];
 			bmscr->gy     = sw_gmode_g[2];
