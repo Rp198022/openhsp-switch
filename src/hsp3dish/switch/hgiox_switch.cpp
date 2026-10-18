@@ -758,7 +758,8 @@ static int	sw_pic_chr_cy = 0;
 static char	sw_pic_chr_name[128];
 static int	sw_atlas_fixed = 0;
 static int	sw_tint_log = 0;
-static int	sw_rot_n = 0;				/* r231: rotated-path samples			*/
+static int	sw_rot_n = 0;
+static int	sw_rot_all = 0;				/* r231: rotated-path samples			*/
 static int	sw_layer_tex[10];
 static int	sw_layer_w[10];
 static int	sw_layer_h[10];
@@ -3861,7 +3862,28 @@ void hgio_copyrot( BMSCR *bm, short xx, short yy, short srcsx, short srcsy, floa
     glVertexPointer(2,GL_FLOAT,0,vertf2D);
     glTexCoordPointer(2,GL_FLOAT,0,uvf2D);
 
-		/*	r231: the rotated sprite path is the one the map uses, so it needs the
+		/*	r236: the character buffer itself, twice, once the map is well up.
+		Everything else has been ruled out by A/B - with the tint chain
+		disabled the map still comes out dark - so the question is now whether
+		the chip the copy reads is the one character.bmp has there.		*/
+	sw_rot_all++;
+	if ( ( sw_char_dump == 1 ) && ( bmsrc != NULL ) && ( yy == 960 ) &&
+		 ( ( sw_rot_all == 400 ) || ( sw_rot_all == 800 ) ) ) {
+		SWTARGET *cbt = sw_find( bmsrc );
+		char nm[32];
+		if ( cbt != NULL ) {
+			sprintf( nm, "charbuf_%d.bmp", sw_rot_all );
+			sw_dump_fbo( nm, cbt->fbo, (int)bmsrc->sx, (int)bmsrc->sy );
+			sprintf( nm, "stage_%d.bmp", sw_rot_all );
+			sw_dump_rect( nm, cbt->fbo, 0, 960, 48, 64, (int)bmsrc->sy, 1 );
+			sw_bfb( ( sw_main_ok == 1 ) ? (GLuint)sw_main_fbo : 0 );
+			sw_apply_target( bm );
+			sw_cur = NULL;
+			sw_fbo_log( "hgio: charbuf dumped at rot %d %dx%d dst=%d,%d gm=%d\n",
+				sw_rot_all, (int)bmsrc->sx, (int)bmsrc->sy, (int)bm->cx, (int)bm->cy, bm->gmode );
+		}
+	}
+	/*	r231: the rotated sprite path is the one the map uses, so it needs the
 		same three-way sample the straight copy has: staging cell, screen cell
 		before, screen cell after.  Only 12 of them, right after the map opens. */
 	if ( ( sw_char_dump == 1 ) && ( bm != NULL ) && ( bm->type == HSPWND_TYPE_MAIN ) &&
