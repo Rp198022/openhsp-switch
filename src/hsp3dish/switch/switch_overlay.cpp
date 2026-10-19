@@ -149,10 +149,20 @@ static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
 static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
 
-/*	Display mode: R+stick click cycles key hints <-> party HUD.			*/
+/*	Display mode (r247).  Two are under the player's control and cycle on
+	ZR+stick-left; the third is automatic.  sw_ovl_manual holds the pick and
+	sw_ovl_mode is what actually gets drawn: while an enemy is fighting the
+	player the pick is overridden by the battle sheet, and it comes back once
+	the fight is over.  The battle sheet is not on the cycle and cannot be
+	reached by hand.														*/
 #define SW_OVL_MODE_KEY		0
 #define SW_OVL_MODE_PARTY	1
-static int		sw_ovl_mode = SW_OVL_MODE_KEY;
+#define SW_OVL_MODE_BATTLE	2
+static int		sw_ovl_manual = SW_OVL_MODE_KEY;	/* the player's pick	*/
+static int		sw_ovl_mode = SW_OVL_MODE_KEY;		/* what gets drawn	*/
+static int		sw_ovl_battle_on = 0;				/* an enemy engaged	*/
+static int		sw_ovl_battle_slot = -1;			/* that enemy's slot */
+static int		sw_ovl_party_built_mode = -1;		/* mode the sheets hold */
 
 /*	Party HUD state.  The interpreter context is the cache key: when it
 	changes (new game, load) the variable indices are resolved again.
@@ -229,6 +239,8 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_party_sheet[1] = 0;
 	sw_ovl_party_slot[0] = 0;
 	sw_ovl_party_slot[1] = -1;
+	sw_ovl_party_built_mode = -1;
+	sw_ovl_bat_name[0] = '\0';
 	sw_ovl_face_u_tex[0] = 0;
 	sw_ovl_face_u_tex[1] = 0;
 	sw_ovl_face_u_id[0] = 0;
@@ -237,14 +249,15 @@ void switch_overlay_ctx_reset( void )
 
 
 void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, int right_x, int right_w );
+static void sw_ovl_battle_update( void );
 
 void switch_overlay_toggle( void )
 {
-	/*	r185f: the party HUD joins the toggle cycle.  ZR+stick click walks
-		key hints -> party HUD -> key hints; there is no "hidden" state,
-		the player asked for the strips to carry information.			*/
-	sw_ovl_mode = ( sw_ovl_mode == SW_OVL_MODE_PARTY ) ? SW_OVL_MODE_KEY : SW_OVL_MODE_PARTY;
-	printf( "hsp3switch: overlay %s\n", sw_ovl_mode == SW_OVL_MODE_PARTY ? "party" : "keys" );
+	/*	r247: the cycle carries only the player's pick - key hints <-> party
+		HUD.  The battle sheet is not on it; an engaged enemy brings it up by
+		itself and it cannot be reached by hand.						*/
+	sw_ovl_manual = ( sw_ovl_manual == SW_OVL_MODE_PARTY ) ? SW_OVL_MODE_KEY : SW_OVL_MODE_PARTY;
+	printf( "hsp3switch: overlay %s\n", sw_ovl_manual == SW_OVL_MODE_PARTY ? "party" : "keys" );
 	fflush( stdout );
 }
 
@@ -471,18 +484,24 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	right_w = win_w - right_x;
 	if ( right_w < 48 ) return;
 
+	/*	r247: pick what to show first.  An engaged enemy overrides the
+		player's choice with the battle sheet; the choice comes back once the
+		fight is over.  The battle sheet is never on the manual cycle.		*/
+	sw_ovl_battle_update();
+	sw_ovl_mode = sw_ovl_battle_on ? SW_OVL_MODE_BATTLE : sw_ovl_manual;
+
+	/*	Party HUD / battle sheet replace the key hints entirely: same window
+		pass, their own build/draw path below.							*/
+	if ( sw_ovl_mode != SW_OVL_MODE_KEY ) {
+		switch_overlay_draw_party( win_w, win_h, origin_x, game_w, right_x, right_w );
+		return;
+	}
+
 	/*	Rebuild when the layout changed (docked/undocked switches the strip
 		width); the content itself is static.								*/
 	if ( !sw_ovl_tried || origin_x != sw_ovl_origin_x ) {
 		if ( sw_ovl_build( origin_x, right_w ) != 0 ) return;
 		sw_ovl_origin_x = origin_x;
-	}
-
-	/*	Party HUD replaces the key hints entirely: same window pass, its
-		own build/draw path below.										*/
-	if ( sw_ovl_mode == SW_OVL_MODE_PARTY ) {
-		switch_overlay_draw_party( win_w, win_h, origin_x, game_w, right_x, right_w );
-		return;
 	}
 
 	/*	Window-space coordinates: x across the whole panel, y downward.		*/
@@ -537,6 +556,24 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_CD_ALLIED		58
 #define SW_OVL_PARTY_CD_TAGTEAM		167
 #define SW_OVL_PARTY_CD_FACE		431
+#define SW_OVL_PARTY_CD_X		1
+#define SW_OVL_PARTY_CD_Y		2
+#define SW_OVL_PARTY_CD_RELATION	9
+#define SW_OVL_PARTY_CD_TARGET	29
+#define SW_OVL_PARTY_CD_AI_AGGRO	201
+
+/*	Battle sheet (r247): the nearest enemy that is actually fighting us,
+	together with its live condition counters.  The field numbers are the
+	game's own CDATA_CONDITION_* block (defines/mod.hsp).					*/
+#define SW_OVL_BAT_COND_N	9
+static const struct { int field; const char *name; } sw_ovl_bat_cond[ SW_OVL_BAT_COND_N ] = {
+	{ 250, "中毒" }, { 254, "混乱" }, { 252, "麻痹" }, { 251, "睡眠" },
+	{ 253, "盲目" }, { 255, "恐惧" }, { 258, "流血" }, { 256, "暗影" },
+	{ 261, "生病" },
+};
+static char		sw_ovl_bat_name[ 64 ] = "";
+static int		sw_ovl_bat_hp = 0, sw_ovl_bat_mhp = 0;
+static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 
 #define SW_OVL_PARTY_ATTR_FIRST		10	/* SKILL_ATTR_STR */
 #define SW_OVL_PARTY_ATTR_COUNT		8	/* STR..CHA */
@@ -652,6 +689,53 @@ static int sw_ovl_cdata( int field, int slot )
 	if ( field < 0 || field >= sw_ovl_pv_cdata->len[1] ) return 0;
 	if ( slot < 0 || slot >= sw_ovl_pv_cdata->len[2] ) return 0;
 	return ((int*)sw_ovl_pv_cdata->pt)[ field + slot * sw_ovl_pv_cdata->len[1] ];
+}
+
+/*	r247: is somebody fighting us right now, and who?  A character counts
+	when it is alive, hostile and actually engaged:
+	  relation < 0 - how Elona marks an enemy (action.hsp's duel setup sets
+	    relation -3 + aggro 80), while the player's own side sits at 10;
+	  aggro > 0   - the AI's "I am after somebody" counter.  It is raised
+	    when a monster notices or is hit and reset to 0 once it calms down
+	    (ai.hsp), so an unaware monster wandering past never counts.
+	TARGET is deliberately not consulted: cdata(CDATA_TARGET) is 0 both for
+	"the player" and for the default of a character that has picked nobody.
+	The nearest engaged enemy is the one the battle sheet shows.
+	Resolving the arrays is heavy (the shipped .ax has no debug name table,
+	so they are found by a full mem_var scan), so a failed attempt is retried
+	only twice a second - the script's own arrays exist from program start,
+	so this normally succeeds on the first frame the interpreter is up.		*/
+static void sw_ovl_battle_update( void )
+{
+	static unsigned int tick = 0;
+	int s, n, px, py, best = -1, bestd = 0;
+
+	sw_ovl_battle_on = 0;
+	sw_ovl_battle_slot = -1;
+	if ( sw_ovl_pv_cdata == NULL && sw_ovl_ctx == NULL ) {
+		if ( ( tick++ % 30 ) != 0 ) return;
+		if ( sw_ovl_party_resolve() != 0 ) return;
+	}
+	if ( sw_ovl_pv_cdata == NULL ) return;
+
+	n = sw_ovl_pv_cdata->len[2];
+	px = sw_ovl_cdata( SW_OVL_PARTY_CD_X, 0 );
+	py = sw_ovl_cdata( SW_OVL_PARTY_CD_Y, 0 );
+	for ( s = 1; s < n; s++ ) {
+		int dx, dy, d;
+		if ( sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, s ) != 1 ) continue;
+		if ( sw_ovl_cdata( SW_OVL_PARTY_CD_RELATION, s ) > -1 ) continue;
+		if ( sw_ovl_cdata( SW_OVL_PARTY_CD_AI_AGGRO, s ) <= 0 ) continue;
+		dx = sw_ovl_cdata( SW_OVL_PARTY_CD_X, s ) - px;
+		dy = sw_ovl_cdata( SW_OVL_PARTY_CD_Y, s ) - py;
+		if ( dx < 0 ) dx = -dx;
+		if ( dy < 0 ) dy = -dy;
+		d = ( dx > dy ) ? dx : dy;
+		if ( best < 0 || d < bestd ) { best = s; bestd = d; }
+	}
+	if ( best < 0 ) return;
+	sw_ovl_battle_on = 1;
+	sw_ovl_battle_slot = best;
 }
 
 /*	r203: charid of the last custom-talk speaker, or -1 when the name
@@ -1144,7 +1228,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	SDL_Surface *panel;
 	SDL_Rect r;
 	int y, i;
-	char buf[ 96 ];
+	char buf[ 160 ];
 
 	if ( strip_w < 48 ) return -1;
 	if ( sw_ovl_party_sheet[ ix ] != 0 ) {
@@ -1221,6 +1305,34 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	if ( ix == 1 ) {
 		y += 8;
 		sw_ovl_chat_lines( panel, sw_ovl_utf8( sw_ovl_party_chat[ 1 ] ), 8, y, SW_OVL_PET_ROWS * 2 );
+	}
+
+	/*	r247: the battle sheet hangs the current enemy off the bottom of the
+	player's strip - the party rows above stay exactly as the party layer
+	draws them, so both portraits are still up.  The block is clipped by
+	the surface if the rows above have already used the height.			*/
+	if ( ix == 0 && sw_ovl_mode == SW_OVL_MODE_BATTLE && sw_ovl_bat_name[ 0 ] != '\0' ) {
+		int mhp = sw_ovl_bat_mhp, c, first = 1;
+		SDL_Rect hr;
+		if ( mhp < 1 ) mhp = 1;
+		y += 10;
+		hr.x = 8; hr.y = y - 4; hr.w = strip_w - 16; hr.h = 2;
+		SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 150, 152, 160, 255 ) );
+		sw_ovl_blit_text( panel, "— 战斗 —", 235, 8, y ); y += SW_OVL_LINE_H;
+		snprintf( buf, sizeof( buf ), "%s", sw_ovl_utf8( sw_ovl_bat_name ) );
+		sw_ovl_blit_text( panel, buf, 255, 8, y ); y += SW_OVL_LINE_H;
+		snprintf( buf, sizeof( buf ), "HP %d/%d (%d%%)", sw_ovl_bat_hp, mhp,
+			sw_ovl_lim( sw_ovl_bat_hp * 100 / mhp, 0, 100 ) );
+		sw_ovl_blit_text( panel, buf, 230, 8, y ); y += SW_OVL_LINE_H;
+		buf[ 0 ] = '\0';
+		for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+			if ( sw_ovl_bat_condv[ c ] <= 0 ) continue;
+			if ( !first ) strncat( buf, " ", sizeof( buf ) - 1 - strlen( buf ) );
+			strncat( buf, sw_ovl_bat_cond[ c ].name, sizeof( buf ) - 1 - strlen( buf ) );
+			first = 0;
+		}
+		if ( first ) snprintf( buf, sizeof( buf ), "状态正常" );
+		sw_ovl_blit_small( panel, buf, 225, 8, y + 2 );
 	}
 
 	sw_ovl_party_sheet[ ix ] = sw_ovl_upload_rgba( panel, &sw_ovl_party_sheet_w[ ix ], &sw_ovl_party_sheet_h[ ix ] );
@@ -1361,6 +1473,27 @@ static int sw_ovl_party_refresh( int *slot )
 			}
 		}
 	}
+
+	/*	r247: while the battle sheet is up, track the enemy it names (name,
+	HP and the condition counters) so the sheet is rebuilt when they move. */
+	if ( sw_ovl_mode == SW_OVL_MODE_BATTLE && sw_ovl_battle_slot >= 0 ) {
+		int s = sw_ovl_battle_slot, c;
+		char nb[ 64 ];
+		snprintf( nb, sizeof( nb ), "%s", sw_ovl_cdatan( 0, s ) );
+		if ( strcmp( nb, sw_ovl_bat_name ) != 0 ) {
+			dirty = 1;
+			strncpy( sw_ovl_bat_name, nb, sizeof( sw_ovl_bat_name ) - 1 );
+			sw_ovl_bat_name[ sizeof( sw_ovl_bat_name ) - 1 ] = '\0';
+		}
+		if ( sw_ovl_bat_hp != sw_ovl_cdata( SW_OVL_PARTY_CD_HP, s ) ) dirty = 1;
+		if ( sw_ovl_bat_mhp != sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, s ) ) dirty = 1;
+		sw_ovl_bat_hp = sw_ovl_cdata( SW_OVL_PARTY_CD_HP, s );
+		sw_ovl_bat_mhp = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, s );
+		for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+			int v = sw_ovl_cdata( sw_ovl_bat_cond[ c ].field, s );
+			if ( v != sw_ovl_bat_condv[ c ] ) { dirty = 1; sw_ovl_bat_condv[ c ] = v; }
+		}
+	}
 	return dirty;
 }
 
@@ -1382,9 +1515,13 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	sheet_h = win_h - 16;
 	if ( sheet_h < 120 ) sheet_h = 120;
 	if ( sheet_h > sw_ovl_party_sheet_h[0] + 1 || sheet_h > sw_ovl_party_sheet_h[1] + 1 ) dirty = 1;
+	/*	r247: the battle block is part of the sheets, so a mode change has
+		to rebuild them even when the tracked party values did not move.	*/
+	if ( sw_ovl_party_built_mode != sw_ovl_mode ) dirty = 1;
 	if ( dirty || sw_ovl_party_sheet[0] == 0 || sw_ovl_party_sheet[1] == 0 ) {
 		if ( sw_ovl_party_build( 0, origin_x, sheet_h ) != 0 ) return;
 		if ( sw_ovl_party_build( 1, right_w, sheet_h ) != 0 ) return;
+		sw_ovl_party_built_mode = sw_ovl_mode;
 	}
 
 	glMatrixMode( GL_PROJECTION );
