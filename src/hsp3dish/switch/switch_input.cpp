@@ -47,6 +47,7 @@
 //	the P2 gate needs (official sample scripts driving stick/getkey).
 //
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL2/SDL.h>
@@ -147,6 +148,52 @@ static unsigned int			sw_push_no;
 /*	Polling														  */
 /*----------------------------------------------------------------*/
 
+/*	r248: ZL / ZR delivery.  SDL's own Switch layout binds both to *buttons*
+	- lefttrigger:b8, righttrigger:b9 (the string the pad prints at startup) -
+	and its game-controller layer promotes those to the trigger axes only when
+	the pad feeds that button.  The console does, so the axis read worked
+	there; an emulator that leaves ZL/ZR as plain buttons does not, and the
+	axis stays at zero however hard the key is held.  The raw button each
+	trigger maps to is taken from the pad's own mapping string at startup, and
+	a trigger counts as held when either the axis reads high or that raw
+	button is down - so the three layers behave the same on both.			*/
+static int sw_zl_raw = -1;			/* raw joystick button, or -1	*/
+static int sw_zr_raw = -1;
+
+/*	"righttrigger:b9" -> 9; "righttrigger:a5" -> -1 (that pad already hands
+	the trigger over as an axis, so no raw button is needed).			*/
+static int sw_map_trigger_button( const char *map, const char *name )
+{
+	const char *p = map;
+	size_t nl;
+
+	if ( map == NULL ) return -1;
+	nl = strlen( name );
+	while ( ( p = strstr( p, name ) ) != NULL ) {
+		if ( p[ nl ] == ':' && p[ nl + 1 ] == 'b' ) return atoi( p + nl + 2 );
+		p += nl;
+	}
+	return -1;
+}
+
+static int sw_trigger_held( SDL_GameControllerAxis axis, int raw )
+{
+	SDL_Joystick *js;
+
+	if ( sw_pad == NULL ) return 0;
+	if ( SDL_GameControllerGetAxis( sw_pad, axis ) > SW_TRIGGER_ON ) return 1;
+	if ( raw >= 0 ) {
+		js = SDL_GameControllerGetJoystick( sw_pad );
+		if ( js != NULL && SDL_JoystickGetButton( js, raw ) ) return 1;
+	}
+	return 0;
+}
+
+static int sw_zr_held( void )
+{
+	return sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERRIGHT, sw_zr_raw );
+}
+
 /*	The pad has three layers: 0 = base, 1 = R held (second), 2 = ZR held
 	(third).  ZR wins while both are down, so a slip never lands on R's map.
 	sw_layer_second() stays as the "not on the base layer" test that the
@@ -154,7 +201,7 @@ static unsigned int			sw_push_no;
 static int sw_layer( void )
 {
 	if ( sw_pad == NULL ) return 0;
-	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ) > SW_TRIGGER_ON ) return 2;
+	if ( sw_zr_held() ) return 2;
 	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER ) ) return 1;
 	return 0;
 }
@@ -583,7 +630,10 @@ int switch_input_take_keys( char *out, int max )
 		const SW_CHARKEY *e = &sw_charkeys[i];
 		Uint8 now;
 
-		if ( e->axis != SW_NO_AXIS ) {
+		if ( e->axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ) {
+			/*	ZL may arrive as the raw button the mapping names (r248).	*/
+			now = (Uint8)sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw );
+		} else if ( e->axis != SW_NO_AXIS ) {
 			now = (Uint8)( SDL_GameControllerGetAxis( sw_pad, e->axis ) > SW_TRIGGER_ON );
 		} else {
 			now = (Uint8)SDL_GameControllerGetButton( sw_pad, e->btn );
@@ -711,6 +761,12 @@ void switch_input_install( void *hspctx )
 					numbering is visible; it is what showed that SDL's
 					Switch layout is a:b1,b:b0,x:b3,y:b2.				*/
 				printf( "hsp3switch: mapping = %s\n", map ? map : "(none)" );
+				/*	r248: pick ZL/ZR's raw button out of that string, so a pad
+					that keeps the triggers as buttons still reaches the three
+					layers.  The console's own mapping names them too, but there
+					the axis is already live, so this is a no-op for it.	*/
+				sw_zl_raw = sw_map_trigger_button( map, "lefttrigger" );
+				sw_zr_raw = sw_map_trigger_button( map, "righttrigger" );
 				if ( map != NULL ) SDL_free( map );
 			}
 		}
