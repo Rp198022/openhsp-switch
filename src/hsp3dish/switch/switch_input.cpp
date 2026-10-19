@@ -463,6 +463,38 @@ void switch_input_poll( void )
 		fflush( stdout );
 	}
 
+	/*	r248 probe (TEMPORARY - strip before release): with `paddump` on the SD
+		card, dump the raw pad state twice a second, so a pad that hands ZL/ZR
+		over somewhere unexpected can be read straight out of the log.		*/
+	{
+		static unsigned int pd_last = 0;
+		unsigned int pd_now = (unsigned int)SDL_GetTicks();
+		if ( ( pd_now - pd_last ) >= 500u ) {
+			FILE *m;
+			pd_last = pd_now;
+			m = fopen( "sdmc:/switch/openhsp/paddump", "rb" );
+			if ( m != NULL ) {
+				SDL_Joystick *js = SDL_GameControllerGetJoystick( sw_pad );
+				int i, b;
+				fclose( m );
+				printf( "paddump layer=%d zlAx=%d zrAx=%d lSh=%d rSh=%d zrRaw=%d zlRaw=%d jax=",
+					sw_layer(),
+					(int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT ),
+					(int)SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ),
+					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER ),
+					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER ),
+					sw_zr_raw, sw_zl_raw );
+				for ( i = 0; i < 6; i++ )
+					printf( "%d,", js ? (int)SDL_JoystickGetAxis( js, i ) : -999 );
+				printf( " jbtn=" );
+				for ( b = 0; b < 26; b++ )
+					if ( js != NULL && SDL_JoystickGetButton( js, b ) ) printf( "%d,", b );
+				printf( "\n" );
+				fflush( stdout );
+			}
+		}
+	}
+
 	/*	The panel toggle (key hints <-> party HUD) is ZR with the right stick
 		pushed left, edge-triggered so the pair must be released and pressed
 		again for the next flip.  It moved off the stick click, which the
