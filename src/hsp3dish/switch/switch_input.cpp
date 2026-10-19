@@ -69,8 +69,10 @@
 
 typedef struct {
 	SDL_GameControllerButton	btn;	/* or SW_NO_BUTTON					*/
-	SDL_GameControllerAxis		axis;	/* -1 when unused					*/
-	SDL_Scancode				sc;
+	SDL_GameControllerAxis		axis;	/* SW_NO_AXIS when btn is used		*/
+	SDL_Scancode				sc;		/* the base layer					*/
+	SDL_Scancode				alt;	/* the R layer (UNKNOWN = nothing)	*/
+	SDL_Scancode				zr;		/* the ZR layer (UNKNOWN = nothing)	*/
 } SW_KEYMAP_ENTRY;
 
 /*	SDL's controller API has no ZL/ZR buttons; on the Switch those two arrive
@@ -113,13 +115,15 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 		button drinks instead.  X and Y are typed, not scancoded.			*/
 	{ SDL_CONTROLLER_BUTTON_B,				SW_NO_AXIS,		SDL_SCANCODE_RETURN },	/* confirm: pad A, right	*/
 	{ SDL_CONTROLLER_BUTTON_A,				SW_NO_AXIS,		SDL_SCANCODE_ESCAPE },	/* cancel:  pad B, bottom	*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB },		/* next tab: pad L			*/
-	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_SPACE },	/* wait: right stick click	*/
-	/*	Elona's save list deletes a save with BackSpace - system.hsp's
-		*game_title_selectID reads `getkey a, 8` and its hint bar says
-		"BackSpace [Delete]".  The pad has no button left over for it, so it is
-		the R + L combination (R holding the layer), read in sw_entry_down() below.				*/
-	{ SW_NO_BUTTON,							SW_NO_AXIS,		SDL_SCANCODE_BACKSPACE },
+	/*	L carries one scancode per layer - the three Elona reads that need a
+		real key.  Tab on the base layer, Space (wait) while R is held, and
+		BackSpace (delete a save; system.hsp's *game_title_selectID reads
+		`getkey a, 8`) on the ZR layer.  The stick clicks were these keys'
+		only other home, and the player asked for those to be dropped.		*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,		SDL_SCANCODE_TAB,	SDL_SCANCODE_SPACE,	SDL_SCANCODE_BACKSPACE },
+	/*	The stick clicks no longer inject a scancode.						*/
+	{ SDL_CONTROLLER_BUTTON_RIGHTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_UNKNOWN },
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,		SW_NO_AXIS,		SDL_SCANCODE_UNKNOWN },
 };
 
 #define SW_KEYMAP_N	((int)( sizeof( sw_keymap ) / sizeof( sw_keymap[0] ) ))
@@ -132,6 +136,7 @@ static const SW_KEYMAP_ENTRY sw_keymap[] = {
 
 static SDL_GameController	*sw_pad;
 static Uint8				sw_state[SW_KEYMAP_N];
+static SDL_Scancode			sw_inject_sc[SW_KEYMAP_N];	/* scancode that entry owns now */
 static int					sw_installed;
 #define SW_KEY_STATE_MAX	512
 static Uint8				sw_keys[SW_KEY_STATE_MAX];
@@ -159,54 +164,34 @@ static int sw_layer_second( void )
 	return sw_layer() != 0;
 }
 
-static int sw_entry_down( int i )
+/*	The scancode this entry injects on the layer that is active right now, or
+	SDL_SCANCODE_UNKNOWN when it injects nothing there.  L hands out one
+	scancode per layer (Tab / Space / BackSpace); every other entry keeps its
+	base key and goes quiet on the upper layers, because each of those keys
+	types a character there - and a matching scancode arriving at the same
+	moment is a *second* key.  key_check() reads its keylog box first and
+	lets a non-zero `stick p,15` overwrite the result, so Escape or a cursor
+	key would throw the letter away (the R48/R49 lesson).				*/
+static SDL_Scancode sw_entry_sc( int i )
+{
+	const SW_KEYMAP_ENTRY *e = &sw_keymap[i];
+	int layer = sw_layer();
+	SDL_Scancode sc = ( layer == 2 ) ? e->zr : ( ( layer == 1 ) ? e->alt : e->sc );
+
+	if ( sc == SDL_SCANCODE_UNKNOWN ) return sc;
+	if ( layer != 0 && ( sc == SDL_SCANCODE_ESCAPE ||
+		 sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_RIGHT ||
+		 sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_DOWN ) ) return SDL_SCANCODE_UNKNOWN;
+	return sc;
+}
+
+/*	True while that entry's physical key is held.						*/
+static int sw_entry_pressed( int i )
 {
 	const SW_KEYMAP_ENTRY *e = &sw_keymap[i];
 
-	/*	On the second layer the bottom button types 'q' and must stop being
-		Escape.  key_check() reads the keylog first and then lets a non-zero
-		`stick p,15` overwrite the result, so an Escape arriving at the same
-		moment would throw the letter away.								*/
-	if ( e->sc == SDL_SCANCODE_ESCAPE && sw_layer_second() ) return 0;
-
-	/*	Delete is R + L: R is the second-layer shift now, L has taken the
-		Tab role, and every other button has a first-layer job.  While the
-		pair is held the Tab entry (L) goes quiet - otherwise one press
-		reports two keys, which is the mistake R48/R49 are about.										*/
-	if ( ( e->sc == SDL_SCANCODE_BACKSPACE ) || ( e->sc == SDL_SCANCODE_TAB ) ) {
-		int del = sw_layer_second()
-			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER );
-		if ( e->sc == SDL_SCANCODE_BACKSPACE ) return del ? 1 : 0;
-		if ( del ) return 0;
-	}
-
-	/*	The d-pad and the face buttons feed the character tables on the upper
-		layers, so their movement scancodes go quiet there - one press must
-		not both walk and type.  The R+L pair above owns BackSpace; the Tab
-		entry only needs silencing on the ZR layer, whose L has its own job.	*/
-	if ( sw_layer_second() ) {
-		if ( e->sc == SDL_SCANCODE_LEFT || e->sc == SDL_SCANCODE_RIGHT ||
-			 e->sc == SDL_SCANCODE_UP || e->sc == SDL_SCANCODE_DOWN ) return 0;
-	}
-	if ( e->sc == SDL_SCANCODE_TAB && sw_layer() == 2 ) return 0;
-
-	/*	ZR + right-stick click toggles the side panels (key hints <-> party
-		HUD).  The stick click alone is Space (wait), so while the pair is
-		held it goes quiet - otherwise the same press that flips the panel
-		would also make the character rest.  R and ZR type nothing on their
-		own (they are the layer shifts now), so only the click is silenced.	*/
-	if ( e->sc == SDL_SCANCODE_SPACE ) {
-		if ( sw_layer() == 2
-			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK ) ) return 0;
-	}
-
 	if ( e->btn != SW_NO_BUTTON && SDL_GameControllerGetButton( sw_pad, e->btn ) ) return 1;
 	if ( e->axis != SW_NO_AXIS && SDL_GameControllerGetAxis( sw_pad, e->axis ) > SW_TRIGGER_ON ) return 1;
-
-	/*	The right stick used to be spent here, doubling as the cursor keys for
-		Elona's lock-on cursor.  It types its own four characters now (see
-		switch_input_take_keys() below), so nothing in this table reads it and
-		the cursor keys come from the d-pad alone.							*/
 	return 0;
 }
 
@@ -319,9 +304,19 @@ void switch_input_poll( void )
 	SDL_PumpEvents();
 	SDL_JoystickUpdate();
 	for ( i = 0; i < SW_KEYMAP_N; i++ ) {
-		SDL_Scancode sc = sw_keymap[i].sc;
-		Uint8 now = (Uint8)sw_entry_down( i );
-		if ( sc < SW_KEY_STATE_MAX ) sw_keys[sc] = now;
+		SDL_Scancode sc = sw_entry_sc( i );
+		Uint8 now = (Uint8)( ( sc != SDL_SCANCODE_UNKNOWN ) && sw_entry_pressed( i ) );
+
+		/*	A layer flip re-maps an entry's scancode (L above all), so a key
+			that is still held must hand the old one back before taking the
+			new - otherwise the previous key would stay latched.			*/
+		if ( sw_inject_sc[i] != SDL_SCANCODE_UNKNOWN && sw_inject_sc[i] != sc ) {
+			if ( sw_inject_sc[i] < SW_KEY_STATE_MAX ) sw_keys[ sw_inject_sc[i] ] = 0;
+			sw_push_key( sw_inject_sc[i], 0 );
+			sw_inject_sc[i] = SDL_SCANCODE_UNKNOWN;
+			sw_state[i] = 0;
+		}
+		if ( sc != SDL_SCANCODE_UNKNOWN && sc < SW_KEY_STATE_MAX ) sw_keys[sc] = now;
 		if ( now == sw_state[i] ) continue;
 		sw_state[i] = now;
 
@@ -338,7 +333,10 @@ void switch_input_poll( void )
 
 			The pad's letter and CR keys are unaffected - switch_input_take_keys()
 			and sw_key_tick() deliver those straight to the objects.		*/
-		if ( sc != SDL_SCANCODE_RETURN ) sw_push_key( sc, now );
+		if ( sc != SDL_SCANCODE_UNKNOWN ) {
+			if ( sc != SDL_SCANCODE_RETURN ) sw_push_key( sc, now );
+			sw_inject_sc[i] = now ? sc : SDL_SCANCODE_UNKNOWN;
+		}
 		sw_push_no++;
 	}
 	/*	P3 DIAGNOSTIC: the DirectInput-shaped value Elona's own gamepad path
@@ -418,13 +416,14 @@ void switch_input_poll( void )
 		fflush( stdout );
 	}
 
-	/*	The panel toggle is edge-triggered: the pair must be released and
-		pressed again for the next flip.  ZR + stick click is the pair now -
-		R + stick click was the old one and belongs to the R layer's map.	*/
+	/*	The panel toggle (key hints <-> party HUD) is ZR with the right stick
+		pushed left, edge-triggered so the pair must be released and pressed
+		again for the next flip.  It moved off the stick click, which the
+		player found hard to press.										*/
 	{
 		static int sw_ovl_combo = 0;
 		int now = ( sw_layer() == 2 )
-			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
+			&& SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX ) < -SW_STICK_DEADZONE;
 		if ( now && !sw_ovl_combo ) switch_overlay_toggle();
 		sw_ovl_combo = now;
 	}
@@ -475,9 +474,10 @@ static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo Y (left): item menu; R layer: wear; ZR layer: keypad 7.
 		SDL's X is the left button.											*/
 	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w', '7' },
-	/*	ZL fires; R layer: the item-detail screen.  ZR layer: the centre of
-		the keypad grid, which is what the player asked ZR+ZL to be.		*/
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'X', '5' },
+	/*	ZL fires.  R layer: the read key, which the left-stick click used to
+		carry.  ZR layer: the centre of the keypad grid, which is what the
+		player asked ZR+ZL to be.											*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'r', '5' },
 	/*	ZR is the third layer's shift itself, so it types nothing anywhere.	*/
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					 0,   0,  0 },
 	/*	- opens the help (the player picked it for this unobtrusive key).
@@ -489,12 +489,8 @@ static const SW_CHARKEY sw_charkeys[] = {
 		(config.txt key_pageup/key_pagedown) and without them anything past
 		the first page is unreachable.										*/
 	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S', 'm', '-' },
-	/*	Left stick press: read; R layer: use a tool; ZR layer: spare.		*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 't',  0 },
-	/*	L is Tab on the base layer (a scancode - see sw_keymap).  On the ZR
-		layer it types the rest key, which had no other home left; its Tab
-		entry is silenced there in sw_entry_down().							*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,					 0,  0, 'R' },
+	/*	L carries scancodes only (see sw_keymap), so it types nothing here.	*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,						 0,   0,  0 },
 	/*	The d-pad feeds four utility keys on the R layer and the keypad
 		digits 8/2/4/6 on the ZR layer - the same arrangement a PC keypad
 		has, so that grid needs no memorising.  Its movement scancodes go
@@ -519,9 +515,10 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_DOWN_ALT	'D'		/* dig a wall				*/
 #define SW_LSTICK_LEFT_ALT	'G'		/* give an item				*/
 #define SW_LSTICK_RIGHT_ALT	'C'		/* close a door				*/
-/*	Left stick, ZR layer: the leftovers.								*/
-#define SW_LSTICK_UP_ZR		'A'		/* switch ammo				*/
-#define SW_LSTICK_DOWN_ZR	0		/* spare					*/
+/*	Left stick, ZR layer: the two actions that sat on the stick clicks, moved
+	here because the player found those hard to press.					*/
+#define SW_LSTICK_UP_ZR		'd'		/* drop an item				*/
+#define SW_LSTICK_DOWN_ZR	't'		/* use a tool				*/
 #define SW_LSTICK_LEFT_ZR	'W'		/* wipe/polish				*/
 #define SW_LSTICK_RIGHT_ZR	'I'		/* stack items				*/
 
@@ -537,11 +534,12 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_RSTICK_DOWN_ALT	'o'		/* open a container/door	*/
 #define SW_RSTICK_LEFT_ALT	'j'		/* open the journal/log		*/
 #define SW_RSTICK_RIGHT_ALT	'['		/* alter the terrain		*/
-/*	Right stick, ZR layer: the last few actions with nowhere else to go.	*/
+/*	Right stick, ZR layer.  The left direction is not typed - it toggles the
+	side panels instead (see switch_input_poll).						*/
 #define SW_RSTICK_UP_ZR		'/'		/* message log				*/
-#define SW_RSTICK_DOWN_ZR	'*'		/* designate a target		*/
-#define SW_RSTICK_LEFT_ZR	'^'		/* Shift+Escape				*/
-#define SW_RSTICK_RIGHT_ZR	'b'		/* bash a wall				*/
+#define SW_RSTICK_DOWN_ZR	'b'		/* bash a wall				*/
+#define SW_RSTICK_LEFT_ZR	0		/* the panel toggle			*/
+#define SW_RSTICK_RIGHT_ZR	'A'		/* switch ammo				*/
 
 static Uint8	sw_char_state[SW_CHARKEY_N];
 static int		sw_lstick_x, sw_lstick_y, sw_rstick_x, sw_rstick_y;
