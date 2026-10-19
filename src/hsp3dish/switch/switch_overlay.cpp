@@ -75,32 +75,41 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "左摇杆→",	"投掷" },
 	{ "左摇杆按",	"阅读" },
 	{ "ZL",			"射击" },
-	{ "减号",		"锁定目标" },
+	{ "减号",		"帮助" },
 	{ "L",			"切换标签" },
 	{ NULL,			"— 第二层（按住 R）—" },
 	{ "左摇杆↑",	"跳跃" },
-	{ "左摇杆↓",	"选择目标" },
+	{ "左摇杆↓",	"挖掘" },
 	{ "左摇杆←",	"给予" },
-	{ "左摇杆→",	"关闭" },
+	{ "左摇杆→",	"关门" },
 	{ "左摇杆按",	"使用道具" },
 	{ "十字键↑",	"外观/祈祷" },
 	{ "十字键↓",	"供奉" },
 	{ "十字键←",	"蘸取" },
 	{ "十字键→",	"特性" },
 	{ "ZL",			"物品信息" },
-	{ "ZR",			"素材列表" },
-	{ "加号",		"翻页上" },
-	{ "减号",		"翻页下" },
+	{ "加号",		"素材列表" },
+	{ "减号",		"观察/锁定" },
+	{ NULL,			"— 第三层（按住 ZR）—" },
+	{ "十字键↑",	"数字 8" },
+	{ "十字键↓",	"数字 2" },
+	{ "十字键←",	"数字 4" },
+	{ "十字键→",	"数字 6" },
+	{ "左摇杆↑",	"换弹" },
+	{ "左摇杆←",	"擦洗" },
+	{ "左摇杆→",	"堆叠" },
+	{ "ZL",			"数字 5" },
+	{ "L",			"休息" },
+	{ "减号",		"翻页上" },
 };
 
-/*	Right Joy-Con, both layers.											*/
+/*	Right Joy-Con, all three layers.										*/
 static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "A",			"确认/攻击" },
 	{ "B",			"取消/关闭" },
 	{ "X",			"行动菜单" },
 	{ "Y",			"道具菜单" },
-	{ "ZR",			"咏唱魔法" },
-	{ "右摇杆↑",	"挥动魔杖" },
+	{ "右摇杆↑",	"咏唱魔法" },
 	{ "右摇杆↓",	"搜索周围" },
 	{ "右摇杆←",	"使用特技" },
 	{ "右摇杆→",	"对话" },
@@ -111,12 +120,23 @@ static const SW_OVL_ROW sw_ovl_right[] = {
 	{ "B",			"喝" },
 	{ "X",			"拾取" },
 	{ "Y",			"装备" },
-	{ "右摇杆↑",	"丢弃" },
+	{ "右摇杆↑",	"挥动魔杖" },
 	{ "右摇杆↓",	"打开" },
 	{ "右摇杆←",	"日志" },
 	{ "右摇杆→",	"改变地形" },
 	{ "L",			"删除存档" },
-	{ "R+摇杆按",	"显示/隐藏" },
+	{ "加号",		"素材列表" },
+	{ NULL,			"— 第三层（按住 ZR）—" },
+	{ "A",			"数字 3" },
+	{ "B",			"数字 1" },
+	{ "X",			"数字 9" },
+	{ "Y",			"数字 7" },
+	{ "右摇杆↑",	"消息日志" },
+	{ "右摇杆↓",	"指定目标" },
+	{ "右摇杆←",	"Shift+Esc" },
+	{ "右摇杆→",	"砸开" },
+	{ "右摇杆按",	"切换面板" },
+	{ "加号",		"翻页下" },
 };
 
 #define SW_OVL_LEFT_N	((int)( sizeof( sw_ovl_left ) / sizeof( sw_ovl_left[0] ) ))
@@ -223,7 +243,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 void switch_overlay_toggle( void )
 {
-	/*	r185f: the party HUD joins the toggle cycle.  R+stick now walks
+	/*	r185f: the party HUD joins the toggle cycle.  ZR+stick click walks
 		key hints -> party HUD -> key hints; there is no "hidden" state,
 		the player asked for the strips to carry information.			*/
 	sw_ovl_mode = ( sw_ovl_mode == SW_OVL_MODE_PARTY ) ? SW_OVL_MODE_KEY : SW_OVL_MODE_PARTY;

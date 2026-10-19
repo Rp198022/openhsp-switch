@@ -4142,7 +4142,12 @@ int hgio_mes(BMSCR* bm, char* msg)
 
 	/*	r196 probe: in GBK builds dump every distinct mes call (pos + color +
 		font + raw bytes) to meslog.txt.  Deduped on (cx, cy, text hash) so a
-		redraw loop floods nothing; recording only, no behaviour change.	*/
+		redraw loop floods nothing; recording only, no behaviour change.
+		r243: gated on the same 'probedump' marker as the other probes.  This
+		path opens, writes and fflush()es the log on the SD card for every
+		unseen string, and its 1024-entry ring lets a text-heavy battle push
+		the old keys out and re-record them, so an ungated build stutters
+		exactly where the text churns.	*/
 	{
 		static FILE *sw_mlog = NULL;
 		static unsigned sw_mlog_seen[1024];
@@ -4153,7 +4158,7 @@ int hgio_mes(BMSCR* bm, char* msg)
 			for ( i = 0; i < 1024; i++ ) sw_mlog_seen[i] = 0;
 			sw_mlog_init = 1;
 		}
-		if ( sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 && use != NULL ) {
+		if ( ( sw_probe_dump == 1 ) && sw_textconv_gbk() && bm->sx == 800 && bm->sy == 600 && use != NULL ) {
 			int L = (int)strlen( use );
 			if ( L >= 8 && L < 400 ) {
 				unsigned key = sw_text_hash( use );

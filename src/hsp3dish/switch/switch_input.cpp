@@ -142,10 +142,21 @@ static unsigned int			sw_push_no;
 /*	Polling														  */
 /*----------------------------------------------------------------*/
 
-/*	True while R is held: the pad is on its second layer then.				*/
+/*	The pad has three layers: 0 = base, 1 = R held (second), 2 = ZR held
+	(third).  ZR wins while both are down, so a slip never lands on R's map.
+	sw_layer_second() stays as the "not on the base layer" test that the
+	scancode table and the overlay already ask for.							*/
+static int sw_layer( void )
+{
+	if ( sw_pad == NULL ) return 0;
+	if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ) > SW_TRIGGER_ON ) return 2;
+	if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER ) ) return 1;
+	return 0;
+}
+
 static int sw_layer_second( void )
 {
-	return SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER ) ? 1 : 0;
+	return sw_layer() != 0;
 }
 
 static int sw_entry_down( int i )
@@ -169,21 +180,23 @@ static int sw_entry_down( int i )
 		if ( del ) return 0;
 	}
 
-	/*	The d-pad is a second-layer key source now (chars for the four
-		directions live in sw_charkeys).  While R is held the movement
-		scancodes go quiet, or one press would both walk and type.		*/
+	/*	The d-pad and the face buttons feed the character tables on the upper
+		layers, so their movement scancodes go quiet there - one press must
+		not both walk and type.  The R+L pair above owns BackSpace; the Tab
+		entry only needs silencing on the ZR layer, whose L has its own job.	*/
 	if ( sw_layer_second() ) {
 		if ( e->sc == SDL_SCANCODE_LEFT || e->sc == SDL_SCANCODE_RIGHT ||
 			 e->sc == SDL_SCANCODE_UP || e->sc == SDL_SCANCODE_DOWN ) return 0;
 	}
+	if ( e->sc == SDL_SCANCODE_TAB && sw_layer() == 2 ) return 0;
 
-	/*	R + right-stick click toggles the side-panel key hints.  The stick
-		click alone is Space (wait), so while the pair is held it goes
-		quiet - otherwise the same press that flips the hints would also
-		make the character rest.  R itself types nothing (it is the second
-		layer's shift now), so only the click needs silencing.  */
+	/*	ZR + right-stick click toggles the side panels (key hints <-> party
+		HUD).  The stick click alone is Space (wait), so while the pair is
+		held it goes quiet - otherwise the same press that flips the panel
+		would also make the character rest.  R and ZR type nothing on their
+		own (they are the layer shifts now), so only the click is silenced.	*/
 	if ( e->sc == SDL_SCANCODE_SPACE ) {
-		if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER )
+		if ( sw_layer() == 2
 			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK ) ) return 0;
 	}
 
@@ -405,11 +418,12 @@ void switch_input_poll( void )
 		fflush( stdout );
 	}
 
-	/*	The hints toggle is edge-triggered: the pair must be released and
-		pressed again for the next flip.  */
+	/*	The panel toggle is edge-triggered: the pair must be released and
+		pressed again for the next flip.  ZR + stick click is the pair now -
+		R + stick click was the old one and belongs to the R layer's map.	*/
 	{
 		static int sw_ovl_combo = 0;
-		int now = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER )
+		int now = ( sw_layer() == 2 )
 			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
 		if ( now && !sw_ovl_combo ) switch_overlay_toggle();
 		sw_ovl_combo = now;
@@ -443,48 +457,52 @@ int switch_input_key_state( int scancode )
 typedef struct {
 	SDL_GameControllerButton	btn;	/* or SW_NO_BUTTON				*/
 	SDL_GameControllerAxis		axis;	/* SW_NO_AXIS when btn is used	*/
-	char						base;
-	char						alt;	/* 0 = nothing on that layer	*/
+	char						base;	/* the base layer				*/
+	char						alt;	/* the R layer (0 = nothing)	*/
+	char						zr;		/* the ZR layer (0 = nothing)	*/
 } SW_CHARKEY;
 
 static const SW_CHARKEY sw_charkeys[] = {
 	/*	Nintendo A (right): confirm, which in the field is also "attack what
-		you face"; second layer: eat.									*/
-	{ SDL_CONTROLLER_BUTTON_B,			SW_NO_AXIS,							13,  'e' },
-	/*	Nintendo B (bottom): cancel is the Escape scancode above; second
-		layer: drink.													*/
-	{ SDL_CONTROLLER_BUTTON_A,			SW_NO_AXIS,							 0,  'q' },
-	/*	Nintendo X (top): action menu; second layer: pick up.  SDL's Y is
-		the top button (positional naming), so this entry uses BUTTON_Y.		*/
-	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'z', 'g' },
-	/*	Nintendo Y (left): item menu; second layer: wear.  SDL's X is the
-		left button.														*/
-	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w' },
-	/*	ZL fires, ZR casts.  Second layer: the two inventory screens the
-		action menu has no entry for - item detail ('X') and materials.	*/
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'X' },
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					'v', 'm' },
-	/*	- locks the target on; + opens the save/settings menu (Shift+S).
-		Second layer: the two list-paging keys.  Elona pages item and
-		equipment lists with '+'/'-' (config.txt key_pageup/key_pagedown),
-		and without them anything past the first page cannot be reached.
-		The old 'p' here was a duplicate of the d-pad's second layer - the
-		appearance/prayer key - so it moved there alone.					*/
-	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'l', '-' },
-	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S', '+' },
-	/*	Left stick press: read; second layer: switch ammo.  The right
-		stick's press is the Space key now - it is in sw_keymap() above, so
-		it is not typed here.												*/
-	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 't' },
-	/*	The d-pad joins the second layer: on the base layer it is pure
-		movement (its scancodes live in sw_keymap), and R turns the four
-		directions into four more utility keys - appearance/prayer, offer,
-		dip, traits.  Their scancodes are silenced while R is held in
-		sw_entry_down(), so one press never moves and types at once.		*/
-	{ SDL_CONTROLLER_BUTTON_DPAD_UP,	SW_NO_AXIS,							 0, 'p' },
-	{ SDL_CONTROLLER_BUTTON_DPAD_DOWN,	SW_NO_AXIS,							 0, 'O' },
-	{ SDL_CONTROLLER_BUTTON_DPAD_LEFT,	SW_NO_AXIS,							 0, 'B' },
-	{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT,	SW_NO_AXIS,							 0, 'F' },
+		you face".  R layer: eat.  ZR layer: keypad 3.						*/
+	{ SDL_CONTROLLER_BUTTON_B,			SW_NO_AXIS,							13,  'e', '3' },
+	/*	Nintendo B (bottom): cancel is the Escape scancode above.  R layer:
+		drink.  ZR layer: keypad 1.										*/
+	{ SDL_CONTROLLER_BUTTON_A,			SW_NO_AXIS,							 0,  'q', '1' },
+	/*	Nintendo X (top): action menu; R layer: pick up; ZR layer: keypad 9.
+		SDL's Y is the top button (positional naming), so BUTTON_Y is used.	*/
+	{ SDL_CONTROLLER_BUTTON_Y,			SW_NO_AXIS,							'z', 'g', '9' },
+	/*	Nintendo Y (left): item menu; R layer: wear; ZR layer: keypad 7.
+		SDL's X is the left button.											*/
+	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w', '7' },
+	/*	ZL fires; R layer: the item-detail screen.  ZR layer: the centre of
+		the keypad grid, which is what the player asked ZR+ZL to be.		*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'X', '5' },
+	/*	ZR is the third layer's shift itself, so it types nothing anywhere.	*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					 0,   0,  0 },
+	/*	- opens the help (the player picked it for this unobtrusive key).
+		R layer: examine - the lock-on the base layer used to carry.
+		ZR layer: page up.													*/
+	{ SDL_CONTROLLER_BUTTON_BACK,		SW_NO_AXIS,							'?', 'l', '+' },
+	/*	+ opens the save/settings menu (Shift+S).  R layer: the materials
+		list.  ZR layer: page down.  Elona pages its lists with '+'/'-'
+		(config.txt key_pageup/key_pagedown) and without them anything past
+		the first page is unreachable.										*/
+	{ SDL_CONTROLLER_BUTTON_START,		SW_NO_AXIS,							'S', 'm', '-' },
+	/*	Left stick press: read; R layer: use a tool; ZR layer: spare.		*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSTICK,	SW_NO_AXIS,							'r', 't',  0 },
+	/*	L is Tab on the base layer (a scancode - see sw_keymap).  On the ZR
+		layer it types the rest key, which had no other home left; its Tab
+		entry is silenced there in sw_entry_down().							*/
+	{ SDL_CONTROLLER_BUTTON_LEFTSHOULDER,	SW_NO_AXIS,					 0,  0, 'R' },
+	/*	The d-pad feeds four utility keys on the R layer and the keypad
+		digits 8/2/4/6 on the ZR layer - the same arrangement a PC keypad
+		has, so that grid needs no memorising.  Its movement scancodes go
+		quiet on both upper layers in sw_entry_down().						*/
+	{ SDL_CONTROLLER_BUTTON_DPAD_UP,	SW_NO_AXIS,							 0, 'p', '8' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_DOWN,	SW_NO_AXIS,							 0, 'O', '2' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_LEFT,	SW_NO_AXIS,							 0, 'B', '4' },
+	{ SDL_CONTROLLER_BUTTON_DPAD_RIGHT,	SW_NO_AXIS,							 0, 'F', '6' },
 };
 
 #define SW_CHARKEY_N	((int)( sizeof( sw_charkeys ) / sizeof( sw_charkeys[0] ) ))
@@ -496,23 +514,34 @@ static const SW_CHARKEY sw_charkeys[] = {
 #define SW_LSTICK_DOWN	'<'
 #define SW_LSTICK_LEFT	'c'
 #define SW_LSTICK_RIGHT	'T'
-/*	Left stick second layer (R held): five utility actions.				*/
+/*	Left stick, R layer: four utility actions.							*/
 #define SW_LSTICK_UP_ALT	'h'		/* jump over things			*/
-#define SW_LSTICK_DOWN_ALT	'*'		/* select a target			*/
+#define SW_LSTICK_DOWN_ALT	'D'		/* dig a wall				*/
 #define SW_LSTICK_LEFT_ALT	'G'		/* give an item				*/
 #define SW_LSTICK_RIGHT_ALT	'C'		/* close a door				*/
+/*	Left stick, ZR layer: the leftovers.								*/
+#define SW_LSTICK_UP_ZR		'A'		/* switch ammo				*/
+#define SW_LSTICK_DOWN_ZR	0		/* spare					*/
+#define SW_LSTICK_LEFT_ZR	'W'		/* wipe/polish				*/
+#define SW_LSTICK_RIGHT_ZR	'I'		/* stack items				*/
 
-/*	Right stick: the four field actions that have no scancode (base layer).
-		The R layer swaps in four more actions below.								*/
-#define SW_RSTICK_UP	'Z'		/* whirl a wand (Shift+Z)	*/
+/*	Right stick base: the four field actions with no scancode.  Up casts a
+	spell now - ZR gave that up to become the third layer's shift, and the
+	spell is the more-used of the two - so the wand moved to the R layer.	*/
+#define SW_RSTICK_UP	'v'		/* cast a spell				*/
 #define SW_RSTICK_DOWN	's'		/* search the ground		*/
 #define SW_RSTICK_LEFT	'a'		/* use a special ability	*/
 #define SW_RSTICK_RIGHT	'i'		/* talk to someone			*/
-/*	Right stick second layer (R held): four more field actions.			*/
-#define SW_RSTICK_UP_ALT	'd'		/* drop an item				*/
+/*	Right stick, R layer: four more field actions.						*/
+#define SW_RSTICK_UP_ALT	'Z'		/* whirl a wand (Shift+Z)	*/
 #define SW_RSTICK_DOWN_ALT	'o'		/* open a container/door	*/
 #define SW_RSTICK_LEFT_ALT	'j'		/* open the journal/log		*/
 #define SW_RSTICK_RIGHT_ALT	'['		/* alter the terrain		*/
+/*	Right stick, ZR layer: the last few actions with nowhere else to go.	*/
+#define SW_RSTICK_UP_ZR		'/'		/* message log				*/
+#define SW_RSTICK_DOWN_ZR	'*'		/* designate a target		*/
+#define SW_RSTICK_LEFT_ZR	'^'		/* Shift+Escape				*/
+#define SW_RSTICK_RIGHT_ZR	'b'		/* bash a wall				*/
 
 static Uint8	sw_char_state[SW_CHARKEY_N];
 static int		sw_lstick_x, sw_lstick_y, sw_rstick_x, sw_rstick_y;
@@ -550,7 +579,7 @@ int switch_input_take_keys( char *out, int max )
 
 	if ( sw_pad == NULL || out == NULL || max < 1 ) return 0;
 
-	layer = sw_layer_second();
+	layer = sw_layer();
 
 	for ( i = 0; i < SW_CHARKEY_N; i++ ) {
 		const SW_CHARKEY *e = &sw_charkeys[i];
@@ -562,31 +591,32 @@ int switch_input_take_keys( char *out, int max )
 			now = (Uint8)SDL_GameControllerGetButton( sw_pad, e->btn );
 		}
 		if ( now && !sw_char_state[i] ) {
-			c = layer ? e->alt : e->base;
+			c = ( layer == 2 ) ? e->zr : ( ( layer == 1 ) ? e->alt : e->base );
 			if ( c != 0 && n < max ) out[n++] = c;
 		}
 		sw_char_state[i] = now;
 	}
 
 	/*	Left stick picks its character from the active layer too: the base
-		layer keeps descend/ascend/sheet/throw, the R layer the utilities.	*/
+		layer keeps descend/ascend/sheet/throw, the R layer the utilities,
+		the ZR layer what is left over.									*/
 	{
-		char lup = layer ? SW_LSTICK_UP_ALT    : SW_LSTICK_UP;
-		char ldn = layer ? SW_LSTICK_DOWN_ALT  : SW_LSTICK_DOWN;
-		char llf = layer ? SW_LSTICK_LEFT_ALT  : SW_LSTICK_LEFT;
-		char lrt = layer ? SW_LSTICK_RIGHT_ALT : SW_LSTICK_RIGHT;
+		char lup = ( layer == 2 ) ? SW_LSTICK_UP_ZR    : ( ( layer == 1 ) ? SW_LSTICK_UP_ALT    : SW_LSTICK_UP );
+		char ldn = ( layer == 2 ) ? SW_LSTICK_DOWN_ZR  : ( ( layer == 1 ) ? SW_LSTICK_DOWN_ALT  : SW_LSTICK_DOWN );
+		char llf = ( layer == 2 ) ? SW_LSTICK_LEFT_ZR  : ( ( layer == 1 ) ? SW_LSTICK_LEFT_ALT  : SW_LSTICK_LEFT );
+		char lrt = ( layer == 2 ) ? SW_LSTICK_RIGHT_ZR : ( ( layer == 1 ) ? SW_LSTICK_RIGHT_ALT : SW_LSTICK_RIGHT );
 		c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTX, &sw_lstick_x, llf, lrt );
 		if ( c != 0 && n < max ) out[n++] = c;
 		c = sw_stick_key( SDL_CONTROLLER_AXIS_LEFTY, &sw_lstick_y, lup, ldn );
 		if ( c != 0 && n < max ) out[n++] = c;
 	}
-	/*	Right stick picks its character from the active layer: base layer
-		keeps wand/search/ability/talk, R layer adds drop/open/journal/blend.	*/
+	/*	Right stick, same three layers: base keeps cast/search/ability/talk,
+		R layer adds wand/open/journal/blend, ZR finishes the list.		*/
 	{
-		char rup = layer ? SW_RSTICK_UP_ALT    : SW_RSTICK_UP;
-		char rdn = layer ? SW_RSTICK_DOWN_ALT  : SW_RSTICK_DOWN;
-		char rlf = layer ? SW_RSTICK_LEFT_ALT  : SW_RSTICK_LEFT;
-		char rrt = layer ? SW_RSTICK_RIGHT_ALT : SW_RSTICK_RIGHT;
+		char rup = ( layer == 2 ) ? SW_RSTICK_UP_ZR    : ( ( layer == 1 ) ? SW_RSTICK_UP_ALT    : SW_RSTICK_UP );
+		char rdn = ( layer == 2 ) ? SW_RSTICK_DOWN_ZR  : ( ( layer == 1 ) ? SW_RSTICK_DOWN_ALT  : SW_RSTICK_DOWN );
+		char rlf = ( layer == 2 ) ? SW_RSTICK_LEFT_ZR  : ( ( layer == 1 ) ? SW_RSTICK_LEFT_ALT  : SW_RSTICK_LEFT );
+		char rrt = ( layer == 2 ) ? SW_RSTICK_RIGHT_ZR : ( ( layer == 1 ) ? SW_RSTICK_RIGHT_ALT : SW_RSTICK_RIGHT );
 		c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTX, &sw_rstick_x, rlf, rrt );
 		if ( c != 0 && n < max ) out[n++] = c;
 		c = sw_stick_key( SDL_CONTROLLER_AXIS_RIGHTY, &sw_rstick_y, rup, rdn );
