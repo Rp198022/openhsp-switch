@@ -1322,7 +1322,12 @@ static int sw_ovl_party_refresh( int *slot )
 			}
 		}
 
-			{ int rr = sw_ovl_cdata( 9, s );
+			/*	Affection is the impression plus the master-servant axis: the
+				game's own thresholds are 200 / 250 / 300 / 350 (action.hsp).
+				The HUD read cdata(9), which is the hostile-relation band
+				(-3..10), so the number beside the name was never the real
+				one.														*/
+			{ int rr = sw_ovl_cdata( 17, s ) + sw_ovl_cdata( 169, s );
 			  if ( rr != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = rr; } }
 		/*	r203 probe: does the name-table route agree with the HUD's
 			dimension route, and is chatc actually pointing at a follower?
