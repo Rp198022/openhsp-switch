@@ -164,6 +164,19 @@ static int		sw_ovl_battle_on = 0;				/* an enemy engaged	*/
 static int		sw_ovl_battle_slot = -1;			/* that enemy's slot */
 static int		sw_ovl_party_built_mode = -1;		/* mode the sheets hold */
 
+/*	Battle sheet (r247): the nearest enemy that is actually fighting us,
+	together with its live condition counters.  The field numbers are the
+	game's own CDATA_CONDITION_* block (defines/mod.hsp).					*/
+#define SW_OVL_BAT_COND_N	9
+static const struct { int field; const char *name; } sw_ovl_bat_cond[ SW_OVL_BAT_COND_N ] = {
+	{ 250, "中毒" }, { 254, "混乱" }, { 252, "麻痹" }, { 251, "睡眠" },
+	{ 253, "盲目" }, { 255, "恐惧" }, { 258, "流血" }, { 256, "暗影" },
+	{ 261, "生病" },
+};
+static char		sw_ovl_bat_name[ 64 ] = "";
+static int		sw_ovl_bat_hp = 0, sw_ovl_bat_mhp = 0;
+static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
+
 /*	Party HUD state.  The interpreter context is the cache key: when it
 	changes (new game, load) the variable indices are resolved again.
 	The face atlas and the 1x1 bar swatches are lazily uploaded on first
@@ -561,19 +574,6 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 #define SW_OVL_PARTY_CD_RELATION	9
 #define SW_OVL_PARTY_CD_TARGET	29
 #define SW_OVL_PARTY_CD_AI_AGGRO	201
-
-/*	Battle sheet (r247): the nearest enemy that is actually fighting us,
-	together with its live condition counters.  The field numbers are the
-	game's own CDATA_CONDITION_* block (defines/mod.hsp).					*/
-#define SW_OVL_BAT_COND_N	9
-static const struct { int field; const char *name; } sw_ovl_bat_cond[ SW_OVL_BAT_COND_N ] = {
-	{ 250, "中毒" }, { 254, "混乱" }, { 252, "麻痹" }, { 251, "睡眠" },
-	{ 253, "盲目" }, { 255, "恐惧" }, { 258, "流血" }, { 256, "暗影" },
-	{ 261, "生病" },
-};
-static char		sw_ovl_bat_name[ 64 ] = "";
-static int		sw_ovl_bat_hp = 0, sw_ovl_bat_mhp = 0;
-static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 
 #define SW_OVL_PARTY_ATTR_FIRST		10	/* SKILL_ATTR_STR */
 #define SW_OVL_PARTY_ATTR_COUNT		8	/* STR..CHA */
