@@ -144,6 +144,9 @@ static int		sw_ovl_failed = 0;		/* font/build failure: gives up		*/
 static int		sw_ovl_tried = 0;		/* the one-time font open has run	*/
 static TTF_Font	*sw_ovl_font = NULL;
 static TTF_Font	*sw_ovl_font_small = NULL;
+/*	The pet's chatter is the panel's densest text, so it gets its own face -
+	one pixel below the other small labels, with a tighter line pitch.		*/
+static TTF_Font	*sw_ovl_font_chat = NULL;
 static GLuint	sw_ovl_tex[2] = { 0, 0 };	/* 0 = left strip, 1 = right strip	*/
 static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
@@ -311,6 +314,10 @@ static TTF_Font *sw_ovl_open_font( void )
 				sw_ovl_font_small = TTF_OpenFont( cand[i], 11 );
 				if ( sw_ovl_font_small != NULL ) TTF_SetFontStyle( sw_ovl_font_small, TTF_STYLE_BOLD );
 			}
+			if ( sw_ovl_font_chat == NULL ) {
+				sw_ovl_font_chat = TTF_OpenFont( cand[i], 10 );
+				if ( sw_ovl_font_chat != NULL ) TTF_SetFontStyle( sw_ovl_font_chat, TTF_STYLE_BOLD );
+			}
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
 			return f;
@@ -351,6 +358,28 @@ static void sw_ovl_blit_small_rgb( SDL_Surface *dst, const char *text, Uint8 r, 
 	col.r = r; col.g = g; col.b = b;
 	col.a = 255;
 	s = TTF_RenderUTF8_Blended( sw_ovl_font_small, text, col );
+	if ( s == NULL ) return;
+	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( c == NULL ) return;
+	at.x = x;
+	at.y = y;
+	SDL_BlitSurface( c, NULL, dst, &at );
+	SDL_FreeSurface( c );
+}
+
+/*	One line of the pet's chatter, in the smaller face; falls back to the
+	ordinary small font if that one never opened.							*/
+static void sw_ovl_blit_chat( SDL_Surface *dst, const char *text, Uint8 r, Uint8 g, Uint8 b, int x, int y )
+{
+	SDL_Color col;
+	SDL_Surface *s, *c;
+	SDL_Rect at;
+
+	if ( sw_ovl_font_chat == NULL ) { sw_ovl_blit_small_rgb( dst, text, r, g, b, x, y ); return; }
+	col.r = r; col.g = g; col.b = b;
+	col.a = 255;
+	s = TTF_RenderUTF8_Blended( sw_ovl_font_chat, text, col );
 	if ( s == NULL ) return;
 	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
 	SDL_FreeSurface( s );
@@ -1198,7 +1227,7 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			else if ( b >= 0xF0 && b <= 0xF4 ) cw = 4;
 			if ( n + cw > 254 ) break;
 			memcpy( buf, msg + s, n + cw ); buf[ n + cw ] = '\0';
-			if ( TTF_SizeUTF8( sw_ovl_font_small, buf, &w, &h ) != 0 || w > maxw ) break;
+			if ( TTF_SizeUTF8( sw_ovl_font_chat, buf, &w, &h ) != 0 || w > maxw ) break;
 			n += cw;
 		}
 		if ( n <= 0 ) n = 1;
@@ -1220,9 +1249,9 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			line is dialogue (init.hsp msg_write paints those 210,250,160),
 			anything else is the plain log white.  */
 		if ( strchr( rows[ row ], '"' ) != NULL ) {
-			sw_ovl_blit_small_rgb( panel, rows[ row ], 210, 250, 160, x, y + rrow * 15 );
+			sw_ovl_blit_chat( panel, rows[ row ], 210, 250, 160, x, y + rrow * 14 );
 		} else {
-			sw_ovl_blit_small( panel, rows[ row ], 255, x, y + rrow * 15 );
+			sw_ovl_blit_chat( panel, rows[ row ], 255, 255, 255, x, y + rrow * 14 );
 		}
 	}
 }
