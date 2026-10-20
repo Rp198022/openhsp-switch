@@ -149,15 +149,18 @@ static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
 static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
 
-/*	Display mode (r247).  Two are under the player's control and cycle on
-	ZR+stick-left; the third is automatic.  sw_ovl_manual holds the pick and
-	sw_ovl_mode is what actually gets drawn: while an enemy is fighting the
-	player the pick is overridden by the battle sheet, and it comes back once
-	the fight is over.  The battle sheet is not on the cycle and cannot be
-	reached by hand.														*/
+/*	Display mode (r249).  Three are under the player's control and cycle on
+	ZR+stick-left (or R+stick click); the fourth is automatic.  The cycle is
+	key hints -> party -> party detail: the party sheet carries what is worth
+	a glance at any time (both portraits, the bars, the pet's chatter), the
+	detail sheet the figures consulted now and then (abilities, gear).  The
+	battle sheet hangs off the same point - an engaged enemy overrides the
+	player's pick and the pick comes back once the fight is over - and is
+	never reached by hand.												*/
 #define SW_OVL_MODE_KEY		0
-#define SW_OVL_MODE_PARTY	1
-#define SW_OVL_MODE_BATTLE	2
+#define SW_OVL_MODE_PARTY	1		/* portraits, bars, pet talk	*/
+#define SW_OVL_MODE_DETAIL	2		/* portraits, abilities, gear	*/
+#define SW_OVL_MODE_BATTLE	3		/* hidden until a fight is on	*/
 static int		sw_ovl_manual = SW_OVL_MODE_KEY;	/* the player's pick	*/
 static int		sw_ovl_mode = SW_OVL_MODE_KEY;		/* what gets drawn	*/
 static int		sw_ovl_battle_on = 0;				/* an enemy engaged	*/
@@ -266,11 +269,12 @@ static void sw_ovl_battle_update( void );
 
 void switch_overlay_toggle( void )
 {
-	/*	r247: the cycle carries only the player's pick - key hints <-> party
-		HUD.  The battle sheet is not on it; an engaged enemy brings it up by
-		itself and it cannot be reached by hand.						*/
-	sw_ovl_manual = ( sw_ovl_manual == SW_OVL_MODE_PARTY ) ? SW_OVL_MODE_KEY : SW_OVL_MODE_PARTY;
-	printf( "hsp3switch: overlay %s\n", sw_ovl_manual == SW_OVL_MODE_PARTY ? "party" : "keys" );
+	/*	r249: the cycle carries the player's pick - key hints -> party ->
+		party detail -> key hints.  The battle sheet is not on it; an engaged
+		enemy brings it up by itself and it cannot be reached by hand.	*/
+	static const char *name[3] = { "keys", "party", "detail" };
+	sw_ovl_manual = ( sw_ovl_manual + 1 ) % 3;
+	printf( "hsp3switch: overlay %s\n", name[ sw_ovl_manual ] );
 	fflush( stdout );
 }
 
@@ -1252,7 +1256,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	sw_ovl_party_draw_box( panel, strip_w );
 	y = sw_ovl_party_rows_y( strip_w );
 
-		{
+		if ( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
 			static const char *lbl[3] = { "HP", "MP", "SP" };
 			int cur[3] = { sw_ovl_party_hp[ix], sw_ovl_party_mp[ix], sw_ovl_party_sp[ix] };
 			int mxs[3] = { sw_ovl_party_mhp[ix], sw_ovl_party_mmp[ix], sw_ovl_party_msp[ix] };
@@ -1265,6 +1269,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
+		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL )
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
 			int nw;
 		snprintf( buf, sizeof( buf ), "%s %d", sw_ovl_attr_name( i ), sw_ovl_party_abil[ ix ][ i ] );
@@ -1273,7 +1278,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			sw_ovl_blit_small( panel, sw_ovl_rank_name( sw_ovl_party_rank[ ix ][ i ] ), 210, 8 + nw + 8, y + 3 );
 		y += 20;
 	}
-	if ( ix == 0 ) {
+	if ( sw_ovl_mode == SW_OVL_MODE_DETAIL && ix == 0 ) {
 		int prot, eva, spellpow;
 		int pv = sw_ovl_party_fix[ 0 ][ 0 ]; if ( pv < 0 ) pv = 0;
 		int dv = sw_ovl_party_fix[ 0 ][ 1 ]; if ( dv < 0 ) dv = 0;
@@ -1302,7 +1307,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		}
 	}
 
-	if ( ix == 1 ) {
+	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
 		y += 8;
 		sw_ovl_chat_lines( panel, sw_ovl_utf8( sw_ovl_party_chat[ 1 ] ), 8, y, SW_OVL_PET_ROWS * 2 );
 	}
@@ -1546,7 +1551,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			pet's on the right strip (sw_ovl_party_build draws 3 *
 			SW_OVL_PARTY_STAT_PITCH); paint the colour strips over them here at
 			present time, mirroring the pet's block below.  */
-		{
+		if ( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
 			int rows_y = sw_ovl_party_rows_y( origin_x );
 			int cur[3] = { sw_ovl_party_hp[0], sw_ovl_party_mp[0], sw_ovl_party_sp[0] };
 			int mxs[3] = { sw_ovl_party_mhp[0], sw_ovl_party_mmp[0], sw_ovl_party_msp[0] };
@@ -1563,10 +1568,10 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		}
 	}
 	if ( sw_ovl_party_sheet[1] != 0 && slot[1] >= 0 ) {
-		int rows_y = sw_ovl_party_rows_y( right_w );
+			int rows_y = sw_ovl_party_rows_y( right_w );
 		sw_ovl_quad( sw_ovl_party_sheet[1], (float)right_x, ly, (float)sw_ovl_party_sheet_w[1], (float)sheet_h );
 		sw_ovl_draw_face( 1, (float)right_x, right_w, ly );
-		{
+		if ( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
 			int cur[3] = { sw_ovl_party_hp[1], sw_ovl_party_mp[1], sw_ovl_party_sp[1] };
 			int mxs[3] = { sw_ovl_party_mhp[1], sw_ovl_party_mmp[1], sw_ovl_party_msp[1] };
 			for ( i = 0; i < 3; i++ ) {
