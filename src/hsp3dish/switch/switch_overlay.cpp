@@ -486,15 +486,21 @@ static void sw_ovl_blit_text_rgb( SDL_Surface *dst, const char *text,
 	SDL_FreeSurface( c );
 }
 
-/*	r257: parchment for both strips, taken from the game's own paper.bmp
-	(the message-window background) so the panels match Elona's UI.  Loaded
-	once; without the file a flat parchment tone stands in.					*/
+/*	r258: the strips wear a parchment sheet.  panel_strip.bmp is a framed
+	sheet whose two halves are the left and right panel background, so each
+	strip shows one half with the gilt border on its outer edge.  Without
+	that file the game's own paper.bmp stands in; without both, a flat tone.
+	Loaded once, never freed (see the header).								*/
+#define SW_OVL_PAPER_SPLIT_N	2	/* the first N candidates are the split sheet */
 static SDL_Surface	*sw_ovl_paper = NULL;
 static int			sw_ovl_paper_tried = 0;
+static int			sw_ovl_paper_split = 0;
 
 static SDL_Surface *sw_ovl_paper_get( void )
 {
 	static const char *cand[] = {
+		"sdmc:/switch/openhsp/graphic/panel_strip.bmp",
+		"sdmc:/switch/openhsp/user/graphic/panel_strip.bmp",
 		"sdmc:/switch/openhsp/graphic/paper.bmp",
 		"sdmc:/switch/openhsp/user/graphic/paper.bmp",
 	};
@@ -508,35 +514,59 @@ static SDL_Surface *sw_ovl_paper_get( void )
 		sw_ovl_paper = SDL_ConvertSurfaceFormat( b, SDL_PIXELFORMAT_ABGR8888, 0 );
 		SDL_FreeSurface( b );
 		if ( sw_ovl_paper != NULL ) {
-			printf( "hsp3switch: overlay paper %s (%dx%d)\n", cand[i],
-				sw_ovl_paper->w, sw_ovl_paper->h );
+			sw_ovl_paper_split = ( i < SW_OVL_PAPER_SPLIT_N );
+			printf( "hsp3switch: overlay paper %s (%dx%d)%s\n", cand[i],
+				sw_ovl_paper->w, sw_ovl_paper->h,
+				sw_ovl_paper_split ? " split" : "" );
 			fflush( stdout );
 			return sw_ovl_paper;
 		}
 	}
-	printf( "hsp3switch: overlay: no paper.bmp, flat parchment\n" );
+	printf( "hsp3switch: overlay: no paper image, flat parchment\n" );
 	fflush( stdout );
 	return NULL;
 }
 
-/*	The sheet comes from the game's own paper.bmp, cropped and enlarged.
-	That bitmap holds TWO sheets side by side (800x300): the left one is
-	clean parchment, the right one is covered in ink splatter and an inkpot,
-	so only the left half - and only its inner area, inside the torn edge -
-	can be used.  A vertical slice with the panel's own aspect is taken from
-	that area and scaled once: the grain stays uniform, and unlike the
-	earlier stretch there is no seam and no ink blob.					*/
-static void sw_ovl_paper_fill( SDL_Surface *panel )
+/*	Paint one strip's paper.  side 0 = left panel, 1 = right panel.
+
+	Split sheet: the bitmap's two halves are the panels, border included, so
+	each half is scaled to fill the strip and shifted until its OUTER edge
+	meets the strip's outer edge - the inner overhang is simply cropped, which
+	leaves the gilt corner pieces on the outside and plain parchment towards
+	the game window.
+
+	Fallback paper.bmp: that bitmap holds two sheets side by side (800x300),
+	the left clean and the right covered in ink splatter, so only the left
+	half's inner area is usable - a slice with the panel's aspect is taken
+	from there and scaled once, which keeps the grain even and seamless.	*/
+static void sw_ovl_paper_fill( SDL_Surface *panel, int side )
 {
 	SDL_Surface *paper = sw_ovl_paper_get();
 	SDL_Rect src, dst;
-	int half, x0, y0, inner_w, inner_h, slice_w;
+	int w, h, sw, sh, half, x0, y0, inner_w, inner_h, slice_w;
 
-	dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
 	if ( paper == NULL || paper->w < 64 || paper->h < 64 || panel->h < 16 ) {
 		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
 		return;
 	}
+	if ( sw_ovl_paper_split ) {
+		w = paper->w / 2;
+		h = paper->h;
+		sw = w * panel->h / h;			/* fill the height first		*/
+		sh = panel->h;
+		if ( sw < panel->w ) {			/* too narrow: fill the width	*/
+			sw = panel->w;
+			sh = h * panel->w / w;
+		}
+		src.x = ( side == 0 ) ? 0 : w;
+		src.y = 0; src.w = w; src.h = h;
+		dst.y = ( panel->h - sh ) / 2;
+		dst.w = sw; dst.h = sh;
+		dst.x = ( side == 0 ) ? 0 : panel->w - sw;
+		SDL_BlitScaled( paper, &src, panel, &dst );
+		return;
+	}
+
 	half = paper->w / 2;					/* left sheet only			*/
 	x0 = half / 10;  y0 = paper->h / 12;	/* inside the torn edge		*/
 	inner_w = half - x0 * 2;
@@ -551,6 +581,7 @@ static void sw_ovl_paper_fill( SDL_Surface *panel )
 	src.x = x0 + ( inner_w - slice_w ) / 2;
 	src.y = y0;
 	src.w = slice_w; src.h = inner_h;
+	dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
 	SDL_BlitScaled( paper, &src, panel, &dst );
 }
 
@@ -598,7 +629,7 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
-	sw_ovl_paper_fill( panel );
+	sw_ovl_paper_fill( panel, ix );
 
 	for ( i = 0; i < n; i++ ) {
 		const SW_OVL_ROW *r = &rows[i];
@@ -1521,7 +1552,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, sheet_h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
-	sw_ovl_paper_fill( panel );
+	sw_ovl_paper_fill( panel, ix );
 
 	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), 255, 8, y );
@@ -1934,7 +1965,9 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	sw_ovl_party_slot[0] = slot[0];
 	sw_ovl_party_slot[1] = slot[1];
 
-	sheet_h = win_h - 16;
+	/*	r258: the sheet runs the full window height - the old -16 left a bare
+		black band under the right strip whenever its rows were short.		*/
+	sheet_h = win_h;
 	if ( sheet_h < 120 ) sheet_h = 120;
 	if ( sheet_h > sw_ovl_party_sheet_h[0] + 1 || sheet_h > sw_ovl_party_sheet_h[1] + 1 ) dirty = 1;
 	/*	r247: the battle block is part of the sheets, so a mode change has
