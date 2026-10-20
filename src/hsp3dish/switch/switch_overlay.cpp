@@ -152,6 +152,7 @@ static GLuint	sw_ovl_tex[2] = { 0, 0 };	/* 0 = left strip, 1 = right strip	*/
 static int		sw_ovl_tex_w[2] = { 0, 0 };
 static int		sw_ovl_tex_h[2] = { 0, 0 };
 static int		sw_ovl_origin_x = -1;	/* layout the textures were built for */
+static int		sw_ovl_tex_win_h = -1;	/* window height they were built for	*/
 
 /*	Display mode (r249).  Three are under the player's control and cycle on
 	ZR+stick-left (or R+stick click); the fourth is automatic.  The cycle is
@@ -272,6 +273,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_tex[0] = 0;
 	sw_ovl_tex[1] = 0;
 	sw_ovl_origin_x = -1;
+	sw_ovl_tex_win_h = -1;
 	sw_ovl_face_tex = 0;
 	sw_ovl_bar_tex[0] = 0;
 	sw_ovl_bar_tex[1] = 0;
@@ -600,10 +602,13 @@ static void sw_ovl_paper_fill( SDL_Surface *panel, int side )
 }
 
 /*	One strip: all rows onto a transparent RGBA sheet, then upload.			*/
-static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix )
+static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix, int win_h )
 {
 	SDL_Surface *panel;
+	/*	r259b: the sheet is at least the window tall, so its paper reaches both
+		edges - a short list used to leave bare black under (and over) it.	*/
 	int h = n * SW_OVL_LINE_H + SW_OVL_PAD_Y * 2;
+	if ( h < win_h ) h = win_h;
 	int i;
 	int key_x, desc_x, title_x;
 	int max_key = 0, max_desc = 0, tmp_w, tmp_h, k, pass;
@@ -674,7 +679,7 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 	return 0;
 }
 
-static int sw_ovl_build( int left_w, int right_w )
+static int sw_ovl_build( int left_w, int right_w, int win_h )
 {
 	if ( !sw_ovl_tried ) {
 		sw_ovl_tried = 1;
@@ -685,8 +690,9 @@ static int sw_ovl_build( int left_w, int right_w )
 		}
 	}
 	if ( sw_ovl_font == NULL ) return -1;
-	if ( sw_ovl_build_side( sw_ovl_left, SW_OVL_LEFT_N, left_w, 0 ) != 0 ) { sw_ovl_failed = 1; return -1; }
-	if ( sw_ovl_build_side( sw_ovl_right, SW_OVL_RIGHT_N, right_w, 1 ) != 0 ) { sw_ovl_failed = 1; return -1; }
+	if ( sw_ovl_build_side( sw_ovl_left, SW_OVL_LEFT_N, left_w, 0, win_h ) != 0 ) { sw_ovl_failed = 1; return -1; }
+	if ( sw_ovl_build_side( sw_ovl_right, SW_OVL_RIGHT_N, right_w, 1, win_h ) != 0 ) { sw_ovl_failed = 1; return -1; }
+	sw_ovl_tex_win_h = win_h;
 	printf( "hsp3switch: overlay built L%dx%d R%dx%d\n",
 		sw_ovl_tex_w[0], sw_ovl_tex_h[0], sw_ovl_tex_w[1], sw_ovl_tex_h[1] );
 	fflush( stdout );
@@ -743,9 +749,9 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	}
 
 	/*	Rebuild when the layout changed (docked/undocked switches the strip
-		width); the content itself is static.								*/
-	if ( !sw_ovl_tried || origin_x != sw_ovl_origin_x ) {
-		if ( sw_ovl_build( origin_x, right_w ) != 0 ) return;
+		width, a resized window its height); the content itself is static.	*/
+	if ( !sw_ovl_tried || origin_x != sw_ovl_origin_x || win_h != sw_ovl_tex_win_h ) {
+		if ( sw_ovl_build( origin_x, right_w, win_h ) != 0 ) return;
 		sw_ovl_origin_x = origin_x;
 	}
 
@@ -766,8 +772,10 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 
-	ly0 = -( ( win_h - sw_ovl_tex_h[0] ) / 2 );
-	ry0 = -( ( win_h - sw_ovl_tex_h[1] ) / 2 );
+	/*	r259b: pinned to the top edge - the sheet is at least a window tall, and
+		a taller one must lose its surplus at the bottom rather than both ends. */
+	ly0 = 0;
+	ry0 = 0;
 	sw_ovl_quad( sw_ovl_tex[0], 0.0f, (float)ly0,
 		(float)sw_ovl_tex_w[0], (float)sw_ovl_tex_h[0] );
 	sw_ovl_quad( sw_ovl_tex[1], (float)right_x, (float)ry0,
