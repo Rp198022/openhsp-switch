@@ -189,7 +189,7 @@ static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 	the weight pair uses the game's cnvweight() scale (value / 1000, one
 	decimal).  There is no fatigue field in Elona+ - HUNGER and the sleep
 	condition are the only state the script keeps - so fame takes that slot. */
-#define SW_OVL_PLY_LINE_H		15
+#define SW_OVL_PLY_LINE_H		20
 #define SW_OVL_PLY_CD_HUNGER	22
 #define SW_OVL_PLY_CD_GOLD		30
 #define SW_OVL_PLY_CD_PLATINUM	31
@@ -427,13 +427,35 @@ static void sw_ovl_blit_chat( SDL_Surface *dst, const char *text, Uint8 r, Uint8
 }
 
 static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
-
 {
 	SDL_Color col;
 	SDL_Surface *s, *c;
 	SDL_Rect at;
 
 	col.r = col.g = col.b = v;
+	col.a = 255;
+	s = TTF_RenderUTF8_Blended( sw_ovl_font, text, col );
+	if ( s == NULL ) return;
+	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( c == NULL ) return;
+	at.x = x;
+	at.y = y;
+	SDL_BlitSurface( c, NULL, dst, &at );
+	SDL_FreeSurface( c );
+}
+
+/*	The same face in a chosen colour - the stat block tints its labels grey
+	and its values bright white (or red when something is wrong).			*/
+static void sw_ovl_blit_text_rgb( SDL_Surface *dst, const char *text,
+					Uint8 r, Uint8 g, Uint8 b, int x, int y )
+{
+	SDL_Color col;
+	SDL_Surface *s, *c;
+	SDL_Rect at;
+
+	if ( sw_ovl_font == NULL ) return;
+	col.r = r; col.g = g; col.b = b;
 	col.a = 255;
 	s = TTF_RenderUTF8_Blended( sw_ovl_font, text, col );
 	if ( s == NULL ) return;
@@ -1359,30 +1381,33 @@ static void sw_ovl_ply_wfmt( int v, char *out, size_t n )
 	snprintf( out, n, "%s%d.%d", v < 0 ? "-" : "", a / 1000, ( a % 1000 ) / 100 );
 }
 
-/*	One row of that block: label in grey, value bright.  It uses the chatter
-	face - 13px and unbold, which reads better than the 11px rating font at
-	this size.  When the pair still does not fit across the strip the value
-	moves to the next row; the strip is only ~99px wide.					*/
+/*	One row of that block: label in grey, value bright, in the same 16px bold
+	face as the HP/MP/SP rows above so the strip reads as one table.  When the
+	pair does not fit across the strip the value moves to the next row - the
+	strip is only ~91px of usable width.								*/
 static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *value,
 				int y, int strip_w, int hot )
 {
 	char full[ 200 ];
 	Uint8 vr = 235, vg = 235, vb = 240;
-	TTF_Font *f = ( sw_ovl_font_chat != NULL ) ? sw_ovl_font_chat : sw_ovl_font_small;
 	int avail = strip_w - 16, w = 0, lw = 0;
 
-	if ( f == NULL ) return 1;
+	if ( sw_ovl_font == NULL ) return 1;
 	if ( avail < 32 ) avail = 32;
-	snprintf( full, sizeof( full ), "%s %s", label, value );
 	if ( hot ) { vr = 255; vg = 150; vb = 140; }
-	if ( TTF_SizeUTF8( f, full, &w, NULL ) != 0 ) w = 0;
-	sw_ovl_blit_chat( panel, label, 170, 175, 185, 8, y );
-	if ( w <= avail ) {
-		if ( TTF_SizeUTF8( f, label, &lw, NULL ) != 0 ) lw = 0;
-		sw_ovl_blit_chat( panel, value, vr, vg, vb, 8 + lw + 6, y );
+	if ( label[ 0 ] == '\0' ) {			/* no label: the value takes the row */
+		sw_ovl_blit_text_rgb( panel, value, vr, vg, vb, 8, y );
 		return 1;
 	}
-	sw_ovl_blit_chat( panel, value, vr, vg, vb, 8, y + SW_OVL_PLY_LINE_H );
+	snprintf( full, sizeof( full ), "%s %s", label, value );
+	if ( TTF_SizeUTF8( sw_ovl_font, full, &w, NULL ) != 0 ) w = 0;
+	sw_ovl_blit_text_rgb( panel, label, 170, 175, 185, 8, y );
+	if ( w <= avail ) {
+		if ( TTF_SizeUTF8( sw_ovl_font, label, &lw, NULL ) != 0 ) lw = 0;
+		sw_ovl_blit_text_rgb( panel, value, vr, vg, vb, 8 + lw + 6, y );
+		return 1;
+	}
+	sw_ovl_blit_text_rgb( panel, value, vr, vg, vb, 8, y + SW_OVL_PLY_LINE_H );
 	return 2;
 }
 
@@ -1450,26 +1475,31 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[0] / 100, 0, 100 ) );
 			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[0], sw_ovl_ply_plat[0] );
+			snprintf( v, sizeof( v ), "%dgp", sw_ovl_ply_gold[0] );
 			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			if ( sw_ovl_ply_month > 0 ) {
 				snprintf( v, sizeof( v ), "%d/%d/%d", sw_ovl_ply_year, sw_ovl_ply_month,
 					sw_ovl_ply_day );
-				y += sw_ovl_ply_line( panel, "日期", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				y += sw_ovl_ply_line( panel, "", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 				snprintf( v, sizeof( v ), "%s %s",
 					sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
 					sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
-				y += sw_ovl_ply_line( panel, "天气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				y += sw_ovl_ply_line( panel, "", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
 
-			snprintf( v, sizeof( v ), "%d 名声 %d", sw_ovl_ply_karma, sw_ovl_ply_fame );
+			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_karma );
 			y += sw_ovl_ply_line( panel, "善恶", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%s 虔诚 %d",
-				sw_ovl_ply_god_name( sw_ovl_ply_god ), sw_ovl_ply_piety );
-			y += sw_ovl_ply_line( panel, "信仰", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_fame );
+			y += sw_ovl_ply_line( panel, "名声", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			y += sw_ovl_ply_line( panel, "信仰", sw_ovl_ply_god_name( sw_ovl_ply_god ),
+				y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_piety );
+			y += sw_ovl_ply_line( panel, "虔诚", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_sanity );
 			y += sw_ovl_ply_line( panel, "狂气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
@@ -1478,9 +1508,15 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				char a[ 32 ], b[ 32 ];
 				sw_ovl_ply_wfmt( sw_ovl_ply_weight[0], a, sizeof( a ) );
 				sw_ovl_ply_wfmt( sw_ovl_ply_carry[0], b, sizeof( b ) );
-				snprintf( v, sizeof( v ), "%s/%s", a, b );
+				y += sw_ovl_ply_line( panel, "负重", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				y += sw_ovl_ply_line( panel, "上限", b, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
-			y += sw_ovl_ply_line( panel, "重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			/*	Platinum is nearly always 0, and the row is the last one the
+				strip has room for, so it is drawn only when there is some.	*/
+			if ( sw_ovl_ply_plat[0] > 0 ) {
+				snprintf( v, sizeof( v ), "%dpp", sw_ovl_ply_plat[0] );
+				y += sw_ovl_ply_line( panel, "白金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			}
 		}
 		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL )
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
@@ -1512,16 +1548,19 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[ix] / 100, 0, 100 ) );
 			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[ix], sw_ovl_ply_plat[ix] );
-			y += sw_ovl_ply_line( panel, "金钱", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			snprintf( v, sizeof( v ), "%dgp", sw_ovl_ply_gold[ix] );
+			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%dpp", sw_ovl_ply_plat[ix] );
+			y += sw_ovl_ply_line( panel, "白金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			{
 				char a[ 32 ], b[ 32 ];
 				sw_ovl_ply_wfmt( sw_ovl_ply_weight[ix], a, sizeof( a ) );
 				sw_ovl_ply_wfmt( sw_ovl_ply_carry[ix], b, sizeof( b ) );
-				snprintf( v, sizeof( v ), "%s/%s", a, b );
+				y += sw_ovl_ply_line( panel, "负重", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				y += sw_ovl_ply_line( panel, "上限", b, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
-			y += sw_ovl_ply_line( panel, "负重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 		}
 		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL && ix == 0 ) {
 		int prot, eva, spellpow;
