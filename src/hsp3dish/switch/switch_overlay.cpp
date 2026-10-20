@@ -486,11 +486,11 @@ static void sw_ovl_blit_text_rgb( SDL_Surface *dst, const char *text,
 	SDL_FreeSurface( c );
 }
 
-/*	r258: the strips wear a parchment sheet.  panel_strip.bmp is a framed
-	sheet whose two halves are the left and right panel background, so each
-	strip shows one half with the gilt border on its outer edge.  Without
-	that file the game's own paper.bmp stands in; without both, a flat tone.
-	Loaded once, never freed (see the header).								*/
+/*	r258: the strips wear Elona's own chat-window sheet, graphic/ie_chat2.bmp
+	(600x380, gilt corners on parchment).  Its two halves are used as the two
+	panel backgrounds, so each strip shows the border on its outer edge.  The
+	game's paper.bmp stands in when that file is missing; without either, a
+	flat tone.  Loaded once, never freed (see the header).					*/
 #define SW_OVL_PAPER_SPLIT_N	2	/* the first N candidates are the split sheet */
 static SDL_Surface	*sw_ovl_paper = NULL;
 static int			sw_ovl_paper_tried = 0;
@@ -499,8 +499,8 @@ static int			sw_ovl_paper_split = 0;
 static SDL_Surface *sw_ovl_paper_get( void )
 {
 	static const char *cand[] = {
-		"sdmc:/switch/openhsp/graphic/panel_strip.bmp",
-		"sdmc:/switch/openhsp/user/graphic/panel_strip.bmp",
+		"sdmc:/switch/openhsp/graphic/ie_chat2.bmp",
+		"sdmc:/switch/openhsp/user/graphic/ie_chat2.bmp",
 		"sdmc:/switch/openhsp/graphic/paper.bmp",
 		"sdmc:/switch/openhsp/user/graphic/paper.bmp",
 	};
