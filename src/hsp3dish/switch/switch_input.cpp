@@ -495,16 +495,29 @@ void switch_input_poll( void )
 		}
 	}
 
-	/*	The panel toggle (key hints <-> party HUD) is ZR with the right stick
-		pushed left, edge-triggered so the pair must be released and pressed
-		again for the next flip.  It moved off the stick click, which the
-		player found hard to press.										*/
+	/*	The panel toggle (key hints <-> party HUD).  Two combinations walk it,
+		each edge-triggered so the pair must be released and pressed again for
+		the next flip:
+		  ZR + right stick left - the pad's own binding, and the comfortable
+		    one on the console;
+		  R + right stick click - what this port used up to the three-layer
+		    rework.  It is back because both keys are ordinary buttons that
+		    every pad reports, while ZR is a trigger: a pad that hands ZR over
+		    as a plain button (the emulator case r248 investigated) or not at
+		    all leaves the ZR form unreachable, and then there is no way to
+		    walk the three sheets at all.  The player found the stick click
+		    hard to press, which is why it is no longer the only route.		*/
 	{
 		static int sw_ovl_combo = 0;
+		static int sw_ovl_combo_alt = 0;
 		int now = ( sw_layer() == 2 )
 			&& SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX ) < -SW_STICK_DEADZONE;
+		int alt = ( sw_layer() == 1 )
+			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
 		if ( now && !sw_ovl_combo ) switch_overlay_toggle();
+		if ( alt && !sw_ovl_combo_alt ) switch_overlay_toggle();
 		sw_ovl_combo = now;
+		sw_ovl_combo_alt = alt;
 	}
 }
 
