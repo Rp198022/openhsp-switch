@@ -189,7 +189,7 @@ static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 	the weight pair uses the game's cnvweight() scale (value / 1000, one
 	decimal).  There is no fatigue field in Elona+ - HUNGER and the sleep
 	condition are the only state the script keeps - so fame takes that slot. */
-#define SW_OVL_PLY_LINE_H		20
+#define SW_OVL_PLY_LINE_H		19
 #define SW_OVL_PLY_CD_HUNGER	22
 #define SW_OVL_PLY_CD_GOLD		30
 #define SW_OVL_PLY_CD_PLATINUM	31
