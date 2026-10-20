@@ -519,39 +519,39 @@ static SDL_Surface *sw_ovl_paper_get( void )
 	return NULL;
 }
 
-/*	Tile the sheet over the panel instead of stretching it: scaled to the
-	panel width the paper keeps its grain, where a straight stretch turned
-	the texture into vertical streaks.  The middle square of paper.bmp is
-	used so the drawn border never shows.									*/
+/*	The sheet comes from the game's own paper.bmp, cropped and enlarged.
+	That bitmap holds TWO sheets side by side (800x300): the left one is
+	clean parchment, the right one is covered in ink splatter and an inkpot,
+	so only the left half - and only its inner area, inside the torn edge -
+	can be used.  A vertical slice with the panel's own aspect is taken from
+	that area and scaled once: the grain stays uniform, and unlike the
+	earlier stretch there is no seam and no ink blob.					*/
 static void sw_ovl_paper_fill( SDL_Surface *panel )
 {
 	SDL_Surface *paper = sw_ovl_paper_get();
-	SDL_Surface *tile;
 	SDL_Rect src, dst;
-	int side, y;
+	int half, x0, y0, inner_w, inner_h, slice_w;
 
 	dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
-	if ( paper == NULL ) {
+	if ( paper == NULL || paper->w < 64 || paper->h < 64 || panel->h < 16 ) {
 		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
 		return;
 	}
-	side = ( paper->w < paper->h ) ? paper->w : paper->h;
-	src.x = ( paper->w - side ) / 2;
-	src.y = ( paper->h - side ) / 2;
-	src.w = side; src.h = side;
-
-	tile = SDL_CreateRGBSurfaceWithFormat( 0, panel->w, panel->w, 32, SDL_PIXELFORMAT_ABGR8888 );
-	if ( tile == NULL ) {
-		SDL_BlitScaled( paper, &src, panel, &dst );
+	half = paper->w / 2;					/* left sheet only			*/
+	x0 = half / 10;  y0 = paper->h / 12;	/* inside the torn edge		*/
+	inner_w = half - x0 * 2;
+	inner_h = paper->h - y0 * 2;
+	if ( inner_w < 16 || inner_h < 16 ) {
+		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
 		return;
 	}
-	{ SDL_Rect td; td.x = 0; td.y = 0; td.w = panel->w; td.h = panel->w;
-	  SDL_BlitScaled( paper, &src, tile, &td ); }
-	for ( y = 0; y < panel->h; y += panel->w ) {
-		dst.y = y;
-		SDL_BlitSurface( tile, NULL, panel, &dst );
-	}
-	SDL_FreeSurface( tile );
+	slice_w = inner_h * panel->w / panel->h;
+	if ( slice_w > inner_w ) slice_w = inner_w;
+	if ( slice_w < 8 ) slice_w = 8;
+	src.x = x0 + ( inner_w - slice_w ) / 2;
+	src.y = y0;
+	src.w = slice_w; src.h = inner_h;
+	SDL_BlitScaled( paper, &src, panel, &dst );
 }
 
 /*	One strip: all rows onto a transparent RGBA sheet, then upload.			*/
