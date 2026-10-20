@@ -1469,20 +1469,14 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				y += sw_ovl_ply_line( panel, "天气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
 
-			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_karma );
+			snprintf( v, sizeof( v ), "%d  名声 %d", sw_ovl_ply_karma, sw_ovl_ply_fame );
 			y += sw_ovl_ply_line( panel, "善恶", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_fame );
-			y += sw_ovl_ply_line( panel, "名声", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			y += sw_ovl_ply_line( panel, "信仰", sw_ovl_ply_god_name( sw_ovl_ply_god ),
 				y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_piety );
+			snprintf( v, sizeof( v ), "%d  狂气 %d", sw_ovl_ply_piety, sw_ovl_ply_sanity );
 			y += sw_ovl_ply_line( panel, "虔诚", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_sanity );
-			y += sw_ovl_ply_line( panel, "狂气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			{
 				char a[ 32 ], b[ 32 ];
