@@ -201,15 +201,30 @@ static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 #define SW_OVL_PLY_CD_GOD		61
 #define SW_OVL_PLY_CD_PIETY		62
 #define SW_OVL_PLY_CD_SANITY	86
+#define SW_OVL_PLY_CD_EQUIPW	64	/* equipped gear weight			*/
+#define SW_OVL_PLY_CD_BARRIER	78	/* shield points, battle sheet only	*/
 #define SW_OVL_GD_YEAR			10
 #define SW_OVL_GD_MONTH			11
 #define SW_OVL_GD_DAY			12
 #define SW_OVL_GD_HOUR			13
 #define SW_OVL_GD_WEATHER		17
+#define SW_OVL_GD_CARGO			80	/* cart / luggage weight		*/
+#define SW_OVL_GD_CARGO_LIMIT	82
+#define SW_OVL_GD_LEVEL			22	/* current dungeon depth		*/
+/*	Ether disease: global trait() is dim trait,500 and the ether traits are
+	201..228 (defines/2.32.hsp).  A negative value means the symptom is
+	present; its magnitude is the stage, so the count and the worst stage
+	are all the panel has to show.										*/
+#define SW_OVL_ETHER_FIRST		201
+#define SW_OVL_ETHER_LAST		228
 static int		sw_ovl_ply_cond[2][ SW_OVL_BAT_COND_N ];
 static int		sw_ovl_ply_hunger[2] = { -1, -1 };
 static int		sw_ovl_ply_gold[2] = { -1, -1 }, sw_ovl_ply_plat[2] = { -1, -1 };
 static int		sw_ovl_ply_weight[2] = { -1, -1 }, sw_ovl_ply_carry[2] = { -1, -1 };
+static int		sw_ovl_ply_equipw[2] = { -1, -1 }, sw_ovl_ply_barrier[2] = { -1, -1 };
+static int		sw_ovl_ply_cargo = -1, sw_ovl_ply_cargol = -1;
+static int		sw_ovl_ply_level = -1;
+static int		sw_ovl_ply_ether = -1, sw_ovl_ply_ether_worst = 0;
 static int		sw_ovl_ply_year = -1, sw_ovl_ply_month = -1, sw_ovl_ply_day = -1;
 static int		sw_ovl_ply_hour = -1, sw_ovl_ply_weather = -1;
 static int		sw_ovl_ply_karma = 0, sw_ovl_ply_god = -1, sw_ovl_ply_piety = -1;
@@ -237,6 +252,10 @@ static PVal		*sw_ovl_pv_inf_maxlog = NULL;
 	2.30 .ax (max_dinfo=2), where this stays NULL and the caller must
 	fall back to matching the speaker name written into the talk file. */
 static PVal		*sw_ovl_pv_chatc = NULL;
+/*	r260: trait (dim trait,500) carries the ether-disease symptoms.  It is
+	resolved by name only - spell/spact are also 500-long, so the dimension
+	scan cannot tell them apart, and a wrong array would fake a disease.	*/
+static PVal		*sw_ovl_pv_trait = NULL;
 static GLuint	sw_ovl_face_tex = 0;
 static GLuint	sw_ovl_bar_tex[4] = { 0, 0, 0, 0 };	/* white,hp,mp,sp	*/
 static int		sw_ovl_face_w = 0;
@@ -288,6 +307,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_pv_msgline = NULL;
 	sw_ovl_pv_inf_maxlog = NULL;
 	sw_ovl_pv_chatc = NULL;
+	sw_ovl_pv_trait = NULL;
 	sw_ovl_pv_inv = NULL;
 	sw_ovl_party_sheet[0] = 0;
 	sw_ovl_party_sheet[1] = 0;
@@ -776,12 +796,6 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		a taller one must lose its surplus at the bottom rather than both ends. */
 	ly0 = 0;
 	ry0 = 0;
-	{ static int once = 0;
-	  if ( !once ) { once = 1;
-		printf( "ovllayout: win=%dx%d origin=%d game=%d right_x=%d right_w=%d texL=%dx%d texR=%dx%d\n",
-			win_w, win_h, origin_x, game_w, right_x, right_w,
-			sw_ovl_tex_w[0], sw_ovl_tex_h[0], sw_ovl_tex_w[1], sw_ovl_tex_h[1] );
-		fflush( stdout ); } }
 	sw_ovl_quad( sw_ovl_tex[0], 0.0f, (float)ly0,
 		(float)sw_ovl_tex_w[0], (float)sw_ovl_tex_h[0] );
 	sw_ovl_quad( sw_ovl_tex[1], (float)right_x, (float)ry0,
@@ -893,6 +907,9 @@ static int sw_ovl_party_resolve( void )
 	id = code_getdebug_seekvar( "chatc" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_chatc = &ctx->mem_var[ id ];
 
+	id = code_getdebug_seekvar( "trait" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_trait = &ctx->mem_var[ id ];
+
 	id = code_getdebug_seekvar( "gdata" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_gdata = &ctx->mem_var[ id ];
 	if ( sw_ovl_pv_gdata == NULL )
@@ -949,6 +966,24 @@ static int sw_ovl_gdata( int field )
 	if ( sw_ovl_pv_gdata == NULL ) return 0;
 	if ( field < 0 || field >= sw_ovl_pv_gdata->len[1] ) return 0;
 	return ((int*)sw_ovl_pv_gdata->pt)[ field ];
+}
+
+/*	r260: how many ether-disease symptoms the player carries, and the worst
+	stage among them.  Every ether trait holds 0 when healthy and a negative
+	stage (-1..-3) once the mutation took hold.							*/
+static int sw_ovl_ether_scan( int *worst )
+{
+	int i, cnt = 0, w = 0;
+
+	*worst = 0;
+	if ( sw_ovl_pv_trait == NULL ) return 0;
+	if ( sw_ovl_pv_trait->len[1] <= SW_OVL_ETHER_LAST ) return 0;
+	for ( i = SW_OVL_ETHER_FIRST; i <= SW_OVL_ETHER_LAST; i++ ) {
+		int v = ( (int*)sw_ovl_pv_trait->pt )[ i ];
+		if ( v < 0 ) { cnt++; if ( -v > w ) w = -v; }
+	}
+	*worst = w;
+	return cnt;
 }
 
 /*	r247: is somebody fighting us right now, and who?  A character counts
@@ -1608,6 +1643,13 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
+		/*	r260: the barrier is a battle-only figure - it exists while a shield
+			skill is up and is gone by the time the fight ends.				*/
+		if ( ix == 0 && sw_ovl_mode == SW_OVL_MODE_BATTLE && sw_ovl_ply_barrier[0] > 0 ) {
+			char v[ 64 ];
+			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_barrier[0] );
+			y += sw_ovl_ply_line( panel, "屏障", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+		}
 	/*	r254: the player's always-checked numbers, under the bars on the
 		left strip only.  The battle sheet keeps its strip for the enemy
 		block, so this stays out of that mode.  Short labels ("金", "重")
@@ -1633,17 +1675,8 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			snprintf( v, sizeof( v ), "%dgp", sw_ovl_ply_gold[0] );
 			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			if ( sw_ovl_ply_month > 0 ) {
-				snprintf( v, sizeof( v ), "%d/%d/%d", sw_ovl_ply_year, sw_ovl_ply_month,
-					sw_ovl_ply_day );
-				y += sw_ovl_ply_line( panel, "", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-				snprintf( v, sizeof( v ), "%s %s",
-					sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
-					sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
-				y += sw_ovl_ply_line( panel, "", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-			}
-
+			/*	r260: the clock and weather moved to the bottom of the strip, so
+				the top block keeps only what changes with the character.	*/
 			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_karma );
 			y += sw_ovl_ply_line( panel, "善恶", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
@@ -1666,11 +1699,57 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				y += sw_ovl_ply_line( panel, "负重", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 				y += sw_ovl_ply_line( panel, "上限", b, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
-			/*	Platinum is nearly always 0, and the row is the last one the
-				strip has room for, so it is drawn only when there is some.	*/
-			if ( sw_ovl_ply_plat[0] > 0 ) {
-				snprintf( v, sizeof( v ), "%dpp", sw_ovl_ply_plat[0] );
-				y += sw_ovl_ply_line( panel, "白金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			/*	r260: the cart and the gear weigh in separately from the pack. */
+			{
+				char a[ 32 ], b[ 32 ];
+				sw_ovl_ply_wfmt( sw_ovl_ply_cargo, a, sizeof( a ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_cargol, b, sizeof( b ) );
+				snprintf( v, sizeof( v ), "%s/%s", a, b );
+				y += sw_ovl_ply_line( panel, "行李", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+				sw_ovl_ply_wfmt( sw_ovl_ply_equipw[0], a, sizeof( a ) );
+				y += sw_ovl_ply_line( panel, "装备", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+				/*	Platinum is nearly always 0, so its row appears only when
+					there is some.											*/
+				if ( sw_ovl_ply_plat[0] > 0 ) {
+					snprintf( v, sizeof( v ), "%dpp", sw_ovl_ply_plat[0] );
+					y += sw_ovl_ply_line( panel, "白金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				}
+			}
+
+			/*	Ether disease: the count plus the worst stage; red once it has
+				taken hold, because every symptom is permanent.				*/
+			if ( sw_ovl_ply_ether > 0 ) {
+				snprintf( v, sizeof( v ), "%d 症状 %d级", sw_ovl_ply_ether,
+					sw_ovl_ply_ether_worst );
+				y += sw_ovl_ply_line( panel, "以太", v, y, strip_w, 1 ) * SW_OVL_PLY_LINE_H;
+			} else {
+				y += sw_ovl_ply_line( panel, "以太", "无", y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			}
+
+			/*	r260: the clock, the weather and the depth sit at the very bottom
+				of the strip, where they are read at a glance while walking.	*/
+			{
+				int by = panel->h - SW_OVL_PLY_LINE_H * 2 - 4;
+				if ( by < y ) by = y;
+				if ( sw_ovl_ply_month > 0 ) {
+					snprintf( v, sizeof( v ), "%d/%d/%d %s %s",
+						sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
+						sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
+						sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
+				} else {
+					snprintf( v, sizeof( v ), "--/--/-- " );
+				}
+				by += sw_ovl_ply_line( panel, "", v, by, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+				if ( sw_ovl_ply_level > 0 ) {
+					snprintf( v, sizeof( v ), "%d 层", sw_ovl_ply_level );
+				} else {
+					snprintf( v, sizeof( v ), "地表" );
+				}
+				by += sw_ovl_ply_line( panel, "", v, by, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
 		}
 		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL )
@@ -1860,7 +1939,9 @@ static int sw_ovl_party_refresh( int *slot )
 		SW_OVL_PLY_SYNC( sw_ovl_ply_gold[k],   sw_ovl_cdata( SW_OVL_PLY_CD_GOLD, s ) );
 		SW_OVL_PLY_SYNC( sw_ovl_ply_plat[k],   sw_ovl_cdata( SW_OVL_PLY_CD_PLATINUM, s ) );
 		SW_OVL_PLY_SYNC( sw_ovl_ply_weight[k], sw_ovl_cdata( SW_OVL_PLY_CD_WEIGHT, s ) );
-		SW_OVL_PLY_SYNC( sw_ovl_ply_carry[k],  sw_ovl_cdata( SW_OVL_PLY_CD_CARRY, s ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_carry[k],  sw_ovl_cdata( SW_OVL_PLY_CD_CARRY, s ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_barrier[k], sw_ovl_cdata( SW_OVL_PLY_CD_BARRIER, s ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_equipw[k], sw_ovl_cdata( SW_OVL_PLY_CD_EQUIPW, s ) );
 		if ( k == 0 ) {
 			int fv[5], mag;
 				int w[4], r[4], wi;
@@ -1903,6 +1984,17 @@ static int sw_ovl_party_refresh( int *slot )
 			SW_OVL_PLY_SYNC( sw_ovl_ply_god,    sw_ovl_cdata( SW_OVL_PLY_CD_GOD, 0 ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_piety,  sw_ovl_cdata( SW_OVL_PLY_CD_PIETY, 0 ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_sanity, sw_ovl_cdata( SW_OVL_PLY_CD_SANITY, 0 ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_cargo,  sw_ovl_gdata( SW_OVL_GD_CARGO ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_cargol, sw_ovl_gdata( SW_OVL_GD_CARGO_LIMIT ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_level,  sw_ovl_gdata( SW_OVL_GD_LEVEL ) );
+			{
+				int worst = 0, n = sw_ovl_ether_scan( &worst );
+				if ( n != sw_ovl_ply_ether || worst != sw_ovl_ply_ether_worst ) {
+					dirty = 1;
+					sw_ovl_ply_ether = n;
+					sw_ovl_ply_ether_worst = worst;
+				}
+			}
 			SW_OVL_PLY_SYNC( sw_ovl_ply_year,   sw_ovl_gdata( SW_OVL_GD_YEAR ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_month,  sw_ovl_gdata( SW_OVL_GD_MONTH ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_day,    sw_ovl_gdata( SW_OVL_GD_DAY ) );
