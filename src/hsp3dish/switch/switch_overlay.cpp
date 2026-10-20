@@ -486,38 +486,41 @@ static void sw_ovl_blit_text_rgb( SDL_Surface *dst, const char *text,
 	SDL_FreeSurface( c );
 }
 
-/*	r258: the strips wear Elona's own chat-window sheet, graphic/ie_chat2.bmp
-	(600x380, gilt corners on parchment).  Its two halves are used as the two
-	panel backgrounds, so each strip shows the border on its outer edge.  The
-	game's paper.bmp stands in when that file is missing; without either, a
-	flat tone.  Loaded once, never freed (see the header).					*/
-#define SW_OVL_PAPER_SPLIT_N	2	/* the first N candidates are the split sheet */
+/*	r259: the strips wear Elona's own background texture, graphic/void.bmp
+	(1200x900, clean marble-paper with no drawn border) - a slice of it with
+	the panel's aspect fills a strip without any decoration running over the
+	text.  The framed chat sheet and paper.bmp remain as fallbacks.  Loaded
+	once, never freed (see the header).										*/
+#define SW_OVL_PAPER_WHOLE	0	/* any large texture: crop, do not split	*/
+#define SW_OVL_PAPER_SPLIT	1	/* two halves are the two panels			*/
+#define SW_OVL_PAPER_TORN	2	/* paper.bmp: left sheet, inside its edge	*/
 static SDL_Surface	*sw_ovl_paper = NULL;
 static int			sw_ovl_paper_tried = 0;
-static int			sw_ovl_paper_split = 0;
+static int			sw_ovl_paper_kind = SW_OVL_PAPER_WHOLE;
 
 static SDL_Surface *sw_ovl_paper_get( void )
 {
-	static const char *cand[] = {
-		"sdmc:/switch/openhsp/graphic/ie_chat2.bmp",
-		"sdmc:/switch/openhsp/user/graphic/ie_chat2.bmp",
-		"sdmc:/switch/openhsp/graphic/paper.bmp",
-		"sdmc:/switch/openhsp/user/graphic/paper.bmp",
+	static const struct { const char *path; int kind; } cand[] = {
+		{ "sdmc:/switch/openhsp/graphic/void.bmp",			SW_OVL_PAPER_WHOLE },
+		{ "sdmc:/switch/openhsp/user/graphic/void.bmp",		SW_OVL_PAPER_WHOLE },
+		{ "sdmc:/switch/openhsp/graphic/ie_chat2.bmp",		SW_OVL_PAPER_SPLIT },
+		{ "sdmc:/switch/openhsp/user/graphic/ie_chat2.bmp",	SW_OVL_PAPER_SPLIT },
+		{ "sdmc:/switch/openhsp/graphic/paper.bmp",			SW_OVL_PAPER_TORN },
+		{ "sdmc:/switch/openhsp/user/graphic/paper.bmp",		SW_OVL_PAPER_TORN },
 	};
 	int i;
 
 	if ( sw_ovl_paper != NULL || sw_ovl_paper_tried ) return sw_ovl_paper;
 	sw_ovl_paper_tried = 1;
 	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
-		SDL_Surface *b = SDL_LoadBMP( cand[ i ] );
+		SDL_Surface *b = SDL_LoadBMP( cand[ i ].path );
 		if ( b == NULL ) continue;
 		sw_ovl_paper = SDL_ConvertSurfaceFormat( b, SDL_PIXELFORMAT_ABGR8888, 0 );
 		SDL_FreeSurface( b );
 		if ( sw_ovl_paper != NULL ) {
-			sw_ovl_paper_split = ( i < SW_OVL_PAPER_SPLIT_N );
-			printf( "hsp3switch: overlay paper %s (%dx%d)%s\n", cand[i],
-				sw_ovl_paper->w, sw_ovl_paper->h,
-				sw_ovl_paper_split ? " split" : "" );
+			sw_ovl_paper_kind = cand[ i ].kind;
+			printf( "hsp3switch: overlay paper %s (%dx%d) kind=%d\n", cand[ i ].path,
+				sw_ovl_paper->w, sw_ovl_paper->h, sw_ovl_paper_kind );
 			fflush( stdout );
 			return sw_ovl_paper;
 		}
@@ -529,16 +532,17 @@ static SDL_Surface *sw_ovl_paper_get( void )
 
 /*	Paint one strip's paper.  side 0 = left panel, 1 = right panel.
 
-	Split sheet: the bitmap's two halves are the panels, border included, so
-	each half is scaled to fill the strip and shifted until its OUTER edge
-	meets the strip's outer edge - the inner overhang is simply cropped, which
-	leaves the gilt corner pieces on the outside and plain parchment towards
-	the game window.
+	Whole texture (void.bmp): a slice with the panel's aspect is taken from
+	the middle and scaled once.  The source is 1200x900, so a 135x594 strip
+	uses a 204x900 slice - the grain comes out finer, and no border piece can
+	land on the text.
 
-	Fallback paper.bmp: that bitmap holds two sheets side by side (800x300),
-	the left clean and the right covered in ink splatter, so only the left
-	half's inner area is usable - a slice with the panel's aspect is taken
-	from there and scaled once, which keeps the grain even and seamless.	*/
+	Split sheet (ie_chat2.bmp): the bitmap's two halves are the panels, border
+	included, so each half is scaled to fill the strip and shifted until its
+	OUTER edge meets the strip's outer edge - the inner overhang is cropped.
+
+	paper.bmp: two sheets side by side (800x300), the left clean and the right
+	covered in ink, so only the left half's inner area is usable.			*/
 static void sw_ovl_paper_fill( SDL_Surface *panel, int side )
 {
 	SDL_Surface *paper = sw_ovl_paper_get();
@@ -549,7 +553,17 @@ static void sw_ovl_paper_fill( SDL_Surface *panel, int side )
 		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
 		return;
 	}
-	if ( sw_ovl_paper_split ) {
+	if ( sw_ovl_paper_kind == SW_OVL_PAPER_WHOLE ) {
+		slice_w = paper->h * panel->w / panel->h;
+		if ( slice_w > paper->w ) slice_w = paper->w;
+		if ( slice_w < 8 ) slice_w = 8;
+		src.x = ( paper->w - slice_w ) / 2;
+		src.y = 0; src.w = slice_w; src.h = paper->h;
+		dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
+		SDL_BlitScaled( paper, &src, panel, &dst );
+		return;
+	}
+	if ( sw_ovl_paper_kind == SW_OVL_PAPER_SPLIT ) {
 		w = paper->w / 2;
 		h = paper->h;
 		sw = w * panel->h / h;			/* fill the height first		*/
