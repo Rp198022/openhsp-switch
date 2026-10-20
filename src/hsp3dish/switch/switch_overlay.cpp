@@ -776,6 +776,12 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		a taller one must lose its surplus at the bottom rather than both ends. */
 	ly0 = 0;
 	ry0 = 0;
+	{ static int once = 0;
+	  if ( !once ) { once = 1;
+		printf( "ovllayout: win=%dx%d origin=%d game=%d right_x=%d right_w=%d texL=%dx%d texR=%dx%d\n",
+			win_w, win_h, origin_x, game_w, right_x, right_w,
+			sw_ovl_tex_w[0], sw_ovl_tex_h[0], sw_ovl_tex_w[1], sw_ovl_tex_h[1] );
+		fflush( stdout ); } }
 	sw_ovl_quad( sw_ovl_tex[0], 0.0f, (float)ly0,
 		(float)sw_ovl_tex_w[0], (float)sw_ovl_tex_h[0] );
 	sw_ovl_quad( sw_ovl_tex[1], (float)right_x, (float)ry0,
