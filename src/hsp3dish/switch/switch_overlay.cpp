@@ -144,8 +144,9 @@ static int		sw_ovl_failed = 0;		/* font/build failure: gives up		*/
 static int		sw_ovl_tried = 0;		/* the one-time font open has run	*/
 static TTF_Font	*sw_ovl_font = NULL;
 static TTF_Font	*sw_ovl_font_small = NULL;
-/*	The pet's chatter is the panel's densest text, so it gets its own face -
-	one pixel below the other small labels, with a tighter line pitch.		*/
+/*	The pet's chatter is the text the panel is read for, so it gets its own
+	face - a touch larger than the other small labels and without the bold,
+	which at this size closes the strokes of a glyph into a blob.			*/
 static TTF_Font	*sw_ovl_font_chat = NULL;
 static GLuint	sw_ovl_tex[2] = { 0, 0 };	/* 0 = left strip, 1 = right strip	*/
 static int		sw_ovl_tex_w[2] = { 0, 0 };
@@ -315,8 +316,11 @@ static TTF_Font *sw_ovl_open_font( void )
 				if ( sw_ovl_font_small != NULL ) TTF_SetFontStyle( sw_ovl_font_small, TTF_STYLE_BOLD );
 			}
 			if ( sw_ovl_font_chat == NULL ) {
-				sw_ovl_font_chat = TTF_OpenFont( cand[i], 10 );
-				if ( sw_ovl_font_chat != NULL ) TTF_SetFontStyle( sw_ovl_font_chat, TTF_STYLE_BOLD );
+				/*	r252: the chatter is meant to be read, and the bold the other
+					small labels carry closed its counters into blobs at that
+					size; a touch larger and without the bold keeps the strokes
+					apart on the handheld screen.							*/
+				sw_ovl_font_chat = TTF_OpenFont( cand[i], 13 );
 			}
 			printf( "hsp3switch: overlay font %s\n", cand[i] );
 			fflush( stdout );
@@ -902,12 +906,19 @@ static const char *sw_ovl_utf8( const char *in )
 	return out;
 }
 
-/*	Latest log line whose raw (GBK) bytes start with the pet's GBK name;
-	byte-wise match, no transcoding.  The ring is walked from the newest
-	cell backward (msgline itself has no reliable decode).			*/
-static const char *sw_ovl_msg_peek( const char *pet_name )
+/*	Latest log lines belonging to the pet, joined oldest-first.  Two routes,
+	in this order: the game names the talker itself (chara_func.hsp:207 sets
+	chatc = customtalk_charid before dispatching a custom line), so the
+	NEWEST log line is credited to the pet only when chatc says it is the
+	pet's and is taken off the name route otherwise - a line that merely
+	mentions the pet's name is not the pet's line.  Where chatc cannot be
+	read (the 2.30 .ax carries no variable-name table) the raw (GBK) bytes
+	are matched against the pet's name tokens instead, byte-wise, no
+	transcoding.  The ring is walked from the newest cell backward (msgline
+	itself has no reliable decode).										*/
+static const char *sw_ovl_msg_peek( const char *pet_name, int speaker, int pet_slot )
 {
-	int i, got = 0, kk;
+	int i, got = 0, kk, newest = -1;
 	const char *hits[ SW_OVL_PET_ROWS ];
 	const char *s;
 	char keys[4][ 64 ]; int nk = 0;
@@ -947,11 +958,22 @@ static const char *sw_ovl_msg_peek( const char *pet_name )
 				printf( "ovlmsg[%d]: %s\n", i, s ); fflush( stdout );
 		}
 	}
-	/*	Collect the latest pet lines (newest first).  A line counts if it
-		contains ANY of the name tokens.  Then join them oldest-first.  */
+	/*	Collect the latest pet lines (newest first).  The newest line goes by
+		chatc where that is readable; the older ones count when they carry
+		any of the name tokens.  Then join them oldest-first.			*/
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0 && got < SW_OVL_PET_ROWS; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-		if ( s == NULL || nk == 0 ) continue;
+		if ( s == NULL || s[ 0 ] == '\0' ) continue;
+		if ( newest < 0 ) newest = i;	/* first filled cell = newest line */
+		if ( i == newest && speaker >= 0 && pet_slot >= 0 ) {
+			/*	chatc names the talker of the newest line: keep it for the pet
+				only when it is the pet, and take it off the name route when
+				it is not - being mentioned is not talking.  A quoted line is
+				the pet's even when the file writes no name into it.		*/
+			if ( speaker != pet_slot ) continue;
+			if ( strchr( s, '"' ) != NULL ) { hits[ got++ ] = s; continue; }
+		}
+		if ( nk == 0 ) continue;
 		for ( kk = 0; kk < nk; kk++ )
 			if ( keys[ kk ][ 0 ] != '\0' && strstr( s, keys[ kk ] ) != NULL ) {
 				hits[ got++ ] = s; break;
@@ -1249,9 +1271,9 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			line is dialogue (init.hsp msg_write paints those 210,250,160),
 			anything else is the plain log white.  */
 		if ( strchr( rows[ row ], '"' ) != NULL ) {
-			sw_ovl_blit_chat( panel, rows[ row ], 210, 250, 160, x, y + rrow * 14 );
+			sw_ovl_blit_chat( panel, rows[ row ], 210, 250, 160, x, y + rrow * 18 );
 		} else {
-			sw_ovl_blit_chat( panel, rows[ row ], 255, 255, 255, x, y + rrow * 14 );
+			sw_ovl_blit_chat( panel, rows[ row ], 255, 255, 255, x, y + rrow * 18 );
 		}
 	}
 }
@@ -1497,7 +1519,7 @@ static int sw_ovl_party_refresh( int *slot )
 		}
 
 		if ( k == 1 ) {
-			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1] );
+			const char *m = sw_ovl_msg_peek( sw_ovl_party_name[1], sw_ovl_speaker(), sw_ovl_party_slot[1] );
 			char mb[ 1200 ];
 			snprintf( mb, sizeof( mb ), "%s", m );
 			if ( strcmp( mb, sw_ovl_party_chat[1] ) != 0 ) {
