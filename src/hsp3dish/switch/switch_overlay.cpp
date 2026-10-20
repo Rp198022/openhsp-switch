@@ -364,6 +364,16 @@ static TTF_Font *sw_ovl_open_font( void )
 	return NULL;
 }
 
+/*	r257: the strips are parchment now, so the text is ink - near-black for
+	the values, a warm grey-brown for labels and group titles.  The existing
+	call sites still pass a brightness (255/230/205) and this maps it.		*/
+static void sw_ovl_ink( Uint8 v, Uint8 *r, Uint8 *g, Uint8 *b )
+{
+	if ( v >= 245 )      { *r = 32;  *g = 26;  *b = 20; }
+	else if ( v >= 215 ) { *r = 64;  *g = 53;  *b = 40; }
+	else                 { *r = 106; *g = 92;  *b = 70; }
+}
+
 /*	Same as sw_ovl_blit_text but with the smaller rating font.			*/
 static void sw_ovl_blit_small( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
 {
@@ -372,7 +382,7 @@ static void sw_ovl_blit_small( SDL_Surface *dst, const char *text, Uint8 v, int 
 	SDL_Rect at;
 
 	if ( sw_ovl_font_small == NULL ) return;
-	col.r = col.g = col.b = v;
+	sw_ovl_ink( v, &col.r, &col.g, &col.b );
 	col.a = 255;
 	s = TTF_RenderUTF8_Blended( sw_ovl_font_small, text, col );
 	if ( s == NULL ) return;
@@ -432,7 +442,7 @@ static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x
 	SDL_Surface *s, *c;
 	SDL_Rect at;
 
-	col.r = col.g = col.b = v;
+	sw_ovl_ink( v, &col.r, &col.g, &col.b );
 	col.a = 255;
 	s = TTF_RenderUTF8_Blended( sw_ovl_font, text, col );
 	if ( s == NULL ) return;
@@ -466,6 +476,56 @@ static void sw_ovl_blit_text_rgb( SDL_Surface *dst, const char *text,
 	at.y = y;
 	SDL_BlitSurface( c, NULL, dst, &at );
 	SDL_FreeSurface( c );
+}
+
+/*	r257: parchment for both strips, taken from the game's own paper.bmp
+	(the message-window background) so the panels match Elona's UI.  Loaded
+	once; without the file a flat parchment tone stands in.					*/
+static SDL_Surface	*sw_ovl_paper = NULL;
+static int			sw_ovl_paper_tried = 0;
+
+static SDL_Surface *sw_ovl_paper_get( void )
+{
+	static const char *cand[] = {
+		"sdmc:/switch/openhsp/graphic/paper.bmp",
+		"sdmc:/switch/openhsp/user/graphic/paper.bmp",
+	};
+	int i;
+
+	if ( sw_ovl_paper != NULL || sw_ovl_paper_tried ) return sw_ovl_paper;
+	sw_ovl_paper_tried = 1;
+	for ( i = 0; i < (int)( sizeof( cand ) / sizeof( cand[0] ) ); i++ ) {
+		SDL_Surface *b = SDL_LoadBMP( cand[ i ] );
+		if ( b == NULL ) continue;
+		sw_ovl_paper = SDL_ConvertSurfaceFormat( b, SDL_PIXELFORMAT_ABGR8888, 0 );
+		SDL_FreeSurface( b );
+		if ( sw_ovl_paper != NULL ) {
+			printf( "hsp3switch: overlay paper %s (%dx%d)\n", cand[i],
+				sw_ovl_paper->w, sw_ovl_paper->h );
+			fflush( stdout );
+			return sw_ovl_paper;
+		}
+	}
+	printf( "hsp3switch: overlay: no paper.bmp, flat parchment\n" );
+	fflush( stdout );
+	return NULL;
+}
+
+/*	Stretch the middle of the sheet over the panel: paper.bmp has a drawn
+	border, so the outer sixth is cropped away before scaling.				*/
+static void sw_ovl_paper_fill( SDL_Surface *panel )
+{
+	SDL_Surface *paper = sw_ovl_paper_get();
+	SDL_Rect src, dst;
+
+	dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
+	if ( paper == NULL ) {
+		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
+		return;
+	}
+	src.x = paper->w / 6; src.y = paper->h / 6;
+	src.w = paper->w - src.x * 2; src.h = paper->h - src.y * 2;
+	SDL_BlitScaled( paper, &src, panel, &dst );
 }
 
 /*	One strip: all rows onto a transparent RGBA sheet, then upload.			*/
@@ -502,7 +562,7 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
-	SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 0, 0, 0, 0 ) );
+	sw_ovl_paper_fill( panel );
 
 	for ( i = 0; i < n; i++ ) {
 		const SW_OVL_ROW *r = &rows[i];
@@ -1245,8 +1305,8 @@ static void sw_ovl_party_draw_box( SDL_Surface *panel, int strip_w )
 {
 	int bx, by, bw, bh, ax, ay, aw, ah;
 	SDL_Rect r;
-	Uint32 fill = SDL_MapRGBA( panel->format, 32, 34, 40, 255 );
-	Uint32 edge = SDL_MapRGBA( panel->format, 150, 152, 160, 255 );
+	Uint32 fill = SDL_MapRGBA( panel->format, 124, 105, 80, 255 );
+	Uint32 edge = SDL_MapRGBA( panel->format, 66, 52, 38, 255 );
 
 	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
 	r.x = bx; r.y = by; r.w = bw; r.h = bh;
@@ -1339,9 +1399,9 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			line is dialogue (init.hsp msg_write paints those 210,250,160),
 			anything else is the plain log white.  */
 		if ( strchr( rows[ row ], '"' ) != NULL ) {
-			sw_ovl_blit_chat( panel, rows[ row ], 210, 250, 160, x, y + rrow * 18 );
+			sw_ovl_blit_chat( panel, rows[ row ], 44, 72, 34, x, y + rrow * 18 );
 		} else {
-			sw_ovl_blit_chat( panel, rows[ row ], 255, 255, 255, x, y + rrow * 18 );
+			sw_ovl_blit_chat( panel, rows[ row ], 40, 34, 28, x, y + rrow * 18 );
 		}
 	}
 }
@@ -1389,19 +1449,19 @@ static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *v
 				int y, int strip_w, int hot )
 {
 	char full[ 200 ];
-	Uint8 vr = 235, vg = 235, vb = 240;
+	Uint8 vr = 32, vg = 26, vb = 20;		/* ink on parchment	*/
 	int avail = strip_w - 16, w = 0, lw = 0;
 
 	if ( sw_ovl_font == NULL ) return 1;
 	if ( avail < 32 ) avail = 32;
-	if ( hot ) { vr = 255; vg = 150; vb = 140; }
+	if ( hot ) { vr = 158; vg = 32; vb = 24; }
 	if ( label[ 0 ] == '\0' ) {			/* no label: the value takes the row */
 		sw_ovl_blit_text_rgb( panel, value, vr, vg, vb, 8, y );
 		return 1;
 	}
 	snprintf( full, sizeof( full ), "%s %s", label, value );
 	if ( TTF_SizeUTF8( sw_ovl_font, full, &w, NULL ) != 0 ) w = 0;
-	sw_ovl_blit_text_rgb( panel, label, 170, 175, 185, 8, y );
+	sw_ovl_blit_text_rgb( panel, label, 106, 92, 70, 8, y );
 	if ( w <= avail ) {
 		if ( TTF_SizeUTF8( sw_ovl_font, label, &lw, NULL ) != 0 ) lw = 0;
 		sw_ovl_blit_text_rgb( panel, value, vr, vg, vb, 8 + lw + 6, y );
@@ -1425,7 +1485,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 	panel = SDL_CreateRGBSurfaceWithFormat( 0, strip_w, sheet_h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( panel == NULL ) return -1;
-	SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 0, 0, 0, 0 ) );
+	sw_ovl_paper_fill( panel );
 
 	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), 255, 8, y );
@@ -1449,7 +1509,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				snprintf( buf, sizeof( buf ), "%s %d/%d", lbl[ i ], cur[ i ], mxs[ i ] );
 				sw_ovl_blit_text( panel, buf, 230, 8, y + i * SW_OVL_PARTY_STAT_PITCH );
 				r.x = 8; r.y = y + i * SW_OVL_PARTY_STAT_PITCH + 17; r.w = strip_w - 16; r.h = 8;
-				SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 50, 50, 50, 210 ) );
+				SDL_FillRect( panel, &r, SDL_MapRGBA( panel->format, 96, 82, 62, 220 ) );
 			}
 			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
@@ -1606,7 +1666,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		if ( mhp < 1 ) mhp = 1;
 		y += 10;
 		hr.x = 8; hr.y = y - 4; hr.w = strip_w - 16; hr.h = 2;
-		SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 150, 152, 160, 255 ) );
+		SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 255 ) );
 		sw_ovl_blit_text( panel, "— 战斗 —", 235, 8, y ); y += SW_OVL_LINE_H;
 		snprintf( buf, sizeof( buf ), "%s", sw_ovl_utf8( sw_ovl_bat_name ) );
 		sw_ovl_blit_text( panel, buf, 255, 8, y ); y += SW_OVL_LINE_H;
@@ -1833,6 +1893,10 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 	dirty = sw_ovl_party_refresh( slot );
 	if ( dirty < 0 ) return;
+	/*	r257: the sheets need the slots as well - the pet's block on the detail
+		strip is skipped while slot[1] is -1, and that cache was never filled. */
+	sw_ovl_party_slot[0] = slot[0];
+	sw_ovl_party_slot[1] = slot[1];
 
 	sheet_h = win_h - 16;
 	if ( sheet_h < 120 ) sheet_h = 120;
