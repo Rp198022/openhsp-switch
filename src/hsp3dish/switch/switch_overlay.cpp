@@ -436,15 +436,18 @@ static void sw_ovl_blit_chat( SDL_Surface *dst, const char *text, Uint8 r, Uint8
 	SDL_FreeSurface( c );
 }
 
-static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
+/*	Draw one line with a chosen face - the key strips fall back to a smaller
+	font when the two columns cannot both fit the strip at 16px.			*/
+static void sw_ovl_blit_f( SDL_Surface *dst, TTF_Font *f, const char *text, Uint8 v, int x, int y )
 {
 	SDL_Color col;
 	SDL_Surface *s, *c;
 	SDL_Rect at;
 
+	if ( f == NULL ) return;
 	sw_ovl_ink( v, &col.r, &col.g, &col.b );
 	col.a = 255;
-	s = TTF_RenderUTF8_Blended( sw_ovl_font, text, col );
+	s = TTF_RenderUTF8_Blended( f, text, col );
 	if ( s == NULL ) return;
 	c = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
 	SDL_FreeSurface( s );
@@ -453,6 +456,11 @@ static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x
 	at.y = y;
 	SDL_BlitSurface( c, NULL, dst, &at );
 	SDL_FreeSurface( c );
+}
+
+static void sw_ovl_blit_text( SDL_Surface *dst, const char *text, Uint8 v, int x, int y )
+{
+	sw_ovl_blit_f( dst, sw_ovl_font, text, v, x, y );
 }
 
 /*	The same face in a chosen colour - the stat block tints its labels grey
@@ -511,21 +519,39 @@ static SDL_Surface *sw_ovl_paper_get( void )
 	return NULL;
 }
 
-/*	Stretch the middle of the sheet over the panel: paper.bmp has a drawn
-	border, so the outer sixth is cropped away before scaling.				*/
+/*	Tile the sheet over the panel instead of stretching it: scaled to the
+	panel width the paper keeps its grain, where a straight stretch turned
+	the texture into vertical streaks.  The middle square of paper.bmp is
+	used so the drawn border never shows.									*/
 static void sw_ovl_paper_fill( SDL_Surface *panel )
 {
 	SDL_Surface *paper = sw_ovl_paper_get();
+	SDL_Surface *tile;
 	SDL_Rect src, dst;
+	int side, y;
 
 	dst.x = 0; dst.y = 0; dst.w = panel->w; dst.h = panel->h;
 	if ( paper == NULL ) {
 		SDL_FillRect( panel, NULL, SDL_MapRGBA( panel->format, 214, 197, 168, 255 ) );
 		return;
 	}
-	src.x = paper->w / 6; src.y = paper->h / 6;
-	src.w = paper->w - src.x * 2; src.h = paper->h - src.y * 2;
-	SDL_BlitScaled( paper, &src, panel, &dst );
+	side = ( paper->w < paper->h ) ? paper->w : paper->h;
+	src.x = ( paper->w - side ) / 2;
+	src.y = ( paper->h - side ) / 2;
+	src.w = side; src.h = side;
+
+	tile = SDL_CreateRGBSurfaceWithFormat( 0, panel->w, panel->w, 32, SDL_PIXELFORMAT_ABGR8888 );
+	if ( tile == NULL ) {
+		SDL_BlitScaled( paper, &src, panel, &dst );
+		return;
+	}
+	{ SDL_Rect td; td.x = 0; td.y = 0; td.w = panel->w; td.h = panel->w;
+	  SDL_BlitScaled( paper, &src, tile, &td ); }
+	for ( y = 0; y < panel->h; y += panel->w ) {
+		dst.y = y;
+		SDL_BlitSurface( tile, NULL, panel, &dst );
+	}
+	SDL_FreeSurface( tile );
 }
 
 /*	One strip: all rows onto a transparent RGBA sheet, then upload.			*/
@@ -535,16 +561,26 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 	int h = n * SW_OVL_LINE_H + SW_OVL_PAD_Y * 2;
 	int i;
 	int key_x, desc_x, title_x;
-	int max_key = 0, max_desc = 0, tmp_w, tmp_h, k;
+	int max_key = 0, max_desc = 0, tmp_w, tmp_h, k, pass;
+	TTF_Font *font = sw_ovl_font;
 
 	/*	Pin the block to its screen edge: measure the two column widths, then
 		start the left panel at the left margin and end the right panel's
 		description at the right margin, so the block rides the edge whatever
-		the font's real advance is.		*/
-	for ( k = 0; k < n; k++ ) {
-		if ( rows[k].key == NULL ) continue;
-		if ( TTF_SizeUTF8( sw_ovl_font, rows[k].key, &tmp_w, &tmp_h ) == 0 && tmp_w > max_key ) max_key = tmp_w;
-		if ( TTF_SizeUTF8( sw_ovl_font, rows[k].desc, &tmp_w, &tmp_h ) == 0 && tmp_w > max_desc ) max_desc = tmp_w;
+		the font's real advance is.  If the two columns cannot both fit the
+		strip at 16px, the whole block steps down to 13px and then 11px.		*/
+	for ( pass = 0; pass < 3; pass++ ) {
+		if ( font == NULL ) break;
+		max_key = max_desc = 0;
+		for ( k = 0; k < n; k++ ) {
+			if ( rows[k].key == NULL ) continue;
+			if ( TTF_SizeUTF8( font, rows[k].key, &tmp_w, &tmp_h ) == 0 && tmp_w > max_key ) max_key = tmp_w;
+			if ( TTF_SizeUTF8( font, rows[k].desc, &tmp_w, &tmp_h ) == 0 && tmp_w > max_desc ) max_desc = tmp_w;
+		}
+		if ( max_key + max_desc + SW_OVL_COL_GAP + SW_OVL_MARGIN * 2 <= strip_w ) break;
+		if ( font == sw_ovl_font && sw_ovl_font_chat != NULL ) font = sw_ovl_font_chat;
+		else font = sw_ovl_font_small;
+		if ( font == NULL ) break;
 	}
 	if ( ix == 0 ) {
 		key_x  = SW_OVL_MARGIN;
@@ -566,12 +602,12 @@ static int sw_ovl_build_side( const SW_OVL_ROW *rows, int n, int strip_w, int ix
 
 	for ( i = 0; i < n; i++ ) {
 		const SW_OVL_ROW *r = &rows[i];
-		int y = SW_OVL_PAD_Y + i * SW_OVL_LINE_H;
+		int y = SW_OVL_PAD_Y + i * SW_OVL_LINE_H + ( font == sw_ovl_font ? 0 : 3 );
 		if ( r->key == NULL ) {
-			sw_ovl_blit_text( panel, r->desc, 205, title_x, y );
+			sw_ovl_blit_f( panel, font, r->desc, 205, title_x, y );
 		} else {
-			sw_ovl_blit_text( panel, r->key, 255, key_x, y );
-			sw_ovl_blit_text( panel, r->desc, 230, desc_x, y );
+			sw_ovl_blit_f( panel, font, r->key, 255, key_x, y );
+			sw_ovl_blit_f( panel, font, r->desc, 230, desc_x, y );
 		}
 	}
 
