@@ -189,7 +189,7 @@ static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 	the weight pair uses the game's cnvweight() scale (value / 1000, one
 	decimal).  There is no fatigue field in Elona+ - HUNGER and the sleep
 	condition are the only state the script keeps - so fame takes that slot. */
-#define SW_OVL_PLY_LINE_H		14
+#define SW_OVL_PLY_LINE_H		15
 #define SW_OVL_PLY_CD_HUNGER	22
 #define SW_OVL_PLY_CD_GOLD		30
 #define SW_OVL_PLY_CD_PLATINUM	31
@@ -205,13 +205,14 @@ static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 #define SW_OVL_GD_DAY			12
 #define SW_OVL_GD_HOUR			13
 #define SW_OVL_GD_WEATHER		17
-static int		sw_ovl_ply_cond[ SW_OVL_BAT_COND_N ];
-static int		sw_ovl_ply_hunger = -1, sw_ovl_ply_gold = -1, sw_ovl_ply_plat = -1;
+static int		sw_ovl_ply_cond[2][ SW_OVL_BAT_COND_N ];
+static int		sw_ovl_ply_hunger[2] = { -1, -1 };
+static int		sw_ovl_ply_gold[2] = { -1, -1 }, sw_ovl_ply_plat[2] = { -1, -1 };
+static int		sw_ovl_ply_weight[2] = { -1, -1 }, sw_ovl_ply_carry[2] = { -1, -1 };
 static int		sw_ovl_ply_year = -1, sw_ovl_ply_month = -1, sw_ovl_ply_day = -1;
 static int		sw_ovl_ply_hour = -1, sw_ovl_ply_weather = -1;
 static int		sw_ovl_ply_karma = 0, sw_ovl_ply_god = -1, sw_ovl_ply_piety = -1;
 static int		sw_ovl_ply_sanity = -1, sw_ovl_ply_fame = -1;
-static int		sw_ovl_ply_weight = -1, sw_ovl_ply_carry = -1;
 
 /*	Party HUD state.  The interpreter context is the cache key: when it
 	changes (new game, load) the variable indices are resolved again.
@@ -1351,14 +1352,6 @@ static const char *sw_ovl_ply_weather_name( int w )
 	return nm[ w ];
 }
 
-static const char *sw_ovl_ply_season_name( int m )
-{
-	if ( m >= 3 && m <= 5 ) return "春";
-	if ( m >= 6 && m <= 8 ) return "夏";
-	if ( m >= 9 && m <= 11 ) return "秋";
-	return "冬";
-}
-
 /*	cnvweight() from text.hsp: value / 1000 with one truncated decimal.	*/
 static void sw_ovl_ply_wfmt( int v, char *out, size_t n )
 {
@@ -1366,29 +1359,30 @@ static void sw_ovl_ply_wfmt( int v, char *out, size_t n )
 	snprintf( out, n, "%s%d.%d", v < 0 ? "-" : "", a / 1000, ( a % 1000 ) / 100 );
 }
 
-/*	One row of that block: label in grey, value bright.  When the pair does
-	not fit across the strip the value moves to the next row - the strip is
-	only ~99px wide, so the condition list is the row that usually wraps.
-	Returns the number of rows used.									*/
+/*	One row of that block: label in grey, value bright.  It uses the chatter
+	face - 13px and unbold, which reads better than the 11px rating font at
+	this size.  When the pair still does not fit across the strip the value
+	moves to the next row; the strip is only ~99px wide.					*/
 static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *value,
 				int y, int strip_w, int hot )
 {
 	char full[ 200 ];
 	Uint8 vr = 235, vg = 235, vb = 240;
+	TTF_Font *f = ( sw_ovl_font_chat != NULL ) ? sw_ovl_font_chat : sw_ovl_font_small;
 	int avail = strip_w - 16, w = 0, lw = 0;
 
-	if ( sw_ovl_font_small == NULL ) return 1;
+	if ( f == NULL ) return 1;
 	if ( avail < 32 ) avail = 32;
 	snprintf( full, sizeof( full ), "%s %s", label, value );
 	if ( hot ) { vr = 255; vg = 150; vb = 140; }
-	if ( TTF_SizeUTF8( sw_ovl_font_small, full, &w, NULL ) != 0 ) w = 0;
-	sw_ovl_blit_small_rgb( panel, label, 170, 175, 185, 8, y );
+	if ( TTF_SizeUTF8( f, full, &w, NULL ) != 0 ) w = 0;
+	sw_ovl_blit_chat( panel, label, 170, 175, 185, 8, y );
 	if ( w <= avail ) {
-		if ( TTF_SizeUTF8( sw_ovl_font_small, label, &lw, NULL ) != 0 ) lw = 0;
-		sw_ovl_blit_small_rgb( panel, value, vr, vg, vb, 8 + lw + 6, y );
+		if ( TTF_SizeUTF8( f, label, &lw, NULL ) != 0 ) lw = 0;
+		sw_ovl_blit_chat( panel, value, vr, vg, vb, 8 + lw + 6, y );
 		return 1;
 	}
-	sw_ovl_blit_small_rgb( panel, value, vr, vg, vb, 8, y + SW_OVL_PLY_LINE_H );
+	sw_ovl_blit_chat( panel, value, vr, vg, vb, 8, y + SW_OVL_PLY_LINE_H );
 	return 2;
 }
 
@@ -1434,9 +1428,10 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			y += 3 * SW_OVL_PARTY_STAT_PITCH;
 		}
-		/*	r254: the player's always-checked numbers, under the bars on the
-			left strip only.  The battle sheet keeps its strip for the enemy
-			block, so this stays out of that mode.						*/
+	/*	r254: the player's always-checked numbers, under the bars on the
+		left strip only.  The battle sheet keeps its strip for the enemy
+		block, so this stays out of that mode.  Short labels ("金", "重")
+		keep every row on one line at the 13px face.						*/
 		if ( ix == 0 && sw_ovl_mode == SW_OVL_MODE_PARTY ) {
 			char v[ 200 ];
 			int first = 1, c;
@@ -1444,7 +1439,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			y += 4;
 			v[ 0 ] = '\0';
 			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
-				if ( sw_ovl_ply_cond[ c ] <= 0 ) continue;
+				if ( sw_ovl_ply_cond[0][ c ] <= 0 ) continue;
 				if ( !first ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
 				strncat( v, sw_ovl_bat_cond[ c ].name, sizeof( v ) - 1 - strlen( v ) );
 				first = 0;
@@ -1452,39 +1447,40 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			if ( first ) snprintf( v, sizeof( v ), "正常" );
 			y += sw_ovl_ply_line( panel, "状态", v, y, strip_w, !first ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger / 100, 0, 100 ) );
+			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[0] / 100, 0, 100 ) );
 			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold, sw_ovl_ply_plat );
-			y += sw_ovl_ply_line( panel, "金钱", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[0], sw_ovl_ply_plat[0] );
+			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			if ( sw_ovl_ply_month > 0 ) {
-				snprintf( v, sizeof( v ), "%d/%d/%d %s", sw_ovl_ply_year, sw_ovl_ply_month,
-					sw_ovl_ply_day, sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ) );
+				snprintf( v, sizeof( v ), "%d/%d/%d", sw_ovl_ply_year, sw_ovl_ply_month,
+					sw_ovl_ply_day );
 				y += sw_ovl_ply_line( panel, "日期", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-				snprintf( v, sizeof( v ), "%s·%s",
-					sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
-					sw_ovl_ply_season_name( sw_ovl_ply_month ) );
+				snprintf( v, sizeof( v ), "%s %s",
+					sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
+					sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
 				y += sw_ovl_ply_line( panel, "天气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
 
-			snprintf( v, sizeof( v ), "%d  名声 %d", sw_ovl_ply_karma, sw_ovl_ply_fame );
+			snprintf( v, sizeof( v ), "%d 名声 %d", sw_ovl_ply_karma, sw_ovl_ply_fame );
 			y += sw_ovl_ply_line( panel, "善恶", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			y += sw_ovl_ply_line( panel, "信仰", sw_ovl_ply_god_name( sw_ovl_ply_god ),
-				y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			snprintf( v, sizeof( v ), "%s 虔诚 %d",
+				sw_ovl_ply_god_name( sw_ovl_ply_god ), sw_ovl_ply_piety );
+			y += sw_ovl_ply_line( panel, "信仰", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%d  狂气 %d", sw_ovl_ply_piety, sw_ovl_ply_sanity );
-			y += sw_ovl_ply_line( panel, "虔诚", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_sanity );
+			y += sw_ovl_ply_line( panel, "狂气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			{
 				char a[ 32 ], b[ 32 ];
-				sw_ovl_ply_wfmt( sw_ovl_ply_weight, a, sizeof( a ) );
-				sw_ovl_ply_wfmt( sw_ovl_ply_carry, b, sizeof( b ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_weight[0], a, sizeof( a ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_carry[0], b, sizeof( b ) );
 				snprintf( v, sizeof( v ), "%s/%s", a, b );
 			}
-			y += sw_ovl_ply_line( panel, "负重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			y += sw_ovl_ply_line( panel, "重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 		}
 		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL )
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
@@ -1494,8 +1490,40 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		if ( TTF_SizeUTF8( sw_ovl_font, buf, &nw, NULL ) == 0 )
 			sw_ovl_blit_small( panel, sw_ovl_rank_name( sw_ovl_party_rank[ ix ][ i ] ), 210, 8 + nw + 8, y + 3 );
 		y += 20;
-	}
-	if ( sw_ovl_mode == SW_OVL_MODE_DETAIL && ix == 0 ) {
+		}
+		/*	r255: on the detail sheet's right strip (pet, ix==1), under the abilities,
+			add the pet's own base numbers: condition, hunger, weight, money.
+			If there is no pet, the strip was empty already and it stays empty.		*/
+		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL && ix == 1 && sw_ovl_party_slot[ix] >= 0 ) {
+			char v[ 200 ];
+			int first = 1, c;
+
+			y += 10;
+			v[ 0 ] = '\0';
+			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+				if ( sw_ovl_ply_cond[ix][ c ] <= 0 ) continue;
+				if ( !first ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+				strncat( v, sw_ovl_bat_cond[ c ].name, sizeof( v ) - 1 - strlen( v ) );
+				first = 0;
+			}
+			if ( first ) snprintf( v, sizeof( v ), "正常" );
+			y += sw_ovl_ply_line( panel, "状态", v, y, strip_w, !first ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[ix] / 100, 0, 100 ) );
+			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[ix], sw_ovl_ply_plat[ix] );
+			y += sw_ovl_ply_line( panel, "金钱", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			{
+				char a[ 32 ], b[ 32 ];
+				sw_ovl_ply_wfmt( sw_ovl_ply_weight[ix], a, sizeof( a ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_carry[ix], b, sizeof( b ) );
+				snprintf( v, sizeof( v ), "%s/%s", a, b );
+			}
+			y += sw_ovl_ply_line( panel, "负重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+		}
+		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL && ix == 0 ) {
 		int prot, eva, spellpow;
 		int pv = sw_ovl_party_fix[ 0 ][ 0 ]; if ( pv < 0 ) pv = 0;
 		int dv = sw_ovl_party_fix[ 0 ][ 1 ]; if ( dv < 0 ) dv = 0;
@@ -1566,6 +1594,10 @@ static int sw_ovl_party_refresh( int *slot )
 {
 	int dirty = 0, k, i, c;
 
+/*	Cache a freshly read value, marking the sheets dirty when it moved.	*/
+#define SW_OVL_PLY_SYNC( dst, src ) \
+	do { int nv_ = ( src ); if ( ( dst ) != nv_ ) { dirty = 1; ( dst ) = nv_; } } while ( 0 )
+
 	slot[0] = 0;
 	slot[1] = -1;
 	{ int e0 = sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, 0 );
@@ -1591,6 +1623,9 @@ static int sw_ovl_party_refresh( int *slot )
 			sw_ovl_party_hp[k] = sw_ovl_party_mhp[k] = 0;
 			sw_ovl_party_sp[k] = sw_ovl_party_msp[k] = 0;
 			sw_ovl_party_mp[k] = sw_ovl_party_mmp[k] = 0;
+			for ( i = 0; i < SW_OVL_BAT_COND_N; i++ ) sw_ovl_ply_cond[k][i] = 0;
+			sw_ovl_ply_hunger[k] = sw_ovl_ply_gold[k] = sw_ovl_ply_plat[k] = 0;
+			sw_ovl_ply_weight[k] = sw_ovl_ply_carry[k] = 0;
 			continue;
 		}
 		if ( sw_ovl_party_hp[k] != sw_ovl_cdata( SW_OVL_PARTY_CD_HP, s ) ) dirty = 1;
@@ -1620,6 +1655,18 @@ static int sw_ovl_party_refresh( int *slot )
 				sw_ovl_face_u_load( k, nu );
 			}
 		}
+		/*	r255: hunger, burden, money and the condition flags exist for any
+			character, so the player and the pet each keep a set - the pet's
+			goes on the detail sheet's right strip.						*/
+		for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+			int cv = sw_ovl_cdata( sw_ovl_bat_cond[ c ].field, s );
+			if ( cv != sw_ovl_ply_cond[k][c] ) { dirty = 1; sw_ovl_ply_cond[k][c] = cv; }
+		}
+		SW_OVL_PLY_SYNC( sw_ovl_ply_hunger[k], sw_ovl_cdata( SW_OVL_PLY_CD_HUNGER, s ) );
+		SW_OVL_PLY_SYNC( sw_ovl_ply_gold[k],   sw_ovl_cdata( SW_OVL_PLY_CD_GOLD, s ) );
+		SW_OVL_PLY_SYNC( sw_ovl_ply_plat[k],   sw_ovl_cdata( SW_OVL_PLY_CD_PLATINUM, s ) );
+		SW_OVL_PLY_SYNC( sw_ovl_ply_weight[k], sw_ovl_cdata( SW_OVL_PLY_CD_WEIGHT, s ) );
+		SW_OVL_PLY_SYNC( sw_ovl_ply_carry[k],  sw_ovl_cdata( SW_OVL_PLY_CD_CARRY, s ) );
 		if ( k == 0 ) {
 			int fv[5], mag;
 				int w[4], r[4], wi;
@@ -1655,19 +1702,9 @@ static int sw_ovl_party_refresh( int *slot )
 				sw_ovl_party_fix[k][i] = fv[i];
 			}
 
-			/*	r254: the left strip's numbers, all off the player's own row. */
-			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
-				int cv = sw_ovl_cdata( sw_ovl_bat_cond[ c ].field, 0 );
-				if ( cv != sw_ovl_ply_cond[ c ] ) { dirty = 1; sw_ovl_ply_cond[ c ] = cv; }
-			}
-#define SW_OVL_PLY_SYNC( dst, src ) \
-			do { int nv_ = ( src ); if ( ( dst ) != nv_ ) { dirty = 1; ( dst ) = nv_; } } while ( 0 )
-			SW_OVL_PLY_SYNC( sw_ovl_ply_hunger, sw_ovl_cdata( SW_OVL_PLY_CD_HUNGER, 0 ) );
-			SW_OVL_PLY_SYNC( sw_ovl_ply_gold,   sw_ovl_cdata( SW_OVL_PLY_CD_GOLD, 0 ) );
-			SW_OVL_PLY_SYNC( sw_ovl_ply_plat,   sw_ovl_cdata( SW_OVL_PLY_CD_PLATINUM, 0 ) );
+			/*	The rest of the left strip is player-only: faith, karma and
+				the clock do not apply to a pet.							*/
 			SW_OVL_PLY_SYNC( sw_ovl_ply_fame,   sw_ovl_cdata( SW_OVL_PLY_CD_FAME, 0 ) );
-			SW_OVL_PLY_SYNC( sw_ovl_ply_weight, sw_ovl_cdata( SW_OVL_PLY_CD_WEIGHT, 0 ) );
-			SW_OVL_PLY_SYNC( sw_ovl_ply_carry,  sw_ovl_cdata( SW_OVL_PLY_CD_CARRY, 0 ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_karma,  sw_ovl_cdata( SW_OVL_PLY_CD_KARMA, 0 ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_god,    sw_ovl_cdata( SW_OVL_PLY_CD_GOD, 0 ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_piety,  sw_ovl_cdata( SW_OVL_PLY_CD_PIETY, 0 ) );
@@ -1677,7 +1714,6 @@ static int sw_ovl_party_refresh( int *slot )
 			SW_OVL_PLY_SYNC( sw_ovl_ply_day,    sw_ovl_gdata( SW_OVL_GD_DAY ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_hour,   sw_ovl_gdata( SW_OVL_GD_HOUR ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_weather, sw_ovl_gdata( SW_OVL_GD_WEATHER ) );
-#undef SW_OVL_PLY_SYNC
 		}
 
 			/*	Affection is the impression plus the master-servant axis: the
@@ -1740,6 +1776,7 @@ static int sw_ovl_party_refresh( int *slot )
 			if ( v != sw_ovl_bat_condv[ c ] ) { dirty = 1; sw_ovl_bat_condv[ c ] = v; }
 		}
 	}
+#undef SW_OVL_PLY_SYNC
 	return dirty;
 }
 
