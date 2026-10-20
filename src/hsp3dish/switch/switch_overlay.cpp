@@ -1672,7 +1672,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[0] / 100, 0, 100 ) );
 			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			snprintf( v, sizeof( v ), "%dgp", sw_ovl_ply_gold[0] );
+			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[0], sw_ovl_ply_plat[0] );
 			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
 			/*	r260: the clock and weather moved to the bottom of the strip, so
@@ -1692,33 +1692,8 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			snprintf( v, sizeof( v ), "%d", sw_ovl_ply_sanity );
 			y += sw_ovl_ply_line( panel, "狂气", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 
-			{
-				char a[ 32 ], b[ 32 ];
-				sw_ovl_ply_wfmt( sw_ovl_ply_weight[0], a, sizeof( a ) );
-				sw_ovl_ply_wfmt( sw_ovl_ply_carry[0], b, sizeof( b ) );
-				y += sw_ovl_ply_line( panel, "负重", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-				y += sw_ovl_ply_line( panel, "上限", b, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-			}
-
-			/*	r260: the cart and the gear weigh in separately from the pack. */
-			{
-				char a[ 32 ], b[ 32 ];
-				sw_ovl_ply_wfmt( sw_ovl_ply_cargo, a, sizeof( a ) );
-				sw_ovl_ply_wfmt( sw_ovl_ply_cargol, b, sizeof( b ) );
-				snprintf( v, sizeof( v ), "%s/%s", a, b );
-				y += sw_ovl_ply_line( panel, "行李", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-				sw_ovl_ply_wfmt( sw_ovl_ply_equipw[0], a, sizeof( a ) );
-				y += sw_ovl_ply_line( panel, "装备", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-				/*	Platinum is nearly always 0, so its row appears only when
-					there is some.											*/
-				if ( sw_ovl_ply_plat[0] > 0 ) {
-					snprintf( v, sizeof( v ), "%dpp", sw_ovl_ply_plat[0] );
-					y += sw_ovl_ply_line( panel, "白金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-				}
-			}
-
+			/*	r260: the three weight figures live on the detail sheet - this
+				strip cannot hold four more rows at 16px.					*/
 			/*	Ether disease: the count plus the worst stage; red once it has
 				taken hold, because every symptom is permanent.				*/
 			if ( sw_ovl_ply_ether > 0 ) {
@@ -1822,7 +1797,27 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			sw_ovl_blit_text( panel, buf, 200, 8, y ); y += 20;
 			snprintf( buf, sizeof( buf ), "%s %d%%", "\xe9\xad\x94\xe6\xb3\x95\xe5\xa8\x81\xe5\x8a\x9b", spellpow );
 			sw_ovl_blit_text( panel, buf, 200, 8, y ); y += 20;
-		}
+			}
+
+			/*	r260: the weight family belongs on this sheet - it is consulted
+				now and then, not every step, and the party strip has no room
+				for four more rows.  Weights use the game's cnvweight scale.	*/
+			{
+				char v[ 64 ], a[ 32 ], b[ 32 ];
+				y += 6;
+				sw_ovl_ply_wfmt( sw_ovl_ply_weight[0], a, sizeof( a ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_carry[0], b, sizeof( b ) );
+				snprintf( v, sizeof( v ), "%s/%s", a, b );
+				y += sw_ovl_ply_line( panel, "负重", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+				sw_ovl_ply_wfmt( sw_ovl_ply_cargo, a, sizeof( a ) );
+				sw_ovl_ply_wfmt( sw_ovl_ply_cargol, b, sizeof( b ) );
+				snprintf( v, sizeof( v ), "%s/%s", a, b );
+				y += sw_ovl_ply_line( panel, "行李", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+				sw_ovl_ply_wfmt( sw_ovl_ply_equipw[0], a, sizeof( a ) );
+				y += sw_ovl_ply_line( panel, "装备", a, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			}
 	}
 
 	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
