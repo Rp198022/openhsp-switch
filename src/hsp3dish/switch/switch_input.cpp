@@ -312,15 +312,23 @@ void switch_input_poll( void )
 	/*	r270: remember when the pad last moved.  Elona is turn based, so the
 		game data changes only while somebody is playing - but a player who
 		walks around without touching anything the panel tracks still counts
-		as present, and this is the cheapest honest signal for it.			*/
-	if ( sw_pad != NULL ) {
+		as present, and this is the cheapest honest signal for it.  The
+		physical keyboard counts too: Eden plays with one and has no pad.	*/
+	{
 		static Uint32 sig = 0;
 		Uint32 s = 0;
 		int b, a;
-		for ( b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++ )
-			s = s * 31u + (Uint32)SDL_GameControllerGetButton( sw_pad, (SDL_GameControllerButton)b );
-		for ( a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++ )
-			s = s * 31u + (Uint32)( SDL_GameControllerGetAxis( sw_pad, (SDL_GameControllerAxis)a ) / 8000 );
+
+		if ( sw_pad != NULL ) {
+			for ( b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++ )
+				s = s * 31u + (Uint32)SDL_GameControllerGetButton( sw_pad, (SDL_GameControllerButton)b );
+			for ( a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++ )
+				s = s * 31u + (Uint32)( SDL_GameControllerGetAxis( sw_pad, (SDL_GameControllerAxis)a ) / 8000 );
+		}
+		{
+			const Uint8 *k = SDL_GetKeyboardState( NULL );
+			for ( b = 0; b < 128; b++ ) s = s * 31u + (Uint32)k[ b ];
+		}
 		if ( s != sig ) {
 			sig = s;
 			sw_activity_tick = SDL_GetTicks();
