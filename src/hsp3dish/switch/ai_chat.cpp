@@ -15,6 +15,9 @@
 #include <string.h>
 #include <time.h>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <pthread.h>
 
 #include <curl/curl.h>
@@ -76,6 +79,44 @@ static void ai_status_set( const char *s )
 	ai_status[ sizeof( ai_status ) - 1 ] = '\0';
 }
 
+/*	Read a whole small file through POSIX calls.  The port's fopen wrapper
+	caches "this path is missing" answers (glue_switch.cpp, glue_miss_seen)
+	and only drops them when a write goes through that same wrapper, so a
+	file created later - ai_input.txt, or a follower's markdown written by
+	/设定 - stayed invisible to fopen for the rest of the run.  open() is not
+	intercepted, which makes these reads see the card as it is now.
+
+	Returns the byte count, or -1 when the file cannot be opened.		*/
+static int ai_read_file( const char *path, char *buf, int n )
+{
+	int fd, r;
+
+	if ( path == NULL || buf == NULL || n < 2 ) return -1;
+	fd = open( path, O_RDONLY );
+	if ( fd < 0 ) return -1;
+	r = (int)read( fd, buf, (size_t)n - 1 );
+	close( fd );
+	if ( r < 0 ) r = 0;
+	buf[ r ] = '\0';
+	return r;
+}
+
+/*	Copy the next line out of *pp, advancing it past the terminator.		*/
+static int ai_next_line( const char **pp, char *out, int n )
+{
+	const char *p;
+	int i = 0;
+
+	if ( pp == NULL || *pp == NULL || **pp == '\0' ) return 0;
+	p = *pp;
+	while ( *p && *p != '\n' && i < n - 1 ) out[ i++ ] = *p++;
+	if ( *p == '\n' ) p++;
+	else if ( *p == '\r' ) p++;
+	out[ i ] = '\0';
+	*pp = p;
+	return 1;
+}
+
 /*	One "key = value" line of the config; '#' starts a comment.				*/
 static void ai_trim( char *s )
 {
@@ -90,16 +131,18 @@ static void ai_trim( char *s )
 
 static void ai_load_config( void )
 {
-	FILE *f = fopen( AI_CONFIG, "rb" );
+	static char data[ 4096 ];
 	char line[ 512 ];
+	const char *p;
 
-	if ( f == NULL ) {
+	if ( ai_read_file( AI_CONFIG, data, sizeof( data ) ) < 0 ) {
 		ai_enabled = 0;
 		ai_state = AI_STATE_OFF;
 		ai_status_set( "AI 未配置" );
 		return;
 	}
-	while ( fgets( line, sizeof( line ), f ) != NULL ) {
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
 		char *eq, *k, *v;
 		ai_trim( line );
 		if ( line[ 0 ] == '#' || line[ 0 ] == '\0' ) continue;
@@ -122,7 +165,6 @@ static void ai_load_config( void )
 			ai_enabled = atoi( v ) != 0;
 		}
 	}
-	fclose( f );
 	if ( !ai_enabled ) { ai_state = AI_STATE_OFF; ai_status_set( "AI 已关闭" ); return; }
 	if ( ai_key[ 0 ] == '\0' ) { ai_state = AI_STATE_OFF; ai_status_set( "AI 无密钥" ); return; }
 	ai_state = AI_STATE_READY;
@@ -138,9 +180,10 @@ static void ai_load_config( void )
 	Anything else in the file is ignored, so the file stays editable by hand. */
 static void ai_load_persona( const char *npc )
 {
+	static char data[ 8192 ];
 	char path[ 256 ];
 	char line[ 512 ];
-	FILE *f;
+	const char *p;
 	int section = 0;				/* 1 = persona, 2 = memory			*/
 	size_t pl, ml;
 
@@ -152,19 +195,18 @@ static void ai_load_persona( const char *npc )
 	ai_memory[ 0 ] = '\0';
 
 	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", npc );
-	f = fopen( path, "rb" );
-	if ( f == NULL ) {
+	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
 		/*	A save whose follower has no file of its own still gets the shared
 			default, so one persona can be tried before writing everyone's.	*/
 		snprintf( path, sizeof( path ), AI_DIR "npc/default.md" );
-		f = fopen( path, "rb" );
-		if ( f == NULL ) {
+		if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
 			printf( "aichat: no persona for %s\n", npc );
 			fflush( stdout );
 			return;
 		}
 	}
-	while ( fgets( line, sizeof( line ), f ) != NULL ) {
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
 		if ( strncmp( line, "##", 2 ) == 0 ) {
 			if ( strstr( line, "人设" ) != NULL ) section = 1;
 			else if ( strstr( line, "记忆" ) != NULL ) section = 2;
@@ -179,7 +221,6 @@ static void ai_load_persona( const char *npc )
 		else if ( section == 2 && ml + strlen( line ) + 1 < sizeof( ai_memory ) )
 			strcat( ai_memory, line );
 	}
-	fclose( f );
 	ai_trim( ai_persona );
 	ai_trim( ai_memory );
 	printf( "aichat: persona %s (%d bytes, memory %d)\n", npc,
@@ -644,8 +685,9 @@ int ai_chat_seq( void )
 
 int ai_chat_remember( const char *instruction )
 {
-	char path[ 256 ], tmp[ 256 ], line[ 512 ];
-	FILE *in, *out;
+	static char data[ 8192 ];
+	char path[ 256 ], tmp[ 256 ];
+	FILE *out;
 
 	if ( instruction == NULL ) return 0;
 	while ( *instruction == ' ' || *instruction == '\t' ) instruction++;
@@ -656,18 +698,15 @@ int ai_chat_remember( const char *instruction )
 		memory section.  A follower that is still living on the shared default
 		gets its own file seeded from it, so /设定 works before the player has
 		copied anything by hand.											*/
-	in = fopen( path, "rb" );
-	if ( in == NULL ) {
+	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
 		char base[ 256 ];
 		snprintf( base, sizeof( base ), AI_DIR "npc/default.md" );
-		in = fopen( base, "rb" );
+		if ( ai_read_file( base, data, sizeof( data ) ) < 0 ) return 0;
 	}
-	if ( in == NULL ) return 0;
 	out = fopen( tmp, "wb" );
-	if ( out == NULL ) { fclose( in ); return 0; }
-	while ( fgets( line, sizeof( line ), in ) != NULL ) fputs( line, out );
+	if ( out == NULL ) return 0;
+	fputs( data, out );
 	fprintf( out, "- %s\n", instruction );
-	fclose( in );
 	fclose( out );
 	remove( path );
 	rename( tmp, path );
@@ -679,11 +718,13 @@ int ai_chat_remember( const char *instruction )
 	file dropped on the SD card stands in for typed input.  Removed once read. */
 static void ai_poll_input( void )
 {
-	FILE *f = fopen( AI_INPUT, "rb" );
+	char data[ AI_MAX_LINE ];
 	char line[ AI_MAX_LINE ];
+	const char *p;
 
-	if ( f == NULL ) return;
-	if ( fgets( line, sizeof( line ), f ) != NULL ) {
+	if ( ai_read_file( AI_INPUT, data, sizeof( data ) ) < 0 ) return;
+	p = data;
+	if ( ai_next_line( &p, line, sizeof( line ) ) ) {
 		ai_trim( line );
 		if ( strncmp( line, "/设定", strlen( "/设定" ) ) == 0 ) {
 			ai_chat_remember( line + strlen( "/设定" ) );
@@ -691,7 +732,6 @@ static void ai_poll_input( void )
 			ai_chat_ask( line );
 		}
 	}
-	fclose( f );
 	remove( AI_INPUT );
 }
 
