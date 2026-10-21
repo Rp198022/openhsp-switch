@@ -1532,7 +1532,9 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 
 static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl, int bottom )
 {
-	char rows[ 128 ][ 256 ];
+	/*	r272: 32 KB of rows on the render thread's stack was asking for
+		trouble - with three long answers the bottom rows went missing.	*/
+	static char rows[ 128 ][ 256 ];
 	char buf[ 256 ];
 	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h, shown;
 
