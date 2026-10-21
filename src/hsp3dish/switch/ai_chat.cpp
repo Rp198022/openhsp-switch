@@ -333,8 +333,17 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			"记忆：%s", memory );
 	}
 	if ( question != NULL ) {
+		/*	Only the first scene line (where and when) goes with a question:
+			the full snapshot carries the newest log row, and the model kept
+			answering that instead of what the player actually typed.		*/
+		char where[ 160 ];
+		size_t wl = 0;
+		while ( scene[ wl ] && scene[ wl ] != '\n' && wl < sizeof( where ) - 1 ) wl++;
+		memcpy( where, scene, wl );
+		where[ wl ] = '\0';
 		snprintf( usr, sizeof( usr ),
-			"%s\n主人对你说：「%s」\n直接回应主人的话。", scene, question );
+			"%s\n主人对你说：「%s」\n只回答这句话，一句话，不要描述四周、不要提日志。",
+			where, question );
 	} else {
 		snprintf( usr, sizeof( usr ), "%s", scene );
 	}
@@ -575,6 +584,13 @@ int ai_chat_ask( const char *question )
 		fflush( stdout );
 		return 0;
 	}
+	/*	A question outranks whatever the game just did: drop the queued
+		event so the reply is about what the player typed.					*/
+	pthread_mutex_lock( &ai_lock );
+	ai_event_prio = -1;
+	ai_event[ 0 ] = '\0';
+	pthread_mutex_unlock( &ai_lock );
+
 	/*	A question interrupts the idle timer; the answer is a real reply.
 		A request already in flight used to swallow the question outright,
 		which is why some presses of ZR+ZL produced no answer at all - the
