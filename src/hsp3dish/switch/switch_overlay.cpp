@@ -2165,15 +2165,23 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			and it shows the last three lines so a conversation reads as a
 			conversation.  The oldest is pushed out by the newest.			*/
 		static char box[ AI_HISTORY * 512 + 16 ];
-		int hi;
+		char one[ 512 ];
+		int hi, ci;
 
 		box[ 0 ] = '\0';
 		for ( hi = ai_chat_history_count() - 1; hi >= 0; hi-- ) {
 			const char *h = ai_chat_history( hi );
 			if ( h == NULL || h[ 0 ] == '\0' ) continue;
+			/*	A newline inside one answer would eat a row of the box and
+				push the whole block up; each line is wrapped by width here
+				instead, so three answers take six or seven rows.		*/
+			snprintf( one, sizeof( one ), "%s", h );
+			for ( ci = 0; one[ ci ]; ci++ )
+				if ( one[ ci ] == '\n' || one[ ci ] == '\r' ) one[ ci ] = ' ';
+			if ( one[ 0 ] == '\0' ) continue;
 			if ( box[ 0 ] )
 				strncat( box, "\n", sizeof( box ) - 1 - strlen( box ) );
-			strncat( box, h, sizeof( box ) - 1 - strlen( box ) );
+			strncat( box, one, sizeof( box ) - 1 - strlen( box ) );
 		}
 		if ( box[ 0 ] )
 			sw_ovl_chat_lines( panel, box, 8, panel->h - 8, SW_OVL_AI_ROWS, 1 );
