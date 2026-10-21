@@ -26,14 +26,13 @@
 #define AI_MAX_PERSONA	2048
 #define AI_MAX_MEMORY	1024
 #define AI_EVENT_KINDS	8		/* recent event sentences kept for dedup */
-
 #define AI_DIR			"sdmc:/switch/openhsp/data/"
 #define AI_CONFIG		AI_DIR "ai_config.txt"
 #define AI_LOG			AI_DIR "npc_log.txt"
 #define AI_INPUT		AI_DIR "ai_input.txt"	/* debug chat channel	*/
 
 static int			ai_enabled = 0;			/* config says on			*/
-static int			ai_interval = 90;		/* seconds between idle lines */
+static int			ai_interval = 40;		/* seconds between idle lines */
 static char			ai_key[ 256 ] = "";
 static char			ai_model[ 64 ] = "deepseek-chat";
 
@@ -46,6 +45,10 @@ static double		ai_event_at = 0;
 
 static char			ai_line[ AI_MAX_LINE ] = "";		/* newest answer			*/
 static char			ai_last_line[ AI_MAX_LINE ] = "";
+/*	r272: the panel keeps the last three lines on screen, so the module
+	remembers them instead of only the newest one.							*/
+static char			ai_hist[ AI_HISTORY ][ AI_MAX_LINE ];
+static int			ai_hist_n = 0;
 static int			ai_seq = 0;							/* bumps on every shown line */
 static char			ai_pending[ AI_MAX_LINE ] = "";		/* question waiting its turn */
 static int			ai_has_pending = 0;
@@ -471,23 +474,25 @@ static void ai_request( char *body )
 		if ( strcmp( result, "SKIP" ) == 0 || strcmp( result, "skip" ) == 0 ) {
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
-		} else if ( strcmp( result, ai_last_line ) != 0 || ai_seq == 0 ||
-				ai_now() - ai_last_line_at > 2.0 ) {
-			/*	A line that repeats the previous one is still a fresh answer: the
-				sequence number tells the panel to redraw, so a follower that
-				answers with the same words twice does not look silent.		*/
+		} else {
+			/*	r272: every answer goes into the three-line history, even one
+				that repeats the previous words - the panel shows a log, not
+				a single current line.										*/
+			int hi;
 			strncpy( ai_line, result, sizeof( ai_line ) - 1 );
 			ai_line[ sizeof( ai_line ) - 1 ] = '\0';
 			strncpy( ai_last_line, result, sizeof( ai_last_line ) - 1 );
 			ai_last_line[ sizeof( ai_last_line ) - 1 ] = '\0';
+			for ( hi = AI_HISTORY - 1; hi > 0; hi-- )
+				memcpy( ai_hist[ hi ], ai_hist[ hi - 1 ], AI_MAX_LINE );
+			strncpy( ai_hist[ 0 ], result, AI_MAX_LINE - 1 );
+			ai_hist[ 0 ][ AI_MAX_LINE - 1 ] = '\0';
+			if ( ai_hist_n < AI_HISTORY ) ai_hist_n++;
 			ai_last_line_at = ai_now();
 			ai_seq++;
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 			ai_log_line( "say", result );
-		} else {
-			ai_state = AI_STATE_READY;
-			ai_status_set( "AI 就绪" );
 		}
 	} else {
 		char note[ 192 ];
@@ -619,11 +624,11 @@ void ai_chat_notify_event( const char *event, int priority )
 
 	if ( !ai_enabled || event == NULL || event[ 0 ] == '\0' ) return;
 	pthread_mutex_lock( &ai_lock );
-	/*	Same sentence inside 15 seconds is the same event seen twice: ignore.
-		Kept short - a follower that reacts to the game only once a minute
-		feels dead, and one request costs a fraction of a fen.				*/
+	/*	Same sentence inside 8 seconds is the same event seen twice: ignore.
+		Kept short on request - the follower should feel present, and one
+		request costs a fraction of a fen.									*/
 	for ( i = 0; i < AI_EVENT_KINDS; i++ ) {
-		if ( strcmp( ai_event_kind[ i ], event ) == 0 && now - ai_event_seen[ i ] < 15 ) {
+		if ( strcmp( ai_event_kind[ i ], event ) == 0 && now - ai_event_seen[ i ] < 8 ) {
 			pthread_mutex_unlock( &ai_lock );
 			return;
 		}
@@ -790,7 +795,7 @@ void ai_chat_tick( void )
 		flight is still worth a line.  A short gap keeps a burst of game
 		events from turning into a burst of paid requests.					*/
 	pthread_mutex_lock( &ai_lock );
-	if ( ai_event_prio >= 0 && now - ai_last_request >= 6.0 ) {
+	if ( ai_event_prio >= 0 && now - ai_last_request >= 3.0 ) {
 		char event[ 512 ];
 		snprintf( event, sizeof( event ), "%s", ai_event );
 		ai_event_prio = -1;
@@ -816,6 +821,17 @@ void ai_chat_set_idle( int idle )
 const char *ai_chat_text( void )
 {
 	return ai_line;
+}
+
+const char *ai_chat_history( int index )
+{
+	if ( index < 0 || index >= AI_HISTORY ) return "";
+	return ai_hist[ index ];
+}
+
+int ai_chat_history_count( void )
+{
+	return ai_hist_n;
 }
 
 int ai_chat_state( void )

@@ -52,6 +52,12 @@ void ai_chat_set_idle( int idle );
 /*	The newest line to draw, or "" when there is nothing new.  UTF-8.		*/
 const char *ai_chat_text( void );
 
+/*	The panel shows the last three lines; index 0 is the newest, and the
+	oldest is pushed out when a fourth arrives.								*/
+#define AI_HISTORY	3
+const char *ai_chat_history( int index );
+int ai_chat_history_count( void );
+
 /*	Bumps every time a new line is shown, including a line that happens to
 	repeat the previous one.  The panel watches this instead of the text so a
 	repeated answer still redraws.											*/

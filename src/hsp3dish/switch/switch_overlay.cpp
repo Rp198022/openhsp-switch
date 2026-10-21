@@ -278,6 +278,8 @@ static int		sw_ovl_party_rank[2][ 8 ];
 static int		sw_ovl_party_fix[2][ 5 ];
 static GLuint	sw_ovl_face_u_tex[2] = { 0, 0 };
 static int		sw_ovl_party_rel[2] = { 0, 0 };
+static int		sw_ovl_party_imp[2] = { 0, 0 };	/* cdata 17: impression	*/
+static int		sw_ovl_party_ms[2] = { 0, 0 };	/* cdata 169: master-servant */
 static int		sw_ovl_wep[2][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
 static int		sw_ovl_face_u_id[2] = { 0, 0 };
 /*	Pet chat: the latest pet-related log lines joined by '\n', newest
@@ -292,8 +294,7 @@ static char		sw_ovl_party_chat[2][ 1200 ] = { "", "" };
 	from ai_chat.cpp, off a worker thread.
 	r269: the game's chatter row is gone - the whole lower half of the pet's
 	strip is the answer box, so a line may now run to four or five rows. */
-#define SW_OVL_AI_ROWS	8
-#define SW_OVL_AI_LINE_H	18
+#define SW_OVL_AI_ROWS	15
 static char		sw_ovl_ai_shown[ 512 ] = "";
 static int		sw_ovl_ai_seq_seen = 0;
 static int		sw_ovl_ai_last_battle = 0;
@@ -313,6 +314,11 @@ static int		sw_ovl_ai_w_gold = -1;
 static int		sw_ovl_ai_w_level = -1;
 static int		sw_ovl_ai_w_cargo = -1;
 static int		sw_ovl_ai_w_ether = -1;
+static int		sw_ovl_ai_w_imp = -1;		/* follower's affection		*/
+static int		sw_ovl_ai_w_ms = -1;		/* follower's master-servant	*/
+static int		sw_ovl_ai_w_weather = -1;
+static int		sw_ovl_ai_w_part = -1;		/* hour / 4					*/
+static int		sw_ovl_ai_w_battle = 0;
 static int		sw_ovl_ai_w_cond = 0;
 static int		sw_ovl_ai_w_cond_ready = 0;
 static unsigned int	sw_ovl_ai_w_tick = 0;
@@ -1524,11 +1530,11 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 		(float)aw, (float)ah, u0, v0, u1, v1 );
 }
 
-static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl )
+static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y, int maxl, int bottom )
 {
 	char rows[ 128 ][ 256 ];
 	char buf[ 256 ];
-	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h;
+	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h, shown;
 
 	if ( msg == NULL ) return;
 	len = (int)strlen( msg );
@@ -1565,6 +1571,10 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 	/*	Bottom-aligned: render only the newest maxl rows, old rows scroll off
 		the top; the newest message always shows in full at the bottom.  */
 	start = ( nr > maxl ) ? ( nr - maxl ) : 0;
+	shown = nr - start;
+	/*	r272: bottom mode takes y as the baseline the last row sits on, so a
+		two-line answer hugs the bottom instead of floating mid-strip.	*/
+	if ( bottom && shown > 0 ) y -= shown * 18;
 	for ( row = start, rrow = 0; row < nr; row++, rrow++ ) {
 		/*	r187v: colour like the game's own log below the HP bars - a quoted
 			line is dialogue (init.hsp msg_write paints those 210,250,160),
@@ -1642,6 +1652,35 @@ static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *v
 	return 2;
 }
 
+/*	r272: the game's own two scales, taken from init.hsp (_impressiona7 and
+	_impressionb3) and chara_func.hsp (implevel / implevel2).  They are not
+	the same thing: the first is plain affection, the second is the master-
+	servant axis a follower also carries.  A follower sitting at 50 reads
+	"普通", exactly as the character sheet shows.							*/
+static const char *sw_ovl_imp_name( int v )
+{
+	if ( v < 10 ) return "厌恶";
+	if ( v < 25 ) return "讨厌";
+	if ( v < 40 ) return "烦人";
+	if ( v < 75 ) return "普通";
+	if ( v < 100 ) return "好意";
+	if ( v < 150 ) return "家人";
+	if ( v < 200 ) return "亲爱";
+	if ( v < 300 ) return "溺爱";
+	return "深爱";
+}
+
+static const char *sw_ovl_ms_name( int v )
+{
+	if ( v < 0 ) return "奔放";
+	if ( v < 100 ) return "对等";
+	if ( v < 150 ) return "坦率";
+	if ( v < 200 ) return "忠诚";
+	if ( v < 250 ) return "恭顺";
+	if ( v < 300 ) return "心醉";
+	return "忠义";
+}
+
 /*	r261: the block the model is told about the current moment.  Everything
 	here is already human-readable - no raw field numbers, no ids - because
 	the model would only guess at what "gdata 20 = 12" means.				*/
@@ -1689,11 +1728,15 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
+		"关系：主人对你的好感 %d（%s），主从 %d（%s）——说话要按这两项来\n"
 		"最近：%s",
 		where, sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
 		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
 		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
-		php, cond, php2, hunger, wp, recent );
+		php, cond, php2, hunger, wp,
+		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
+		sw_ovl_party_ms[ pet ], sw_ovl_ms_name( sw_ovl_party_ms[ pet ] ),
+		recent );
 }
 
 /*	A cheap hash of the values that move when the player acts.  The log row
@@ -1793,16 +1836,60 @@ static void sw_ovl_ai_watch( void )
 	}
 	sw_ovl_ai_w_level = sw_ovl_ply_level;
 
-	if ( sw_ovl_ai_w_cargo >= 0 && sw_ovl_ply_cargol > 0 &&
-			sw_ovl_ply_cargo * 100 >= sw_ovl_ply_cargol * 85 &&
-			sw_ovl_ai_w_cargo * 100 < sw_ovl_ply_cargol * 85 ) {
-		ai_chat_notify_event( "行李快装不下了", 1 );
+	if ( sw_ovl_ai_w_cargo >= 0 && sw_ovl_ply_cargol > 0 ) {
+		if ( sw_ovl_ply_cargo * 100 >= sw_ovl_ply_cargol * 85 &&
+				sw_ovl_ai_w_cargo * 100 < sw_ovl_ply_cargol * 85 )
+			ai_chat_notify_event( "行李快装不下了", 1 );
+		if ( sw_ovl_ply_cargo > sw_ovl_ply_cargol &&
+				sw_ovl_ai_w_cargo <= sw_ovl_ply_cargol )
+			ai_chat_notify_event( "行李已经超重了", 2 );
 	}
 	sw_ovl_ai_w_cargo = sw_ovl_ply_cargo;
 
 	if ( sw_ovl_ai_w_ether >= 0 && sw_ovl_ply_ether > sw_ovl_ai_w_ether )
 		ai_chat_notify_event( "主人又染上了一种以太病", 2 );
 	sw_ovl_ai_w_ether = sw_ovl_ply_ether;
+
+	/*	r272: affection moves rarely and always means something, so it is the
+		loudest event there is - priority 5 makes it beat everything else in
+		the queue, and a change of tier is worth a line by itself.			*/
+	if ( sw_ovl_ai_w_imp >= 0 && sw_ovl_party_imp[1] != sw_ovl_ai_w_imp ) {
+		int d = sw_ovl_party_imp[1] - sw_ovl_ai_w_imp;
+		snprintf( line, sizeof( line ), "主人对你的好感%s了 %d，现在是「%s」",
+			d > 0 ? "提高" : "下降", d > 0 ? d : -d,
+			sw_ovl_imp_name( sw_ovl_party_imp[1] ) );
+		ai_chat_notify_event( line, 5 );
+	}
+	sw_ovl_ai_w_imp = sw_ovl_party_imp[1];
+
+	if ( sw_ovl_ai_w_ms >= 0 && sw_ovl_party_ms[1] != sw_ovl_ai_w_ms ) {
+		snprintf( line, sizeof( line ), "你和主人的主从关系变成了「%s」",
+			sw_ovl_ms_name( sw_ovl_party_ms[1] ) );
+		ai_chat_notify_event( line, 5 );
+	}
+	sw_ovl_ai_w_ms = sw_ovl_party_ms[1];
+
+	/*	Weather and the part of day: cheap, frequent, and they give the
+		follower something new to talk about while walking.				*/
+	if ( sw_ovl_ai_w_weather >= 0 && sw_ovl_ply_weather != sw_ovl_ai_w_weather ) {
+		snprintf( line, sizeof( line ), "天气变了，现在是%s",
+			sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
+		ai_chat_notify_event( line, 1 );
+	}
+	sw_ovl_ai_w_weather = sw_ovl_ply_weather;
+
+	if ( sw_ovl_ai_w_part >= 0 && sw_ovl_ply_hour / 4 != sw_ovl_ai_w_part ) {
+		snprintf( line, sizeof( line ), "天色变了，现在是%s",
+			sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ) );
+		ai_chat_notify_event( line, 1 );
+	}
+	sw_ovl_ai_w_part = sw_ovl_ply_hour / 4;
+
+	/*	The start of a fight is reported once; drawing the sheet already keeps
+		its own copy of the flag, so the watcher needs its own.				*/
+	if ( !sw_ovl_ai_w_battle && sw_ovl_battle_on )
+		ai_chat_notify_event( "附近出现了敌人", 3 );
+	sw_ovl_ai_w_battle = sw_ovl_battle_on;
 
 	/*	3. Newly gained condition, by name - "你中毒了" reads better than a
 		number the model would have to guess at.							*/
@@ -2072,17 +2159,22 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 
 	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
-		/*	r269: the game's own log line is no longer echoed here.  It was a
-			single row nobody read twice, and the space is better spent on an
-			answer that can now be a full sentence.							*/
-		if ( sw_ovl_ai_shown[ 0 ] ) {
-			SDL_Rect hr;
-			int ty = panel->h - SW_OVL_AI_ROWS * SW_OVL_AI_LINE_H - 8;
-			if ( ty < y + 8 ) ty = y + 8;
-			hr.x = 8; hr.y = ty - 6; hr.w = strip_w - 16; hr.h = 1;
-			SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 200 ) );
-			sw_ovl_chat_lines( panel, sw_ovl_ai_shown, 8, ty, SW_OVL_AI_ROWS );
+		/*	r272: the whole lower half of the pet's strip is the answer box,
+			and it shows the last three lines so a conversation reads as a
+			conversation.  The oldest is pushed out by the newest.			*/
+		static char box[ AI_HISTORY * 512 + 16 ];
+		int hi;
+
+		box[ 0 ] = '\0';
+		for ( hi = ai_chat_history_count() - 1; hi >= 0; hi-- ) {
+			const char *h = ai_chat_history( hi );
+			if ( h == NULL || h[ 0 ] == '\0' ) continue;
+			if ( box[ 0 ] )
+				strncat( box, "\n", sizeof( box ) - 1 - strlen( box ) );
+			strncat( box, h, sizeof( box ) - 1 - strlen( box ) );
 		}
+		if ( box[ 0 ] )
+			sw_ovl_chat_lines( panel, box, 8, panel->h - 8, SW_OVL_AI_ROWS, 1 );
 	}
 
 	/*	r247: the battle sheet hangs the current enemy off the bottom of the
@@ -2257,13 +2349,13 @@ static int sw_ovl_party_refresh( int *slot )
 			SW_OVL_PLY_SYNC( sw_ovl_ply_weather, sw_ovl_gdata( SW_OVL_GD_WEATHER ) );
 		}
 
-			/*	Affection is the impression plus the master-servant axis: the
-				game's own thresholds are 200 / 250 / 300 / 350 (action.hsp).
-				The HUD read cdata(9), which is the hostile-relation band
-				(-3..10), so the number beside the name was never the real
-				one.														*/
-			{ int rr = sw_ovl_cdata( 17, s ) + sw_ovl_cdata( 169, s );
-			  if ( rr != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = rr; } }
+			/*	r272: affection (cdata 17) and the master-servant axis
+				(cdata 169) are separate scales with separate names; the sum
+				is only what the name row shows, as before.				*/
+			{ int im = sw_ovl_cdata( 17, s ), ms = sw_ovl_cdata( 169, s );
+			  if ( im != sw_ovl_party_imp[k] ) { dirty = 1; sw_ovl_party_imp[k] = im; }
+			  if ( ms != sw_ovl_party_ms[k] ) { dirty = 1; sw_ovl_party_ms[k] = ms; }
+			  if ( im + ms != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = im + ms; } }
 		/*	r203 probe: does the name-table route agree with the HUD's
 			dimension route, and is chatc actually pointing at a follower?
 			Prints once per run.  Remove with the rest of r203's probe. */
