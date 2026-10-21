@@ -15,9 +15,6 @@
 #include <string.h>
 #include <time.h>
 
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <pthread.h>
 
 #include <curl/curl.h>
@@ -79,26 +76,29 @@ static void ai_status_set( const char *s )
 	ai_status[ sizeof( ai_status ) - 1 ] = '\0';
 }
 
-/*	Read a whole small file through POSIX calls.  The port's fopen wrapper
-	caches "this path is missing" answers (glue_switch.cpp, glue_miss_seen)
-	and only drops them when a write goes through that same wrapper, so a
-	file created later - ai_input.txt, or a follower's markdown written by
-	/设定 - stayed invisible to fopen for the rest of the run.  open() is not
-	intercepted, which makes these reads see the card as it is now.
+/*	Read a whole small file.  The port's fopen wrapper caches "this path is
+	missing" answers (glue_switch.cpp, glue_miss_seen) and only re-probes a
+	cached path after the filesystem is reported as changed.  A file that
+	appears later - ai_input.txt, or a follower's markdown written by /设定 -
+	stayed invisible for that reason, so every read here announces a change
+	first.  glue_fs_mutated() is the wrapper's own invalidation hook.
 
 	Returns the byte count, or -1 when the file cannot be opened.		*/
+extern "C" void glue_fs_mutated( void );
+
 static int ai_read_file( const char *path, char *buf, int n )
 {
-	int fd, r;
+	FILE *f;
+	size_t r;
 
 	if ( path == NULL || buf == NULL || n < 2 ) return -1;
-	fd = open( path, O_RDONLY );
-	if ( fd < 0 ) return -1;
-	r = (int)read( fd, buf, (size_t)n - 1 );
-	close( fd );
-	if ( r < 0 ) r = 0;
+	glue_fs_mutated();
+	f = fopen( path, "rb" );
+	if ( f == NULL ) return -1;
+	r = fread( buf, 1, (size_t)n - 1, f );
+	fclose( f );
 	buf[ r ] = '\0';
-	return r;
+	return (int)r;
 }
 
 /*	Copy the next line out of *pp, advancing it past the terminator.		*/
