@@ -36,7 +36,8 @@ jobs:
           dkp-pacman -S --noconfirm --needed \
             switch-dev devkitA64 libnx switch-tools \
             switch-sdl2 switch-sdl2_image switch-sdl2_mixer switch-sdl2_ttf \
-            switch-mesa switch-libdrm_nouveau switch-pkg-config
+            switch-mesa switch-libdrm_nouveau switch-pkg-config \
+            switch-curl switch-mbedtls
 
       - name: Show toolchain versions
         #	The base image only exports DEVKITARM, so DEVKITA64 and the toolchain

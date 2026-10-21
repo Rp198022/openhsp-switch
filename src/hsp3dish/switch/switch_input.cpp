@@ -58,6 +58,7 @@
 
 #include "switch_input.h"
 #include "switch_overlay.h"
+#include "ai_chat.h"
 /*	Switch diagnostics.  0 = shipping build.						*/
 #ifndef SWITCH_DIAG
 #define SWITCH_DIAG 0
@@ -159,6 +160,7 @@ static unsigned int			sw_push_no;
 	button is down - so the three layers behave the same on both.			*/
 static int sw_zl_raw = -1;			/* raw joystick button, or -1	*/
 static int sw_zr_raw = -1;
+static int sw_ai_key_held;			/* ZR+ZL already opened the keyboard */
 
 /*	"righttrigger:b9" -> 9; "righttrigger:a5" -> -1 (that pad already hands
 	the trigger over as an axis, so no raw button is needed).			*/
@@ -535,9 +537,9 @@ static const SW_CHARKEY sw_charkeys[] = {
 		SDL's X is the left button.											*/
 	{ SDL_CONTROLLER_BUTTON_X,			SW_NO_AXIS,							'x', 'w', '7' },
 	/*	ZL fires.  R layer: the read key, which the left-stick click used to
-		carry.  ZR layer: the centre of the keypad grid, which is what the
-		player asked ZR+ZL to be.											*/
-	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'r', '5' },
+		carry.  ZR layer: r261 gave the keypad's 5 up - ZR+ZL now opens the
+		companion chat instead, so it types nothing here.					*/
+	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERLEFT,					'f', 'r',  0 },
 	/*	ZR is the third layer's shift itself, so it types nothing anywhere.	*/
 	{ SW_NO_BUTTON,	SDL_CONTROLLER_AXIS_TRIGGERRIGHT,					 0,   0,  0 },
 	/*	- opens the help (the player picked it for this unobtrusive key).
@@ -638,6 +640,30 @@ int switch_input_take_keys( char *out, int max )
 	if ( sw_pad == NULL || out == NULL || max < 1 ) return 0;
 
 	layer = sw_layer();
+
+	/*	r261: ZR+ZL opens the companion chat.  The keyboard blocks like any
+		other Elona prompt, so the caller simply sees a longer frame; the
+		typed line goes to the chatter module, prefixed /设定 for a persona
+		note.  Emulators without applet support are skipped - launching the
+		keyboard there crashes, which is why the marker exists.				*/
+	if ( layer == 2 && sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) &&
+			!sw_ai_key_held ) {
+		FILE *f;
+		sw_ai_key_held = 1;
+		f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
+		if ( f != NULL ) fclose( f );
+		else {
+			char text[ 512 ];
+			if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
+				if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
+					ai_chat_remember( text + strlen( "/设定" ) );
+				else
+					ai_chat_ask( text );
+			}
+		}
+	} else if ( !sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) ) {
+		sw_ai_key_held = 0;
+	}
 
 	for ( i = 0; i < SW_CHARKEY_N; i++ ) {
 		const SW_CHARKEY *e = &sw_charkeys[i];

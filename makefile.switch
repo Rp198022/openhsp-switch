@@ -121,6 +121,7 @@ LIBS_DISH := -Wl,--start-group \
 	-lEGL -lglapi -ldrm_nouveau \
 	-lfreetype -lharfbuzz -lpng16 -ljpeg -lwebp -lbz2 \
 	-lvorbisidec -lopus -lopusfile -logg -lmodplug -lmpg123 \
+	-lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
 	-lz -lpthread -lstdc++ -lnx -lm \
 	-Wl,--end-group
 
@@ -209,6 +210,7 @@ OBJS_DISH := \
 	src/hsp3dish/switch/switch_input.swd \
 	src/hsp3dish/switch/switch_overlay.swd \
 	src/hsp3dish/switch/textconv_switch.swd \
+	src/hsp3dish/switch/ai_chat.swd \
 	src/hsp3dish/switch/webtask_switch.swd \
 	src/hsp3dish/switch/main_dish.swd
 

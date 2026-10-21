@@ -34,6 +34,7 @@
 #include <GL/gl.h>			/* shadowed by glcompat: maps to gles1_shim	*/
 
 #include "switch_overlay.h"
+#include "ai_chat.h"
 
 /*	Party HUD reads the interpreter's script variables directly, so it can
 	track the player and one pet without touching the script.  The shim
@@ -98,7 +99,7 @@ static const SW_OVL_ROW sw_ovl_left[] = {
 	{ "左摇杆↓",	"使用道具" },
 	{ "左摇杆←",	"擦洗" },
 	{ "左摇杆→",	"堆叠" },
-	{ "ZL",			"数字 5" },
+	{ "ZL",			"呼出对话" },
 	{ "L",			"删除存档" },
 	{ "减号",		"翻页上" },
 };
@@ -284,6 +285,16 @@ static int		sw_ovl_face_u_id[2] = { 0, 0 };
 	lines scrolling up as new ones arrive like the game's own log.		*/
 #define SW_OVL_PET_ROWS	6
 static char		sw_ovl_party_chat[2][ 1200 ] = { "", "" };
+
+/*	r261: the companion's model-written line, drawn under the game's own
+	chatter.  The port only tracks what changed; the sentence itself comes
+	from ai_chat.cpp, off a worker thread.								*/
+#define SW_OVL_AI_ROWS	3
+static char		sw_ovl_ai_shown[ 512 ] = "";
+static int		sw_ovl_ai_last_battle = 0;
+static int		sw_ovl_ai_last_level = -1;
+static int		sw_ovl_ai_was_hurt = 0;
+static int		sw_ovl_ai_was_hungry = 0;
 
 void switch_overlay_ctx_reset( void )
 {
@@ -1601,6 +1612,54 @@ static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *v
 	return 2;
 }
 
+/*	r261: the block the model is told about the current moment.  Everything
+	here is already human-readable - no raw field numbers, no ids - because
+	the model would only guess at what "gdata 20 = 12" means.				*/
+static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
+{
+	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 160 ];
+	int first = 1, c, php, php2, hunger, weight, carry;
+	size_t rl, i;
+
+	cond[ 0 ] = '\0';
+	for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+		if ( sw_ovl_ply_cond[0][ c ] <= 0 ) continue;
+		if ( !first ) strncat( cond, "、", sizeof( cond ) - 1 - strlen( cond ) );
+		strncat( cond, sw_ovl_bat_cond[ c ].name, sizeof( cond ) - 1 - strlen( cond ) );
+		first = 0;
+	}
+	if ( first ) snprintf( cond, sizeof( cond ), "正常" );
+
+	php  = sw_ovl_party_mhp[0] > 0 ? sw_ovl_party_hp[0] * 100 / sw_ovl_party_mhp[0] : 0;
+	php2 = sw_ovl_party_mhp[pet] > 0 ? sw_ovl_party_hp[pet] * 100 / sw_ovl_party_mhp[pet] : 0;
+	hunger = sw_ovl_lim( sw_ovl_ply_hunger[pet] / 100, 0, 100 );
+	weight = sw_ovl_ply_weight[pet];
+	carry  = sw_ovl_ply_carry[pet];
+	sw_ovl_ply_wfmt( weight, a, sizeof( a ) );
+	sw_ovl_ply_wfmt( carry, b, sizeof( b ) );
+	snprintf( wp, sizeof( wp ), "%s/%s", a, b );
+
+	/*	The newest game log line, flattened: a newline inside the block would
+		break the "最近：" row into two unrelated sentences.				*/
+	snprintf( recent, sizeof( recent ), "%s",
+		sw_ovl_party_chat[1][ 0 ] ? sw_ovl_party_chat[1] : "安静" );
+	rl = strlen( recent );
+	for ( i = 0; i < rl; i++ ) if ( recent[ i ] == '\n' || recent[ i ] == '\r' ) recent[ i ] = ' ';
+	if ( rl > 100 ) {
+		memmove( recent, recent + rl - 100, 101 );
+	}
+
+	snprintf( out, n,
+		"地点：%s  时间：%d/%d/%d %s %s\n"
+		"主人：HP %d%%，状态 %s\n"
+		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
+		"最近：%s",
+		where, sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
+		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
+		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
+		php, cond, php2, hunger, wp, recent );
+}
+
 static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 {
 	SDL_Surface *panel;
@@ -1823,6 +1882,15 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
 		y += 8;
 		sw_ovl_chat_lines( panel, sw_ovl_utf8( sw_ovl_party_chat[ 1 ] ), 8, y, SW_OVL_PET_ROWS * 2 );
+		/*	r261: the model's own line, under the game's chatter and in a
+			different colour so the two are told apart at a glance.		*/
+		if ( sw_ovl_ai_shown[ 0 ] ) {
+			SDL_Rect hr;
+			int ty = panel->h - SW_OVL_PLY_LINE_H * SW_OVL_AI_ROWS - 6;
+			hr.x = 8; hr.y = ty - 5; hr.w = strip_w - 16; hr.h = 1;
+			SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 200 ) );
+			sw_ovl_chat_lines( panel, sw_ovl_ai_shown, 8, ty, SW_OVL_AI_ROWS );
+		}
 	}
 
 	/*	r247: the battle sheet hangs the current enemy off the bottom of the
@@ -2079,6 +2147,52 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		strip is skipped while slot[1] is -1, and that cache was never filled. */
 	sw_ovl_party_slot[0] = slot[0];
 	sw_ovl_party_slot[1] = slot[1];
+
+	/*	r261: feed the chatter worker and redraw when its line moves.  Without
+		a follower there is nobody to speak, so the module stays untouched.	*/
+	if ( slot[1] >= 0 ) {
+		char scene[ 1024 ], npc[ 64 ], where[ 48 ];
+		const char *ai_line;
+
+		ai_chat_init();
+		snprintf( npc, sizeof( npc ), "%s", sw_ovl_party_name[1] );
+		if ( sw_ovl_ply_level > 0 )
+			snprintf( where, sizeof( where ), "地下第 %d 层", sw_ovl_ply_level );
+		else
+			snprintf( where, sizeof( where ), "地表" );
+		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
+		ai_chat_set_context( npc, scene );
+
+		/*	Events: each one is a plain sentence for the model to word. */
+		if ( sw_ovl_ai_last_battle && !sw_ovl_battle_on )
+			ai_chat_notify_event( "刚刚的战斗结束了，你们赢了", 2 );
+		sw_ovl_ai_last_battle = sw_ovl_battle_on;
+
+		if ( sw_ovl_ply_level != sw_ovl_ai_last_level && sw_ovl_ai_last_level >= 0 )
+			ai_chat_notify_event( sw_ovl_ply_level > 0 ? "你们来到了新的楼层"
+				: "你们回到了地面", 1 );
+		sw_ovl_ai_last_level = sw_ovl_ply_level;
+
+		if ( sw_ovl_party_mhp[0] > 0 && sw_ovl_party_hp[0] * 100 < sw_ovl_party_mhp[0] * 30 ) {
+			if ( !sw_ovl_ai_was_hurt )
+				ai_chat_notify_event( "主人伤得很重，血流不止", 3 );
+			sw_ovl_ai_was_hurt = 1;
+		} else sw_ovl_ai_was_hurt = 0;
+
+		if ( sw_ovl_ply_hunger[0] / 100 < 20 ) {
+			if ( !sw_ovl_ai_was_hungry ) ai_chat_notify_event( "主人已经很饿了", 2 );
+			sw_ovl_ai_was_hungry = 1;
+		} else sw_ovl_ai_was_hungry = 0;
+
+		ai_chat_tick();
+
+		ai_line = ai_chat_text();
+		if ( ai_line != NULL && strcmp( ai_line, sw_ovl_ai_shown ) != 0 ) {
+			strncpy( sw_ovl_ai_shown, ai_line, sizeof( sw_ovl_ai_shown ) - 1 );
+			sw_ovl_ai_shown[ sizeof( sw_ovl_ai_shown ) - 1 ] = '\0';
+			dirty = 1;
+		}
+	}
 
 	/*	r258: the sheet runs the full window height - the old -16 left a bare
 		black band under the right strip whenever its rows were short.		*/
