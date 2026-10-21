@@ -314,8 +314,11 @@ static size_t ai_write_cb( char *data, size_t sz, size_t nm, void *user )
 static void ai_build_body( char *out, size_t n, const char *scene,
 				const char *persona, const char *memory, const char *question )
 {
-	char sys[ 3072 ], sys_esc[ 6400 ];
-	char usr[ 3072 ], usr_esc[ 6400 ];
+	char where[ 160 ];
+	/*	Same reason as ai_start: four buffers of this size do not belong on a
+		worker thread's stack either.  The worker runs one request at a time. */
+	static char sys[ 3072 ], sys_esc[ 6400 ];
+	static char usr[ 3072 ], usr_esc[ 6400 ];
 
 	snprintf( sys, sizeof( sys ),
 		"你是《Elona》中主人的随从「%s」。%s%s%s"
@@ -361,46 +364,56 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 static void ai_request( char *body )
 {
 	CURL *h;
-	struct curl_slist *hdrs = NULL;
+	struct curl_slist *hdrs;
 	struct AI_BUF buf;
 	char auth[ 320 ];
 	char result[ AI_MAX_LINE ];
 	long code = 0;
-	CURLcode rc;
+	CURLcode rc = CURLE_OK;
+	int attempt;
 
 	buf.p = (char*)calloc( 1, AI_MAX_TEXT );
 	result[ 0 ] = '\0';
 	if ( buf.p == NULL ) { ai_busy = 0; return; }
-	buf.n = 0;
 
-	h = curl_easy_init();
-	if ( h == NULL ) {
-		free( buf.p );
-		ai_busy = 0;
-		return;
-	}
 	snprintf( auth, sizeof( auth ), "Authorization: Bearer %s", ai_key );
-	hdrs = curl_slist_append( hdrs, "Content-Type: application/json" );
-	hdrs = curl_slist_append( hdrs, auth );
-	curl_easy_setopt( h, CURLOPT_URL, "https://api.deepseek.com/chat/completions" );
-	curl_easy_setopt( h, CURLOPT_HTTPHEADER, hdrs );
-	curl_easy_setopt( h, CURLOPT_POSTFIELDS, body );
-	curl_easy_setopt( h, CURLOPT_WRITEFUNCTION, ai_write_cb );
-	curl_easy_setopt( h, CURLOPT_WRITEDATA, &buf );
-	curl_easy_setopt( h, CURLOPT_TIMEOUT, 12L );
-	curl_easy_setopt( h, CURLOPT_CONNECTTIMEOUT, 8L );
-	curl_easy_setopt( h, CURLOPT_NOSIGNAL, 1L );
-	/*	Switch homebrew has no CA store shipped with it; the request is to a
-		single fixed host and the payload is disposable, so the certificate
-		chain is not verified.  Set verify=1 in the config to keep it on when
-		a CA bundle is present.											*/
-	curl_easy_setopt( h, CURLOPT_SSL_VERIFYPEER, 0L );
-	curl_easy_setopt( h, CURLOPT_SSL_VERIFYHOST, 0L );
+	/*	Two attempts.  The console's TLS handshake to a fixed host fails now
+		and then (SSL connect error) and a retry almost always succeeds; the
+		request is a few hundred tokens, so the second try is free.		*/
+	for ( attempt = 0; attempt < 2; attempt++ ) {
+		buf.n = 0;
+		buf.p[ 0 ] = '\0';
+		code = 0;
+		h = curl_easy_init();
+		if ( h == NULL ) break;
+		hdrs = NULL;
+		hdrs = curl_slist_append( hdrs, "Content-Type: application/json" );
+		hdrs = curl_slist_append( hdrs, auth );
+		curl_easy_setopt( h, CURLOPT_URL, "https://api.deepseek.com/chat/completions" );
+		curl_easy_setopt( h, CURLOPT_HTTPHEADER, hdrs );
+		curl_easy_setopt( h, CURLOPT_POSTFIELDS, body );
+		curl_easy_setopt( h, CURLOPT_WRITEFUNCTION, ai_write_cb );
+		curl_easy_setopt( h, CURLOPT_WRITEDATA, &buf );
+		curl_easy_setopt( h, CURLOPT_TIMEOUT, 15L );
+		curl_easy_setopt( h, CURLOPT_CONNECTTIMEOUT, 8L );
+		curl_easy_setopt( h, CURLOPT_NOSIGNAL, 1L );
+		/*	HTTP/1.1 only: ALPN on this mbedtls build negotiates h2 and then
+			stalls, which shows up as that same SSL connect error.			*/
+		curl_easy_setopt( h, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1 );
+		/*	Switch homebrew has no CA store shipped with it; the request is to
+			a single fixed host and the payload is disposable, so the
+			certificate chain is not verified.							*/
+		curl_easy_setopt( h, CURLOPT_SSL_VERIFYPEER, 0L );
+		curl_easy_setopt( h, CURLOPT_SSL_VERIFYHOST, 0L );
 
-	rc = curl_easy_perform( h );
-	curl_easy_getinfo( h, CURLINFO_RESPONSE_CODE, &code );
-	curl_slist_free_all( hdrs );
-	curl_easy_cleanup( h );
+		rc = curl_easy_perform( h );
+		curl_easy_getinfo( h, CURLINFO_RESPONSE_CODE, &code );
+		curl_slist_free_all( hdrs );
+		curl_easy_cleanup( h );
+		if ( rc == CURLE_OK ) break;
+		printf( "aichat: attempt %d failed rc=%d, retrying\n", attempt + 1, (int)rc );
+		fflush( stdout );
+	}
 
 	pthread_mutex_lock( &ai_lock );
 	if ( rc == CURLE_OK && code == 200 &&
@@ -473,7 +486,12 @@ static void ai_start( const char *question, const char *event )
 {
 	struct AI_JOB *job;
 	pthread_t th;
-	char scene[ AI_MAX_TEXT ], persona[ AI_MAX_PERSONA ], memory[ AI_MAX_MEMORY ];
+	/*	These used to be plain locals, which put ~11 KB on the render thread's
+		stack every time the player asked something.  On the Switch that stack
+		is small: the question arrived at the model as "???jo??&oAl??P?" - the
+		text had been overwritten by the call below it.  Static is safe here
+		because every caller is the same thread (the panel's tick).			*/
+	static char scene[ AI_MAX_TEXT ], persona[ AI_MAX_PERSONA ], memory[ AI_MAX_MEMORY ];
 
 	if ( ai_busy || !ai_enabled || ai_key[ 0 ] == '\0' ) return;
 
