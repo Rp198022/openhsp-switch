@@ -39,4 +39,9 @@ int switch_input_key_state( int scancode );
 	config maps to key_cancel / key_enter / ... by index.					*/
 unsigned int switch_input_pad_bits( void );
 
+/*	SDL_GetTicks() of the last time any button, stick or trigger moved, 0
+	before the first press.  The companion module uses this to tell a player
+	who is standing still from a console nobody is holding.				*/
+unsigned int switch_input_last_activity( void );
+
 #endif

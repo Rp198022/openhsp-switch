@@ -161,6 +161,7 @@ static unsigned int			sw_push_no;
 static int sw_zl_raw = -1;			/* raw joystick button, or -1	*/
 static int sw_zr_raw = -1;
 static int sw_ai_key_held;			/* ZR+ZL already opened the keyboard */
+static unsigned int sw_activity_tick;	/* last pad movement, SDL ticks */
 
 /*	"righttrigger:b9" -> 9; "righttrigger:a5" -> -1 (that pad already hands
 	the trigger over as an axis, so no raw button is needed).			*/
@@ -307,6 +308,24 @@ int switch_input_ask_text( char *out, int outsize )
 void switch_input_poll( void )
 {
 	int i;
+
+	/*	r270: remember when the pad last moved.  Elona is turn based, so the
+		game data changes only while somebody is playing - but a player who
+		walks around without touching anything the panel tracks still counts
+		as present, and this is the cheapest honest signal for it.			*/
+	if ( sw_pad != NULL ) {
+		static Uint32 sig = 0;
+		Uint32 s = 0;
+		int b, a;
+		for ( b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++ )
+			s = s * 31u + (Uint32)SDL_GameControllerGetButton( sw_pad, (SDL_GameControllerButton)b );
+		for ( a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++ )
+			s = s * 31u + (Uint32)( SDL_GameControllerGetAxis( sw_pad, (SDL_GameControllerAxis)a ) / 8000 );
+		if ( s != sig ) {
+			sig = s;
+			sw_activity_tick = SDL_GetTicks();
+		}
+	}
 
 	if ( sw_inject_release >= 0 ) {
 		sw_push_key( (SDL_Scancode)sw_inject_release, 0 );
@@ -728,6 +747,11 @@ int switch_input_take_keys( char *out, int max )
 unsigned int switch_input_pad_bits( void )
 {
 	return 0;
+}
+
+unsigned int switch_input_last_activity( void )
+{
+	return sw_activity_tick;
 }
 /*----------------------------------------------------------------*/
 /*	Install														  */

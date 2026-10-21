@@ -34,6 +34,7 @@
 #include <GL/gl.h>			/* shadowed by glcompat: maps to gles1_shim	*/
 
 #include "switch_overlay.h"
+#include "switch_input.h"
 #include "ai_chat.h"
 
 /*	Party HUD reads the interpreter's script variables directly, so it can
@@ -1822,22 +1823,30 @@ static void sw_ovl_ai_watch( void )
 		on a new bit is a real change.										*/
 	sw_ovl_ai_w_cond_ready = 1;
 
-	/*	r269: sleep the idle timer while nothing moves.  A turn always changes
-		the fingerprint (the log row alone is enough), so the moment the
-		player touches the pad the follower is awake again.					*/
+	/*	r269: sleep the idle timer while nothing moves.  Two signals feed the
+		clock: a change in the tracked values, and anything the pad sees.  The
+		second one matters because walking around changes little the panel
+		watches - without it the follower would fall asleep mid-session.	*/
 	{
 		unsigned int sig = sw_ovl_ai_activity();
-		if ( sig != sw_ovl_ai_act_sig || sw_ovl_ai_act_tick == 0 ) {
+		unsigned int pad = switch_input_last_activity();
+
+		if ( sig != sw_ovl_ai_act_sig ) {
 			sw_ovl_ai_act_sig = sig;
 			sw_ovl_ai_act_tick = now;
-			if ( sw_ovl_ai_idle ) {
-				sw_ovl_ai_idle = 0;
-				ai_chat_set_idle( 0 );
-			}
-		} else if ( !sw_ovl_ai_idle && now - sw_ovl_ai_act_tick > SW_OVL_AI_IDLE_MS ) {
+		}
+		if ( pad > sw_ovl_ai_act_tick ) sw_ovl_ai_act_tick = pad;
+		if ( sw_ovl_ai_act_tick == 0 ) sw_ovl_ai_act_tick = now;
+
+		if ( !sw_ovl_ai_idle && now - sw_ovl_ai_act_tick > SW_OVL_AI_IDLE_MS ) {
 			sw_ovl_ai_idle = 1;
 			ai_chat_set_idle( 1 );
 			printf( "aichat: idle, scenery remarks paused\n" );
+			fflush( stdout );
+		} else if ( sw_ovl_ai_idle && now - sw_ovl_ai_act_tick < 2000 ) {
+			sw_ovl_ai_idle = 0;
+			ai_chat_set_idle( 0 );
+			printf( "aichat: awake again\n" );
 			fflush( stdout );
 		}
 	}
