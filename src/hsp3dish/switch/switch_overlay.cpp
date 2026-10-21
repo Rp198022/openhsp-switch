@@ -288,8 +288,11 @@ static char		sw_ovl_party_chat[2][ 1200 ] = { "", "" };
 
 /*	r261: the companion's model-written line, drawn under the game's own
 	chatter.  The port only tracks what changed; the sentence itself comes
-	from ai_chat.cpp, off a worker thread.								*/
-#define SW_OVL_AI_ROWS	3
+	from ai_chat.cpp, off a worker thread.
+	r269: the game's chatter row is gone - the whole lower half of the pet's
+	strip is the answer box, so a line may now run to four or five rows. */
+#define SW_OVL_AI_ROWS	8
+#define SW_OVL_AI_LINE_H	18
 static char		sw_ovl_ai_shown[ 512 ] = "";
 static int		sw_ovl_ai_seq_seen = 0;
 static int		sw_ovl_ai_last_battle = 0;
@@ -312,6 +315,15 @@ static int		sw_ovl_ai_w_ether = -1;
 static int		sw_ovl_ai_w_cond = 0;
 static int		sw_ovl_ai_w_cond_ready = 0;
 static unsigned int	sw_ovl_ai_w_tick = 0;
+
+/*	r269: unattended consoles.  A fingerprint of everything the panel tracks
+	changes on every turn the player takes and stays put while the game is
+	left standing, which is exactly the signal needed to stop the idle timer
+	from buying scenery remarks all night.									*/
+#define SW_OVL_AI_IDLE_MS	75000
+static unsigned int	sw_ovl_ai_act_sig = 0;
+static unsigned int	sw_ovl_ai_act_tick = 0;
+static int		sw_ovl_ai_idle = 0;
 
 void switch_overlay_ctx_reset( void )
 {
@@ -1683,6 +1695,30 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		php, cond, php2, hunger, wp, recent );
 }
 
+/*	A cheap hash of the values that move when the player acts.  The log row
+	is included because a turn almost always writes one even when the numbers
+	happen to stay the same.												*/
+static unsigned int sw_ovl_ai_activity( void )
+{
+	unsigned int h = 2166136261u;
+	int i;
+
+#define AI_FP( v ) h = ( h ^ (unsigned int)( v ) ) * 16777619u
+	AI_FP( sw_ovl_party_hp[0] );   AI_FP( sw_ovl_party_mhp[0] );
+	AI_FP( sw_ovl_party_hp[1] );   AI_FP( sw_ovl_party_mhp[1] );
+	AI_FP( sw_ovl_ply_gold[0] );   AI_FP( sw_ovl_ply_hunger[0] );
+	AI_FP( sw_ovl_ply_weight[0] );
+	AI_FP( sw_ovl_ply_level );     AI_FP( sw_ovl_ply_hour );
+	AI_FP( sw_ovl_ply_day );       AI_FP( sw_ovl_ply_month );
+	AI_FP( sw_ovl_ply_ether );     AI_FP( sw_ovl_ply_cargo );
+	AI_FP( sw_ovl_ply_weather );   AI_FP( sw_ovl_battle_on );
+	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ ) AI_FP( sw_ovl_ply_cond[0][ i ] );
+	for ( i = 0; i < 64 && sw_ovl_party_chat[1][ i ]; i++ )
+		h = ( h ^ (unsigned char)sw_ovl_party_chat[1][ i ] ) * 16777619u;
+#undef AI_FP
+	return h;
+}
+
 /*	r262: turn a change in the tracked numbers into a sentence the model can
 	react to.  Everything here reads the caches sw_ovl_party_refresh already
 	filled, so the watcher costs a few comparisons per frame and nothing at
@@ -1785,6 +1821,26 @@ static void sw_ovl_ai_watch( void )
 	/*	The first pass only records what the save was loaded with; from then
 		on a new bit is a real change.										*/
 	sw_ovl_ai_w_cond_ready = 1;
+
+	/*	r269: sleep the idle timer while nothing moves.  A turn always changes
+		the fingerprint (the log row alone is enough), so the moment the
+		player touches the pad the follower is awake again.					*/
+	{
+		unsigned int sig = sw_ovl_ai_activity();
+		if ( sig != sw_ovl_ai_act_sig || sw_ovl_ai_act_tick == 0 ) {
+			sw_ovl_ai_act_sig = sig;
+			sw_ovl_ai_act_tick = now;
+			if ( sw_ovl_ai_idle ) {
+				sw_ovl_ai_idle = 0;
+				ai_chat_set_idle( 0 );
+			}
+		} else if ( !sw_ovl_ai_idle && now - sw_ovl_ai_act_tick > SW_OVL_AI_IDLE_MS ) {
+			sw_ovl_ai_idle = 1;
+			ai_chat_set_idle( 1 );
+			printf( "aichat: idle, scenery remarks paused\n" );
+			fflush( stdout );
+		}
+	}
 }
 
 static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
@@ -2007,14 +2063,14 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	}
 
 	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
-		y += 8;
-		sw_ovl_chat_lines( panel, sw_ovl_utf8( sw_ovl_party_chat[ 1 ] ), 8, y, SW_OVL_PET_ROWS * 2 );
-		/*	r261: the model's own line, under the game's chatter and in a
-			different colour so the two are told apart at a glance.		*/
+		/*	r269: the game's own log line is no longer echoed here.  It was a
+			single row nobody read twice, and the space is better spent on an
+			answer that can now be a full sentence.							*/
 		if ( sw_ovl_ai_shown[ 0 ] ) {
 			SDL_Rect hr;
-			int ty = panel->h - SW_OVL_PLY_LINE_H * SW_OVL_AI_ROWS - 6;
-			hr.x = 8; hr.y = ty - 5; hr.w = strip_w - 16; hr.h = 1;
+			int ty = panel->h - SW_OVL_AI_ROWS * SW_OVL_AI_LINE_H - 8;
+			if ( ty < y + 8 ) ty = y + 8;
+			hr.x = 8; hr.y = ty - 6; hr.w = strip_w - 16; hr.h = 1;
 			SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 200 ) );
 			sw_ovl_chat_lines( panel, sw_ovl_ai_shown, 8, ty, SW_OVL_AI_ROWS );
 		}

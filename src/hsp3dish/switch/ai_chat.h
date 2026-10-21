@@ -44,6 +44,11 @@ void ai_chat_notify_event( const char *event, int priority );
 	Call once per frame from the present pass.								*/
 void ai_chat_tick( void );
 
+/*	Nothing in the game has moved for a while.  While this is set the idle
+	timer stays asleep, so an unattended console spends nothing; a question
+	or a real event still goes through immediately.						*/
+void ai_chat_set_idle( int idle );
+
 /*	The newest line to draw, or "" when there is nothing new.  UTF-8.		*/
 const char *ai_chat_text( void );
 

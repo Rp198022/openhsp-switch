@@ -52,6 +52,7 @@ static int			ai_has_pending = 0;
 static int			ai_state = AI_STATE_OFF;
 static char			ai_status[ 96 ] = "AI 未配置";
 static int			ai_busy = 0;
+static int			ai_idle = 0;		/* player stopped acting		*/
 static double		ai_busy_at = 0;		/* when the running request started */
 static double		ai_last_request = 0;
 static double		ai_last_line_at = 0;
@@ -364,7 +365,7 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 
 	snprintf( sys, sizeof( sys ),
 		"你是《Elona》中主人的随从「%s」。%s%s%s"
-		"只输出一句中文台词，20字以内，第一人称，符合人设与记忆，"
+		"只输出中文台词，50字以内，可以用两三个短句，第一人称，符合人设与记忆，"
 		"不要解释、不要动作描写、不要用括号。%s",
 		ai_npc,
 		persona[ 0 ] ? "人设：" : "", persona,
@@ -406,7 +407,7 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		"{\"model\":\"%s\",\"messages\":["
 		"{\"role\":\"system\",\"content\":\"%s\"},"
 		"{\"role\":\"user\",\"content\":\"%s\"}],"
-		"\"temperature\":1.1,\"max_tokens\":80}",
+		"\"temperature\":1.1,\"max_tokens\":200}",
 		ai_model, sys_esc, usr_esc );
 }
 
@@ -800,9 +801,16 @@ void ai_chat_tick( void )
 	}
 	pthread_mutex_unlock( &ai_lock );
 
-	if ( now - ai_last_request >= (double)ai_interval && ai_scene[ 0 ] != '\0' ) {
+	if ( !ai_idle && now - ai_last_request >= (double)ai_interval && ai_scene[ 0 ] != '\0' ) {
 		ai_start( NULL, "无事发生，安静地待着" );
 	}
+}
+
+void ai_chat_set_idle( int idle )
+{
+	/*	An unattended console must not keep paying for scenery remarks.  The
+		panel decides this - it is the only place that sees the game move.	*/
+	ai_idle = idle ? 1 : 0;
 }
 
 const char *ai_chat_text( void )
