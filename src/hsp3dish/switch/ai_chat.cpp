@@ -25,6 +25,7 @@
 #define AI_MAX_LINE		512		/* one spoken line					*/
 #define AI_MAX_PERSONA	2048
 #define AI_MAX_MEMORY	1024
+#define AI_EVENT_KINDS	8		/* recent event sentences kept for dedup */
 
 #define AI_DIR			"sdmc:/switch/openhsp/data/"
 #define AI_CONFIG		AI_DIR "ai_config.txt"
@@ -45,13 +46,16 @@ static double		ai_event_at = 0;
 
 static char			ai_line[ AI_MAX_LINE ] = "";		/* newest answer			*/
 static char			ai_last_line[ AI_MAX_LINE ] = "";
+static int			ai_seq = 0;							/* bumps on every shown line */
+static char			ai_pending[ AI_MAX_LINE ] = "";		/* question waiting its turn */
+static int			ai_has_pending = 0;
 static int			ai_state = AI_STATE_OFF;
 static char			ai_status[ 96 ] = "AI 未配置";
 static int			ai_busy = 0;
 static double		ai_last_request = 0;
 static double		ai_last_line_at = 0;
-static double		ai_event_seen[ 4 ];					/* 最近的同类事件时间	*/
-static char			ai_event_kind[ 4 ][ 64 ] = { "", "", "", "" };
+static double		ai_event_seen[ AI_EVENT_KINDS ];		/* 最近的同类事件时间	*/
+static char			ai_event_kind[ AI_EVENT_KINDS ][ 96 ];
 
 /*	Persona and memory, read once per follower.							*/
 static char			ai_persona_name[ 64 ] = "";
@@ -293,10 +297,14 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	snprintf( sys, sizeof( sys ),
 		"你是《Elona》中主人的随从「%s」。%s%s%s"
 		"只输出一句中文台词，20字以内，第一人称，符合人设与记忆，"
-		"不要解释、不要动作描写、不要用括号。若此刻不适合说话，只输出 SKIP。",
+		"不要解释、不要动作描写、不要用括号。%s",
 		ai_npc,
 		persona[ 0 ] ? "人设：" : "", persona,
-		memory[ 0 ] ? "" : "" );
+		memory[ 0 ] ? "" : "",
+		/*	A reply to the player must never be skipped: the model used to
+			answer SKIP to a direct question and the panel looked dead.	*/
+		question != NULL ? "主人正在跟你说话，必须用一句话回应，绝对不要输出 SKIP。"
+			: "若此刻不适合说话，只输出 SKIP。" );
 	if ( memory[ 0 ] ) {
 		snprintf( sys + strlen( sys ), sizeof( sys ) - strlen( sys ),
 			"记忆：%s", memory );
@@ -368,12 +376,17 @@ static void ai_request( char *body )
 		if ( strcmp( result, "SKIP" ) == 0 || strcmp( result, "skip" ) == 0 ) {
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
-		} else if ( strcmp( result, ai_last_line ) != 0 ) {
+		} else if ( strcmp( result, ai_last_line ) != 0 || ai_seq == 0 ||
+				ai_now() - ai_last_line_at > 2.0 ) {
+			/*	A line that repeats the previous one is still a fresh answer: the
+				sequence number tells the panel to redraw, so a follower that
+				answers with the same words twice does not look silent.		*/
 			strncpy( ai_line, result, sizeof( ai_line ) - 1 );
 			ai_line[ sizeof( ai_line ) - 1 ] = '\0';
 			strncpy( ai_last_line, result, sizeof( ai_last_line ) - 1 );
 			ai_last_line[ sizeof( ai_last_line ) - 1 ] = '\0';
 			ai_last_line_at = ai_now();
+			ai_seq++;
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 			ai_log_line( "say", result );
@@ -453,11 +466,22 @@ static void ai_start( const char *question, const char *event )
 
 void ai_chat_init( void )
 {
-	static int once = 0;
-	if ( once ) return;
-	once = 1;
-	curl_global_init( CURL_GLOBAL_DEFAULT );
+	static int inited = 0;
+	static double retry_at = 0;
+	double now;
+
+	if ( inited && ai_enabled ) return;
+	now = ai_now();
+	if ( inited && now < retry_at ) return;		/* one fopen every 10 seconds */
+	if ( !inited ) {
+		curl_global_init( CURL_GLOBAL_DEFAULT );
+		inited = 1;
+	}
+	/*	The config file usually only appears after the first launch, so a
+		missing one is retried instead of locking the module off for the
+		whole run.  Until it shows up nothing is spent.						*/
 	ai_load_config();
+	retry_at = now + 10.0;
 }
 
 void ai_chat_set_context( const char *npc_name, const char *scene )
@@ -484,14 +508,16 @@ void ai_chat_notify_event( const char *event, int priority )
 
 	if ( !ai_enabled || event == NULL || event[ 0 ] == '\0' ) return;
 	pthread_mutex_lock( &ai_lock );
-	/*	Same sentence inside 30 seconds is the same event seen twice: ignore. */
-	for ( i = 0; i < 4; i++ ) {
-		if ( strcmp( ai_event_kind[ i ], event ) == 0 && now - ai_event_seen[ i ] < 30 ) {
+	/*	Same sentence inside 15 seconds is the same event seen twice: ignore.
+		Kept short - a follower that reacts to the game only once a minute
+		feels dead, and one request costs a fraction of a fen.				*/
+	for ( i = 0; i < AI_EVENT_KINDS; i++ ) {
+		if ( strcmp( ai_event_kind[ i ], event ) == 0 && now - ai_event_seen[ i ] < 15 ) {
 			pthread_mutex_unlock( &ai_lock );
 			return;
 		}
 	}
-	for ( i = 1; i < 4; i++ ) if ( ai_event_seen[ i ] < ai_event_seen[ slot ] ) slot = i;
+	for ( i = 1; i < AI_EVENT_KINDS; i++ ) if ( ai_event_seen[ i ] < ai_event_seen[ slot ] ) slot = i;
 	strncpy( ai_event_kind[ slot ], event, sizeof( ai_event_kind[ slot ] ) - 1 );
 	ai_event_kind[ slot ][ sizeof( ai_event_kind[ slot ] ) - 1 ] = '\0';
 	ai_event_seen[ slot ] = now;
@@ -507,11 +533,36 @@ void ai_chat_notify_event( const char *event, int priority )
 
 int ai_chat_ask( const char *question )
 {
-	if ( !ai_enabled || ai_key[ 0 ] == '\0' || question == NULL || question[ 0 ] == '\0' )
+	if ( question == NULL || question[ 0 ] == '\0' ) return 0;
+	/*	The keyboard works on any layer, so the module may never have been
+		initialised by the panel yet - do it here as well.					*/
+	ai_chat_init();
+	if ( !ai_enabled || ai_key[ 0 ] == '\0' ) {
+		printf( "aichat: ask ignored, %s\n", ai_status );
+		fflush( stdout );
 		return 0;
-	/*	A question interrupts the idle timer; the answer is a real reply.	*/
+	}
+	/*	A question interrupts the idle timer; the answer is a real reply.
+		A request already in flight used to swallow the question outright,
+		which is why some presses of ZR+ZL produced no answer at all - the
+		text is now parked and sent as soon as the worker is free.			*/
+	if ( ai_busy ) {
+		pthread_mutex_lock( &ai_lock );
+		strncpy( ai_pending, question, sizeof( ai_pending ) - 1 );
+		ai_pending[ sizeof( ai_pending ) - 1 ] = '\0';
+		ai_has_pending = 1;
+		pthread_mutex_unlock( &ai_lock );
+		printf( "aichat: question queued\n" );
+		fflush( stdout );
+		return 1;
+	}
 	ai_start( question, NULL );
 	return 1;
+}
+
+int ai_chat_seq( void )
+{
+	return ai_seq;
 }
 
 int ai_chat_remember( const char *instruction )
@@ -571,6 +622,7 @@ void ai_chat_tick( void )
 {
 	static double next_poll = 0;
 	double now;
+	char pending[ AI_MAX_LINE ];
 
 	if ( !ai_enabled || ai_busy ) return;
 	now = ai_now();
@@ -580,8 +632,25 @@ void ai_chat_tick( void )
 	ai_poll_input();
 	if ( ai_busy ) return;
 
+	/*	A question the player typed while a request was running goes first:
+		it is the one thing the player is waiting for.						*/
 	pthread_mutex_lock( &ai_lock );
-	if ( ai_event_prio >= 0 && now - ai_event_at < 5.0 ) {
+	if ( ai_has_pending ) {
+		snprintf( pending, sizeof( pending ), "%s", ai_pending );
+		ai_pending[ 0 ] = '\0';
+		ai_has_pending = 0;
+	}
+	pthread_mutex_unlock( &ai_lock );
+	if ( pending[ 0 ] ) {
+		ai_start( pending, NULL );
+		return;
+	}
+
+	/*	Events no longer expire: whatever happened while a request was in
+		flight is still worth a line.  A short gap keeps a burst of game
+		events from turning into a burst of paid requests.					*/
+	pthread_mutex_lock( &ai_lock );
+	if ( ai_event_prio >= 0 && now - ai_last_request >= 6.0 ) {
 		char event[ 512 ];
 		snprintf( event, sizeof( event ), "%s", ai_event );
 		ai_event_prio = -1;

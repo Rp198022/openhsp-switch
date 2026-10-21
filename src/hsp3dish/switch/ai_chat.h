@@ -47,6 +47,11 @@ void ai_chat_tick( void );
 /*	The newest line to draw, or "" when there is nothing new.  UTF-8.		*/
 const char *ai_chat_text( void );
 
+/*	Bumps every time a new line is shown, including a line that happens to
+	repeat the previous one.  The panel watches this instead of the text so a
+	repeated answer still redraws.											*/
+int ai_chat_seq( void );
+
 /*	State for the status row, plus the last error in words.				*/
 int ai_chat_state( void );
 const char *ai_chat_status_text( void );

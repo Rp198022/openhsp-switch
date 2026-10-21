@@ -291,10 +291,27 @@ static char		sw_ovl_party_chat[2][ 1200 ] = { "", "" };
 	from ai_chat.cpp, off a worker thread.								*/
 #define SW_OVL_AI_ROWS	3
 static char		sw_ovl_ai_shown[ 512 ] = "";
+static int		sw_ovl_ai_seq_seen = 0;
 static int		sw_ovl_ai_last_battle = 0;
 static int		sw_ovl_ai_last_level = -1;
 static int		sw_ovl_ai_was_hurt = 0;
 static int		sw_ovl_ai_was_hungry = 0;
+
+/*	r262: what the follower is told about the game.  The panel already reads
+	the interpreter's arrays every frame, so the same reads feed a watcher
+	that turns a change into a plain sentence for the model.  A log line is
+	the most informative of them - Elona writes "你击败了…" / "你捡到了…"
+	there - and the numbers cover what the log does not say out loud.		*/
+static char		sw_ovl_ai_w_log[ 1200 ] = "";
+static unsigned int	sw_ovl_ai_w_log_tick = 0;
+static int		sw_ovl_ai_w_hp_pct = -1;
+static int		sw_ovl_ai_w_gold = -1;
+static int		sw_ovl_ai_w_level = -1;
+static int		sw_ovl_ai_w_cargo = -1;
+static int		sw_ovl_ai_w_ether = -1;
+static int		sw_ovl_ai_w_cond = 0;
+static int		sw_ovl_ai_w_cond_ready = 0;
+static unsigned int	sw_ovl_ai_w_tick = 0;
 
 void switch_overlay_ctx_reset( void )
 {
@@ -1666,6 +1683,110 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		php, cond, php2, hunger, wp, recent );
 }
 
+/*	r262: turn a change in the tracked numbers into a sentence the model can
+	react to.  Everything here reads the caches sw_ovl_party_refresh already
+	filled, so the watcher costs a few comparisons per frame and nothing at
+	all when the game is idle.  Thresholds are deliberately coarse: the
+	model only needs "something happened", not a telemetry feed.			*/
+static void sw_ovl_ai_watch( void )
+{
+	unsigned int now = SDL_GetTicks();
+	char line[ 240 ], note[ 192 ], logbuf[ 240 ];
+	const char *p;
+	size_t n;
+	int hp_pct, i;
+
+	if ( now - sw_ovl_ai_w_tick < 500 ) return;		/* twice a second is plenty */
+	sw_ovl_ai_w_tick = now;
+
+	/*	1. The game's own log.  One line per change, at most one every four
+		seconds, and never the follower's own words (those are already the
+		panel's chatter and repeating them makes her sound like a parrot).	*/
+	if ( sw_ovl_party_chat[1][ 0 ] ) {
+		/*	sw_ovl_utf8() hands back one shared buffer, so the line is copied
+			before the name is converted - otherwise the second call would
+			overwrite the string being searched.							*/
+		snprintf( logbuf, sizeof( logbuf ), "%s", sw_ovl_utf8( sw_ovl_party_chat[1] ) );
+		p = logbuf;
+		if ( strcmp( p, sw_ovl_ai_w_log ) != 0 && now - sw_ovl_ai_w_log_tick >= 4000 &&
+				strstr( p, sw_ovl_utf8( sw_ovl_party_name[1] ) ) == NULL ) {
+			n = strlen( p );
+			i = 0;
+			while ( i < (int)n && i < 120 ) i++;
+			while ( i > 0 && i < (int)n && ( (unsigned char)p[ i ] & 0xC0 ) == 0x80 ) i--;
+			snprintf( note, sizeof( note ), "游戏里刚刚发生：%.*s", i, p );
+			for ( n = 0; note[ n ]; n++ )
+				if ( note[ n ] == '\n' || note[ n ] == '\r' ) note[ n ] = ' ';
+			ai_chat_notify_event( note, 2 );
+			/*	Only remember the line once it has been sent, so a burst of
+				log rows inside the cooldown still produces one report of the
+				latest one instead of being swallowed here.				*/
+			snprintf( sw_ovl_ai_w_log, sizeof( sw_ovl_ai_w_log ), "%s", p );
+			sw_ovl_ai_w_log_tick = now;
+		}
+	}
+
+	/*	2. The numbers.  A percentage band for HP so ordinary chip damage does
+		not fire, exact deltas for money and a band for the cart.			*/
+	if ( sw_ovl_party_mhp[0] > 0 ) {
+		hp_pct = sw_ovl_party_hp[0] * 100 / sw_ovl_party_mhp[0];
+		if ( sw_ovl_ai_w_hp_pct >= 0 && sw_ovl_ai_w_hp_pct - hp_pct >= 30 ) {
+			ai_chat_notify_event( "主人刚刚挨了重重的一下", 3 );
+			sw_ovl_ai_w_hp_pct = hp_pct;
+		} else if ( sw_ovl_ai_w_hp_pct >= 0 && hp_pct >= sw_ovl_ai_w_hp_pct + 20 ) {
+			ai_chat_notify_event( "主人的伤势好转了不少", 1 );
+			sw_ovl_ai_w_hp_pct = hp_pct;
+		}
+		sw_ovl_ai_w_hp_pct = hp_pct;
+	}
+
+	if ( sw_ovl_ai_w_gold >= 0 && sw_ovl_ply_gold[0] != sw_ovl_ai_w_gold ) {
+		int d = sw_ovl_ply_gold[0] - sw_ovl_ai_w_gold;
+		if ( d >= 50 || d <= -50 ) {
+			snprintf( line, sizeof( line ), d > 0 ? "主人手头多了 %d 枚金币"
+				: "主人花掉了 %d 枚金币", d > 0 ? d : -d );
+			ai_chat_notify_event( line, 1 );
+		}
+	}
+	sw_ovl_ai_w_gold = sw_ovl_ply_gold[0];
+
+	if ( sw_ovl_ai_w_level >= 0 && sw_ovl_ply_level > sw_ovl_ai_w_level ) {
+		snprintf( line, sizeof( line ), "主人变强了，现在是第 %d 级", sw_ovl_ply_level );
+		ai_chat_notify_event( line, 2 );
+	}
+	sw_ovl_ai_w_level = sw_ovl_ply_level;
+
+	if ( sw_ovl_ai_w_cargo >= 0 && sw_ovl_ply_cargol > 0 &&
+			sw_ovl_ply_cargo * 100 >= sw_ovl_ply_cargol * 85 &&
+			sw_ovl_ai_w_cargo * 100 < sw_ovl_ply_cargol * 85 ) {
+		ai_chat_notify_event( "行李快装不下了", 1 );
+	}
+	sw_ovl_ai_w_cargo = sw_ovl_ply_cargo;
+
+	if ( sw_ovl_ai_w_ether >= 0 && sw_ovl_ply_ether > sw_ovl_ai_w_ether )
+		ai_chat_notify_event( "主人又染上了一种以太病", 2 );
+	sw_ovl_ai_w_ether = sw_ovl_ply_ether;
+
+	/*	3. Newly gained condition, by name - "你中毒了" reads better than a
+		number the model would have to guess at.							*/
+	if ( sw_ovl_ai_w_cond_ready ) {
+		for ( i = 0; i < SW_OVL_BAT_COND_N; i++ ) {
+			if ( sw_ovl_ply_cond[0][ i ] > 0 && !( sw_ovl_ai_w_cond & ( 1 << i ) ) ) {
+				snprintf( line, sizeof( line ), "主人身上冒出了「%s」",
+					sw_ovl_bat_cond[ i ].name );
+				ai_chat_notify_event( line, 2 );
+				break;
+			}
+		}
+	}
+	sw_ovl_ai_w_cond = 0;
+	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ )
+		if ( sw_ovl_ply_cond[0][ i ] > 0 ) sw_ovl_ai_w_cond |= ( 1 << i );
+	/*	The first pass only records what the save was loaded with; from then
+		on a new bit is a real change.										*/
+	sw_ovl_ai_w_cond_ready = 1;
+}
+
 static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 {
 	SDL_Surface *panel;
@@ -2192,10 +2313,17 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 		ai_chat_tick();
 
+		/*	r262: whatever moved in the tracked numbers or in the game log is
+			handed to the model as a plain sentence.  This is what makes her
+			react to the fight, the loot and the looters instead of waiting
+			for the idle timer.												*/
+		sw_ovl_ai_watch();
+
 		ai_line = ai_chat_text();
-		if ( ai_line != NULL && strcmp( ai_line, sw_ovl_ai_shown ) != 0 ) {
-			strncpy( sw_ovl_ai_shown, ai_line, sizeof( sw_ovl_ai_shown ) - 1 );
-			sw_ovl_ai_shown[ sizeof( sw_ovl_ai_shown ) - 1 ] = '\0';
+		if ( ai_chat_seq() != sw_ovl_ai_seq_seen ) {
+			sw_ovl_ai_seq_seen = ai_chat_seq();
+			snprintf( sw_ovl_ai_shown, sizeof( sw_ovl_ai_shown ), "%s",
+				ai_line != NULL ? ai_line : "" );
 			dirty = 1;
 		}
 	}
