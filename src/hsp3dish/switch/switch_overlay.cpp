@@ -1617,7 +1617,7 @@ static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *v
 	the model would only guess at what "gdata 20 = 12" means.				*/
 static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 {
-	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 160 ];
+	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ];
 	int first = 1, c, php, php2, hunger, weight, carry;
 	size_t rl, i;
 
@@ -1640,13 +1640,19 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 	snprintf( wp, sizeof( wp ), "%s/%s", a, b );
 
 	/*	The newest game log line, flattened: a newline inside the block would
-		break the "最近：" row into two unrelated sentences.				*/
+		break the "最近：" row into two unrelated sentences.  The game stores it
+		in GBK, so it is converted first - the request body is UTF-8 and a raw
+		GBK byte would make the API reject the whole JSON with a 400.		*/
 	snprintf( recent, sizeof( recent ), "%s",
-		sw_ovl_party_chat[1][ 0 ] ? sw_ovl_party_chat[1] : "安静" );
+		sw_ovl_party_chat[1][ 0 ] ? sw_ovl_utf8( sw_ovl_party_chat[1] ) : "安静" );
 	rl = strlen( recent );
 	for ( i = 0; i < rl; i++ ) if ( recent[ i ] == '\n' || recent[ i ] == '\r' ) recent[ i ] = ' ';
-	if ( rl > 100 ) {
-		memmove( recent, recent + rl - 100, 101 );
+	if ( rl > 200 ) {
+		/*	Cut on a UTF-8 lead byte, otherwise the first character is sliced
+			and the body is invalid again.								*/
+		i = rl - 200;
+		while ( i < rl && ( (unsigned char)recent[ i ] & 0xC0 ) == 0x80 ) i++;
+		memmove( recent, recent + i, rl - i + 1 );
 	}
 
 	snprintf( out, n,
@@ -2155,7 +2161,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		const char *ai_line;
 
 		ai_chat_init();
-		snprintf( npc, sizeof( npc ), "%s", sw_ovl_party_name[1] );
+		snprintf( npc, sizeof( npc ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
 		if ( sw_ovl_ply_level > 0 )
 			snprintf( where, sizeof( where ), "地下第 %d 层", sw_ovl_ply_level );
 		else
