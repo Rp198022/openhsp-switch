@@ -122,6 +122,9 @@ static void ai_load_config( void )
 	if ( ai_key[ 0 ] == '\0' ) { ai_state = AI_STATE_OFF; ai_status_set( "AI 无密钥" ); return; }
 	ai_state = AI_STATE_READY;
 	ai_status_set( "AI 就绪" );
+	/*	The idle clock starts here, not at zero: without this the follower
+		would blurt something out the moment the party sheet first appears.	*/
+	ai_last_request = ai_now();
 	printf( "aichat: config loaded model=%s interval=%d\n", ai_model, ai_interval );
 	fflush( stdout );
 }
@@ -516,7 +519,9 @@ int ai_chat_remember( const char *instruction )
 	char path[ 256 ], tmp[ 256 ], line[ 512 ];
 	FILE *in, *out;
 
-	if ( instruction == NULL || instruction[ 0 ] == '\0' || ai_npc[ 0 ] == '\0' ) return 0;
+	if ( instruction == NULL ) return 0;
+	while ( *instruction == ' ' || *instruction == '\t' ) instruction++;
+	if ( instruction[ 0 ] == '\0' || ai_npc[ 0 ] == '\0' ) return 0;
 	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", ai_npc );
 	snprintf( tmp, sizeof( tmp ), AI_DIR "npc/%s.md.new", ai_npc );
 	/*	Keep the file's own layout: copy it, and append the note under the
