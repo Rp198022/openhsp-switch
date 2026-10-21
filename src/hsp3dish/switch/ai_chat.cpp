@@ -52,6 +52,7 @@ static int			ai_has_pending = 0;
 static int			ai_state = AI_STATE_OFF;
 static char			ai_status[ 96 ] = "AI 未配置";
 static int			ai_busy = 0;
+static double		ai_busy_at = 0;		/* when the running request started */
 static double		ai_last_request = 0;
 static double		ai_last_line_at = 0;
 static double		ai_event_seen[ AI_EVENT_KINDS ];		/* 最近的同类事件时间	*/
@@ -511,6 +512,7 @@ static void ai_start( const char *question, const char *event )
 	snprintf( persona, sizeof( persona ), "%s", ai_persona );
 	snprintf( memory, sizeof( memory ), "%s", ai_memory );
 	ai_busy = 1;
+	ai_busy_at = ai_now();
 	ai_state = AI_STATE_BUSY;
 	ai_status_set( "AI 思考中" );
 	ai_last_request = ai_now();
@@ -705,13 +707,29 @@ void ai_chat_tick( void )
 		second - which is what produced the 400s and the "I don't understand". */
 	pending[ 0 ] = '\0';
 
-	if ( !ai_enabled || ai_busy ) return;
+	if ( !ai_enabled ) return;
 	now = ai_now();
-	if ( now < next_poll ) return;
-	next_poll = now + 1.0;			/* the input file is checked once a second */
 
-	ai_poll_input();
-	if ( ai_busy ) return;
+	/*	The input file is read even while a request is in flight: the text is
+		parked by ai_chat_ask() and sent the moment the worker is free.  Not
+		polling here made a typed line wait out the whole timeout.			*/
+	if ( now >= next_poll ) {
+		next_poll = now + 1.0;		/* the input file is checked once a second */
+		ai_poll_input();
+	}
+
+	/*	Watchdog: a worker that died before clearing the flag would leave the
+		follower mute for the rest of the run.								*/
+	if ( ai_busy ) {
+		if ( ai_busy_at > 0 && now - ai_busy_at > 45.0 ) {
+			ai_busy = 0;
+			ai_state = AI_STATE_ERROR;
+			ai_status_set( "AI 超时" );
+			printf( "aichat: worker watchdog fired\n" );
+			fflush( stdout );
+		}
+		return;
+	}
 
 	/*	A question the player typed while a request was running goes first:
 		it is the one thing the player is waiting for.						*/
