@@ -379,12 +379,18 @@ static void ai_request( char *body )
 			ai_status_set( "AI 就绪" );
 		}
 	} else {
+		char note[ 192 ];
 		ai_state = AI_STATE_ERROR;
 		if ( rc == CURLE_OPERATION_TIMEDOUT ) ai_status_set( "AI 超时" );
 		else if ( code == 401 ) ai_status_set( "AI 密钥错误" );
 		else if ( code == 402 ) ai_status_set( "AI 余额不足" );
 		else if ( code != 0 ) ai_status_set( "AI 接口错误" );
 		else ai_status_set( "AI 无法连接" );
+		/*	The panel only has room for the short status, so the transport detail
+			goes to the log where a failing setup can be read back afterwards.	*/
+		snprintf( note, sizeof( note ), "%s rc=%d http=%ld %s",
+			ai_status, (int)rc, code, curl_easy_strerror( rc ) );
+		ai_log_line( "error", note );
 	}
 	pthread_mutex_unlock( &ai_lock );
 
