@@ -520,8 +520,15 @@ int ai_chat_remember( const char *instruction )
 	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", ai_npc );
 	snprintf( tmp, sizeof( tmp ), AI_DIR "npc/%s.md.new", ai_npc );
 	/*	Keep the file's own layout: copy it, and append the note under the
-		memory section.  A missing section is created at the end.			*/
+		memory section.  A follower that is still living on the shared default
+		gets its own file seeded from it, so /设定 works before the player has
+		copied anything by hand.											*/
 	in = fopen( path, "rb" );
+	if ( in == NULL ) {
+		char base[ 256 ];
+		snprintf( base, sizeof( base ), AI_DIR "npc/default.md" );
+		in = fopen( base, "rb" );
+	}
 	if ( in == NULL ) return 0;
 	out = fopen( tmp, "wb" );
 	if ( out == NULL ) { fclose( in ); return 0; }
