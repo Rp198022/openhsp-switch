@@ -195,8 +195,6 @@ static void ai_log_line( const char *kind, const char *text )
 	fclose( f );
 }
 
-static void ai_hex_dump( const char *path, const char *tag, const char *s, int n );
-
 /*	Escape a UTF-8 string for a JSON string literal.  Control characters and
 	quotes are the only ones that need it; the text itself stays UTF-8.
 	A byte that is not part of a well-formed sequence becomes '?': the game
@@ -354,7 +352,6 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	}
 	ai_json_escape( sys, sys_esc, sizeof( sys_esc ) );
 	ai_json_escape( usr, usr_esc, sizeof( usr_esc ) );
-	if ( question != NULL ) ai_hex_dump( AI_DIR "ai_q2.txt", "body", usr, 64 );
 
 	snprintf( out, n,
 		"{\"model\":\"%s\",\"messages\":["
@@ -594,23 +591,9 @@ void ai_chat_notify_event( const char *event, int priority )
 	pthread_mutex_unlock( &ai_lock );
 }
 
-/*	r263 probe: the question arrives at the model as garbage, so the bytes are
-	dumped at both ends of the trip.  Remove once the corruption is located. */
-static void ai_hex_dump( const char *path, const char *tag, const char *s, int n )
-{
-	FILE *f = fopen( path, "ab" );
-	int i;
-	if ( f == NULL ) return;
-	fprintf( f, "%s: ", tag );
-	for ( i = 0; i < n && s[ i ]; i++ ) fprintf( f, "%02X ", (unsigned char)s[ i ] );
-	fprintf( f, "\n       [%s]\n", s );
-	fclose( f );
-}
-
 int ai_chat_ask( const char *question )
 {
 	if ( question == NULL || question[ 0 ] == '\0' ) return 0;
-	ai_hex_dump( AI_DIR "ai_q1.txt", "ask", question, 48 );
 	/*	The keyboard works on any layer, so the module may never have been
 		initialised by the panel yet - do it here as well.					*/
 	ai_chat_init();
@@ -707,6 +690,12 @@ void ai_chat_tick( void )
 	static double next_poll = 0;
 	double now;
 	char pending[ AI_MAX_LINE ];
+
+	/*	Must start empty: the block below only fills it when a queued question
+		exists, and the check after it reads the first byte.  Uninitialised,
+		this buffer sent whatever the stack happened to hold to the API once a
+		second - which is what produced the 400s and the "I don't understand". */
+	pending[ 0 ] = '\0';
 
 	if ( !ai_enabled || ai_busy ) return;
 	now = ai_now();
