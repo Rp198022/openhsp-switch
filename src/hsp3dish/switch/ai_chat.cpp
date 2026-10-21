@@ -336,6 +336,13 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			"记忆：%s", memory );
 	}
 	if ( question != NULL ) {
+		/*	Said twice on purpose - once in the system prompt, once in the
+			user turn - because this model otherwise drifts back to whatever
+			the persona was complaining about.								*/
+		snprintf( sys + strlen( sys ), sizeof( sys ) - strlen( sys ),
+			"主人刚刚问你：「%s」。回答必须针对这句话。", question );
+	}
+	if ( question != NULL ) {
 		/*	Only the first scene line (where and when) goes with a question:
 			the full snapshot carries the newest log row, and the model kept
 			answering that instead of what the player actually typed.		*/
@@ -613,6 +620,7 @@ int ai_chat_ask( const char *question )
 		A request already in flight used to swallow the question outright,
 		which is why some presses of ZR+ZL produced no answer at all - the
 		text is now parked and sent as soon as the worker is free.			*/
+	ai_log_line( "ask", question );
 	if ( ai_busy ) {
 		pthread_mutex_lock( &ai_lock );
 		strncpy( ai_pending, question, sizeof( ai_pending ) - 1 );
