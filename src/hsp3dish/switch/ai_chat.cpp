@@ -196,19 +196,42 @@ static void ai_log_line( const char *kind, const char *text )
 }
 
 /*	Escape a UTF-8 string for a JSON string literal.  Control characters and
-	quotes are the only ones that need it; the text itself stays UTF-8.		*/
+	quotes are the only ones that need it; the text itself stays UTF-8.
+	A byte that is not part of a well-formed sequence becomes '?': the game
+	stores log lines in GBK and one stray byte anywhere in the body makes the
+	API reject the whole request with 400.								*/
 static void ai_json_escape( const char *in, char *out, size_t n )
 {
 	size_t o = 0;
 	const unsigned char *p = (const unsigned char*)in;
 
 	while ( *p && o + 8 < n ) {
-		if ( *p == '"' || *p == '\\' ) { out[ o++ ] = '\\'; out[ o++ ] = (char)*p++; }
-		else if ( *p == '\n' ) { out[ o++ ] = '\\'; out[ o++ ] = 'n'; p++; }
-		else if ( *p == '\r' ) { p++; }
-		else if ( *p == '\t' ) { out[ o++ ] = ' '; p++; }
-		else if ( *p < 0x20 ) { p++; }
-		else out[ o++ ] = (char)*p++;
+		if ( *p < 0x80 ) {
+			if ( *p == '"' || *p == '\\' ) { out[ o++ ] = '\\'; out[ o++ ] = (char)*p++; }
+			else if ( *p == '\n' ) { out[ o++ ] = '\\'; out[ o++ ] = 'n'; p++; }
+			else if ( *p == '\r' ) { p++; }
+			else if ( *p == '\t' ) { out[ o++ ] = ' '; p++; }
+			else if ( *p < 0x20 || *p == 0x7F ) { p++; }
+			else out[ o++ ] = (char)*p++;
+			continue;
+		}
+		/*	Multi-byte sequence: the lead byte says how long it is, and every
+			continuation byte must carry the 10xxxxxx prefix.			*/
+		{
+			int len = ( *p & 0xE0 ) == 0xC0 ? 2 :
+					( *p & 0xF0 ) == 0xE0 ? 3 :
+					( *p & 0xF8 ) == 0xF0 ? 4 : 0;
+			int k, ok = len > 0;
+			for ( k = 1; ok && k < len; k++ )
+				if ( ( p[ k ] & 0xC0 ) != 0x80 ) ok = 0;
+			if ( ok && o + len < n ) {
+				for ( k = 0; k < len; k++ ) out[ o++ ] = (char)p[ k ];
+				p += len;
+			} else {
+				out[ o++ ] = '?';
+				p++;
+			}
+		}
 	}
 	out[ o ] = '\0';
 }
@@ -407,6 +430,16 @@ static void ai_request( char *body )
 		snprintf( note, sizeof( note ), "%s rc=%d http=%ld %s",
 			ai_status, (int)rc, code, curl_easy_strerror( rc ) );
 		ai_log_line( "error", note );
+		/*	Temporary diagnostic: the last rejected request and the server's
+			reply, so a 400 can be explained without guessing.				*/
+		{
+			FILE *df = fopen( AI_DIR "ai_debug.txt", "wb" );
+			if ( df != NULL ) {
+				fprintf( df, "rc=%d http=%ld\n--- body ---\n%.1400s\n--- reply ---\n%.600s\n",
+					(int)rc, code, body, buf.p );
+				fclose( df );
+			}
+		}
 	}
 	pthread_mutex_unlock( &ai_lock );
 
