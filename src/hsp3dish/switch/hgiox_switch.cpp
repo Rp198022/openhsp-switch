@@ -4140,39 +4140,6 @@ int hgio_mes(BMSCR* bm, char* msg)
 	sw_mes_clean( clean, msg, &had_cr, &clean_ok );
 	use = ( clean_ok && clean[0] != 0 ) ? clean : msg;
 
-	/*	r245: the prompts Elona draws in its menus are bare config characters
-		- `d` drop, `f` fire, `z` action menu - and the pad has no such keys.
-		Every single-character prompt naming a mapped action is drawn with
-		the pad's button instead.  Only a one-character string qualifies, so
-		ordinary text is never touched, and the replacement is ASCII on
-		purpose: the string goes through the GBK path, where a multi-byte
-		literal would be read as garbage.  lu/ld/ll/lr = left stick,
-		ru/rd/rl/rr = right stick, ^v<> = d-pad, R+ / Z+ = the layer shifts.	*/
-	{
-		static const struct { char key; const char *pad; } kh[] = {
-			{ '>', "lu" },   { '<', "ld" },   { 'c', "ll" },   { 'T', "lr" },
-			{ 'v', "ru" },   { 's', "rd" },   { 'a', "rl" },   { 'i', "rr" },
-			{ '5', "R+L" },
-			{ 'z', "X" },    { 'x', "Y" },    { 'f', "ZL" },   { 'S', "+" },
-			{ '?', "-" },
-			{ 'e', "R+A" },  { 'q', "R+B" },  { 'g', "R+X" },  { 'w', "R+Y" },
-			{ 'r', "R+ZL" },
-			{ 'h', "R+lu" }, { 'D', "R+ld" }, { 'G', "R+ll" }, { 'C', "R+lr" },
-			{ 'Z', "R+ru" }, { 'o', "R+rd" }, { 'j', "R+rl" }, { '[', "R+rr" },
-			{ 'p', "R+^" },  { 'O', "R+v" },  { 'B', "R+<" },  { 'F', "R+>" },
-			{ 'l', "R+-" },  { 'm', "R++" },
-			{ 'd', "Z+lu" }, { 't', "Z+ld" }, { 'W', "Z+ll" }, { 'I', "Z+lr" },
-			{ '/', "Z+ru" }, { 'b', "Z+rd" }, { 'A', "Z+rr" },
-			{ '+', "Z+-" },  { '-', "Z++" },  { 'X', "-" },
-		};
-		if ( use != NULL && use[0] != 0 && use[1] == 0 ) {
-			int ki;
-			for ( ki = 0; ki < (int)( sizeof( kh ) / sizeof( kh[0] ) ); ki++ ) {
-				if ( kh[ki].key == use[0] ) { use = kh[ki].pad; break; }
-			}
-		}
-	}
-
 	/*	r196 probe: in GBK builds dump every distinct mes call (pos + color +
 		font + raw bytes) to meslog.txt.  Deduped on (cx, cy, text hash) so a
 		redraw loop floods nothing; recording only, no behaviour change.
