@@ -310,14 +310,14 @@ static int		sw_ovl_ai_was_hungry = 0;
 static char		sw_ovl_ai_w_log[ 1200 ] = "";
 static unsigned int	sw_ovl_ai_w_log_tick = 0;
 static int		sw_ovl_ai_w_hp_pct = -1;
-static int		sw_ovl_ai_w_gold = -1;
-static int		sw_ovl_ai_w_level = -1;
 static int		sw_ovl_ai_w_cargo = -1;
 static int		sw_ovl_ai_w_ether = -1;
 static int		sw_ovl_ai_w_imp = -1;		/* follower's affection		*/
 static int		sw_ovl_ai_w_ms = -1;		/* follower's master-servant	*/
 static int		sw_ovl_ai_w_weather = -1;
 static int		sw_ovl_ai_w_part = -1;		/* hour / 4					*/
+static int		sw_ovl_ai_w_hunger = -1;	/* satiety, 0-100			*/
+static int		sw_ovl_ai_w_dying = 0;		/* already reported < 25%	*/
 static int		sw_ovl_ai_w_battle = 0;
 static int		sw_ovl_ai_w_cond = 0;
 static int		sw_ovl_ai_w_cond_ready = 0;
@@ -1661,26 +1661,95 @@ static int sw_ovl_ply_line( SDL_Surface *panel, const char *label, const char *v
 	"普通", exactly as the character sheet shows.							*/
 static const char *sw_ovl_imp_name( int v )
 {
-	if ( v < 10 ) return "厌恶";
+	/*	Names copied verbatim from start.ax (the _impressiona7 table):
+		Foe / Hate / Annoying / Normal / Amiable / Family / Dear / Doting /
+		MatureLove.  The panel used to say 厌恶-好意-深爱, which never appear
+		in the character sheet.											*/
+	if ( v < 10 ) return "最讨厌";
 	if ( v < 25 ) return "讨厌";
 	if ( v < 40 ) return "烦人";
 	if ( v < 75 ) return "普通";
-	if ( v < 100 ) return "好意";
+	if ( v < 100 ) return "善意的";
 	if ( v < 150 ) return "家人";
 	if ( v < 200 ) return "亲爱";
 	if ( v < 300 ) return "溺爱";
-	return "深爱";
+	return "熟爱";
 }
 
 static const char *sw_ovl_ms_name( int v )
 {
+	/*	_impressionb3: Uninhibited / Peer / Docile / Allegiance / Obedience /
+		Adoration / Loyalty.												*/
 	if ( v < 0 ) return "奔放";
 	if ( v < 100 ) return "对等";
-	if ( v < 150 ) return "坦率";
+	if ( v < 150 ) return "坦诚";
 	if ( v < 200 ) return "忠诚";
 	if ( v < 250 ) return "恭顺";
-	if ( v < 300 ) return "心醉";
+	if ( v < 300 ) return "醉心";
 	return "忠义";
+}
+
+/*	r275: instead of writing one detector per number, the panel keeps the
+	snapshot it had when she last spoke and prints the deltas itself.  The
+	model is bad at comparing two blocks of numbers, but good at reacting to
+	"金币 1200→950".  The baseline moves only when a new line is shown, so a
+	long silence accumulates into one honest summary.					*/
+#define SW_OVL_AI_DIFF_N	8
+static int		sw_ovl_ai_dbase[ SW_OVL_AI_DIFF_N ];
+static int		sw_ovl_ai_dbase_ok = 0;
+static int		sw_ovl_ai_dbase_seq = -1;
+
+static void sw_ovl_ai_dsnap( int *v )
+{
+	v[ 0 ] = sw_ovl_party_mhp[0] > 0 ? sw_ovl_party_hp[0] * 100 / sw_ovl_party_mhp[0] : 0;
+	v[ 1 ] = sw_ovl_party_mmp[0] > 0 ? sw_ovl_party_mp[0] * 100 / sw_ovl_party_mmp[0] : 0;
+	v[ 2 ] = sw_ovl_ply_gold[0];
+	v[ 3 ] = sw_ovl_ply_cargo;
+	v[ 4 ] = sw_ovl_ply_hunger[0] / 100;
+	v[ 5 ] = sw_ovl_ply_level;
+	v[ 6 ] = sw_ovl_ply_weather;
+	v[ 7 ] = sw_ovl_ply_hour / 4;
+}
+
+static void sw_ovl_ai_diff( char *out, size_t n )
+{
+	int cur[ SW_OVL_AI_DIFF_N ];
+	int i, cnt = 0;
+	char one[ 80 ], wa[ 32 ], wb[ 32 ];
+
+	out[ 0 ] = '\0';
+	sw_ovl_ai_dsnap( cur );
+	if ( !sw_ovl_ai_dbase_ok ) { snprintf( out, n, "—" ); return; }
+	for ( i = 0; i < SW_OVL_AI_DIFF_N && cnt < 4; i++ ) {
+		if ( cur[ i ] == sw_ovl_ai_dbase[ i ] ) continue;
+		switch ( i ) {
+		case 0: snprintf( one, sizeof( one ), "主人HP %d%%→%d%%",
+					sw_ovl_ai_dbase[ i ], cur[ i ] ); break;
+		case 1: snprintf( one, sizeof( one ), "主人MP %d%%→%d%%",
+					sw_ovl_ai_dbase[ i ], cur[ i ] ); break;
+		case 2: snprintf( one, sizeof( one ), "金币 %d→%d",
+					sw_ovl_ai_dbase[ i ], cur[ i ] ); break;
+		case 3:
+			sw_ovl_ply_wfmt( sw_ovl_ai_dbase[ i ], wa, sizeof( wa ) );
+			sw_ovl_ply_wfmt( cur[ i ], wb, sizeof( wb ) );
+			snprintf( one, sizeof( one ), "负重 %s→%s", wa, wb );
+			break;
+		case 4: snprintf( one, sizeof( one ), "饱腹 %d%%→%d%%",
+					sw_ovl_ai_dbase[ i ], cur[ i ] ); break;
+		case 5: snprintf( one, sizeof( one ), "等级 %d→%d",
+					sw_ovl_ai_dbase[ i ], cur[ i ] ); break;
+		case 6: snprintf( one, sizeof( one ), "天气 %s→%s",
+					sw_ovl_ply_weather_name( sw_ovl_ai_dbase[ i ] ),
+					sw_ovl_ply_weather_name( cur[ i ] ) ); break;
+		default: snprintf( one, sizeof( one ), "时段 %s→%s",
+					sw_ovl_ply_time_name( sw_ovl_ai_dbase[ i ] ),
+					sw_ovl_ply_time_name( cur[ i ] ) ); break;
+		}
+		if ( out[ 0 ] ) strncat( out, "；", n - strlen( out ) - 1 );
+		strncat( out, one, n - strlen( out ) - 1 );
+		cnt++;
+	}
+	if ( out[ 0 ] == '\0' ) snprintf( out, n, "无" );
 }
 
 /*	r261: the block the model is told about the current moment.  Everything
@@ -1688,7 +1757,7 @@ static const char *sw_ovl_ms_name( int v )
 	the model would only guess at what "gdata 20 = 12" means.				*/
 static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 {
-	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ];
+	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ], diff[ 256 ];
 	int first = 1, c, php, php2, hunger, weight, carry;
 	size_t rl, i;
 
@@ -1726,11 +1795,13 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		memmove( recent, recent + i, rl - i + 1 );
 	}
 
+	sw_ovl_ai_diff( diff, sizeof( diff ) );
 	snprintf( out, n,
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
-		"关系：主人对你的好感 %d（%s），主从 %d（%s）——说话要按这两项来\n"
+		"关系：主人对你的好感 %d（%s），主从 %d（%s）\n"
+		"变化（自你上次开口）：%s\n"
 		"最近：%s",
 		where, sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
 		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
@@ -1738,7 +1809,16 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		php, cond, php2, hunger, wp,
 		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
 		sw_ovl_party_ms[ pet ], sw_ovl_ms_name( sw_ovl_party_ms[ pet ] ),
+		diff,
 		recent );
+
+	/*	The baseline follows the words, not the clock: every sentence she
+		says resets it, so the next request reports what happened since.	*/
+	if ( ai_chat_seq() != sw_ovl_ai_dbase_seq ) {
+		sw_ovl_ai_dsnap( sw_ovl_ai_dbase );
+		sw_ovl_ai_dbase_ok = 1;
+		sw_ovl_ai_dbase_seq = ai_chat_seq();
+	}
 }
 
 /*	A cheap hash of the values that move when the player acts.  The log row
@@ -1763,6 +1843,21 @@ static unsigned int sw_ovl_ai_activity( void )
 		h = ( h ^ (unsigned char)sw_ovl_party_chat[1][ i ] ) * 16777619u;
 #undef AI_FP
 	return h;
+}
+
+/*	Most log rows are footsteps and failed searches; repeating them made her
+	sound like a second message window.  Level-ups, loot, quests and deaths
+	are the ones a companion would actually remark on.					*/
+static int sw_ovl_ai_log_hot( const char *s )
+{
+	static const char *kw[] = {
+		"提升", "学会", "捡到", "拾到", "获得", "任务", "委托",
+		"死亡", "倒下", "复活", "击倒", "杀掉", "宝箱", "通缉", NULL
+	};
+	int i;
+	if ( s == NULL ) return 0;
+	for ( i = 0; kw[ i ] != NULL; i++ ) if ( strstr( s, kw[ i ] ) != NULL ) return 1;
+	return 0;
 }
 
 /*	r262: turn a change in the tracked numbers into a sentence the model can
@@ -1799,7 +1894,7 @@ static void sw_ovl_ai_watch( void )
 			snprintf( note, sizeof( note ), "游戏里刚刚发生：%.*s", i, p );
 			for ( n = 0; note[ n ]; n++ )
 				if ( note[ n ] == '\n' || note[ n ] == '\r' ) note[ n ] = ' ';
-			ai_chat_notify_event( note, 2 );
+			ai_chat_notify_event( note, sw_ovl_ai_log_hot( logbuf ) ? 2 : 1 );
 			/*	Only remember the line once it has been sent, so a burst of
 				log rows inside the cooldown still produces one report of the
 				latest one instead of being swallowed here.				*/
@@ -1808,44 +1903,36 @@ static void sw_ovl_ai_watch( void )
 		}
 	}
 
-	/*	2. The numbers.  A percentage band for HP so ordinary chip damage does
-		not fire, exact deltas for money and a band for the cart.			*/
+	/*	2. Only the events that a snapshot cannot carry survive here.  Plain
+		number drift (money, weight, level, recovery) is printed as a delta
+		line in the scene block instead - one generic diff beats five
+		detectors.  A sudden hit and a drop below a quarter are transient:
+		they can be over before the next snapshot, so they stay.			*/
 	if ( sw_ovl_party_mhp[0] > 0 ) {
 		hp_pct = sw_ovl_party_hp[0] * 100 / sw_ovl_party_mhp[0];
-		if ( sw_ovl_ai_w_hp_pct >= 0 && sw_ovl_ai_w_hp_pct - hp_pct >= 30 ) {
+		if ( sw_ovl_ai_w_hp_pct >= 0 && sw_ovl_ai_w_hp_pct - hp_pct >= 30 )
 			ai_chat_notify_event( "主人刚刚挨了重重的一下", 3 );
-			sw_ovl_ai_w_hp_pct = hp_pct;
-		} else if ( sw_ovl_ai_w_hp_pct >= 0 && hp_pct >= sw_ovl_ai_w_hp_pct + 20 ) {
-			ai_chat_notify_event( "主人的伤势好转了不少", 1 );
-			sw_ovl_ai_w_hp_pct = hp_pct;
-		}
+		/*	Reported once on the way in, not on every frame spent there.	*/
+		if ( hp_pct > 0 && hp_pct < 25 && !sw_ovl_ai_w_dying )
+			ai_chat_notify_event( "主人伤得很重，快撑不住了", 3 );
+		sw_ovl_ai_w_dying = ( hp_pct > 0 && hp_pct < 25 );
 		sw_ovl_ai_w_hp_pct = hp_pct;
 	}
 
-	if ( sw_ovl_ai_w_gold >= 0 && sw_ovl_ply_gold[0] != sw_ovl_ai_w_gold ) {
-		int d = sw_ovl_ply_gold[0] - sw_ovl_ai_w_gold;
-		if ( d >= 50 || d <= -50 ) {
-			snprintf( line, sizeof( line ), d > 0 ? "主人手头多了 %d 枚金币"
-				: "主人花掉了 %d 枚金币", d > 0 ? d : -d );
-			ai_chat_notify_event( line, 1 );
+	/*	Hunger reads as a state, not a percentage: crossing into the lower
+		quarter is what a person would actually mention.					*/
+	{
+		int hunger = sw_ovl_lim( sw_ovl_ply_hunger[0] / 100, 0, 100 );
+		if ( sw_ovl_ai_w_hunger >= 0 && hunger / 25 < sw_ovl_ai_w_hunger / 25 ) {
+			if ( hunger < 25 ) ai_chat_notify_event( "主人快饿死了", 3 );
+			else if ( hunger < 50 ) ai_chat_notify_event( "主人饿了", 1 );
 		}
+		sw_ovl_ai_w_hunger = hunger;
 	}
-	sw_ovl_ai_w_gold = sw_ovl_ply_gold[0];
 
-	if ( sw_ovl_ai_w_level >= 0 && sw_ovl_ply_level > sw_ovl_ai_w_level ) {
-		snprintf( line, sizeof( line ), "主人变强了，现在是第 %d 级", sw_ovl_ply_level );
-		ai_chat_notify_event( line, 2 );
-	}
-	sw_ovl_ai_w_level = sw_ovl_ply_level;
-
-	if ( sw_ovl_ai_w_cargo >= 0 && sw_ovl_ply_cargol > 0 ) {
-		if ( sw_ovl_ply_cargo * 100 >= sw_ovl_ply_cargol * 85 &&
-				sw_ovl_ai_w_cargo * 100 < sw_ovl_ply_cargol * 85 )
-			ai_chat_notify_event( "行李快装不下了", 1 );
-		if ( sw_ovl_ply_cargo > sw_ovl_ply_cargol &&
-				sw_ovl_ai_w_cargo <= sw_ovl_ply_cargol )
-			ai_chat_notify_event( "行李已经超重了", 2 );
-	}
+	if ( sw_ovl_ai_w_cargo >= 0 && sw_ovl_ply_cargol > 0 &&
+			sw_ovl_ply_cargo > sw_ovl_ply_cargol && sw_ovl_ai_w_cargo <= sw_ovl_ply_cargol )
+		ai_chat_notify_event( "行李已经超重了", 2 );
 	sw_ovl_ai_w_cargo = sw_ovl_ply_cargo;
 
 	if ( sw_ovl_ai_w_ether >= 0 && sw_ovl_ply_ether > sw_ovl_ai_w_ether )
@@ -1872,11 +1959,17 @@ static void sw_ovl_ai_watch( void )
 	sw_ovl_ai_w_ms = sw_ovl_party_ms[1];
 
 	/*	Weather and the part of day: cheap, frequent, and they give the
-		follower something new to talk about while walking.				*/
+		follower something new to talk about while walking.  Etherwind is
+		weather id 1 and deserves its own line - it is the one weather that
+		changes what the player can safely do.							*/
 	if ( sw_ovl_ai_w_weather >= 0 && sw_ovl_ply_weather != sw_ovl_ai_w_weather ) {
-		snprintf( line, sizeof( line ), "天气变了，现在是%s",
-			sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
-		ai_chat_notify_event( line, 1 );
+		if ( sw_ovl_ply_weather == 1 ) {
+			ai_chat_notify_event( "外面刮起了以太风，出门会染上以太病", 3 );
+		} else {
+			snprintf( line, sizeof( line ), "天气变了，现在是%s",
+				sw_ovl_ply_weather_name( sw_ovl_ply_weather ) );
+			ai_chat_notify_event( line, 1 );
+		}
 	}
 	sw_ovl_ai_w_weather = sw_ovl_ply_weather;
 

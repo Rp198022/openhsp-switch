@@ -21,10 +21,10 @@
 
 #include "ai_chat.h"
 
-#define AI_MAX_TEXT		8192	/* request body / answer scratch		*/
+#define AI_MAX_TEXT		16384	/* request body / answer scratch		*/
 #define AI_MAX_LINE		512		/* one spoken line					*/
 #define AI_MAX_PERSONA	2048
-#define AI_MAX_MEMORY	1024
+#define AI_MAX_MEMORY	4096
 #define AI_EVENT_KINDS	8		/* recent event sentences kept for dedup */
 #define AI_DIR			"sdmc:/switch/openhsp/data/"
 #define AI_CONFIG		AI_DIR "ai_config.txt"
@@ -65,7 +65,11 @@ static char			ai_event_kind[ AI_EVENT_KINDS ][ 96 ];
 /*	Persona and memory, read once per follower.							*/
 static char			ai_persona_name[ 64 ] = "";
 static char			ai_persona[ AI_MAX_PERSONA ] = "";
+static char			ai_tone[ 1024 ] = "";		/* 关系语气				*/
+static char			ai_example[ 2048 ] = "";	/* 示例对话				*/
 static char			ai_memory[ AI_MAX_MEMORY ] = "";
+static double		ai_last_compress = 0;
+static int			ai_compress_tried = 0;
 
 static double ai_now( void )
 {
@@ -180,16 +184,30 @@ static void ai_load_config( void )
 	fflush( stdout );
 }
 
-/*	Pull the "## 人设" and "## 记忆" sections out of the follower's markdown.
-	Anything else in the file is ignored, so the file stays editable by hand. */
+/*	Pull the four sections out of the follower's markdown:
+		## 人设       permanent facts
+		## 关系语气   how the two relationship scales colour the speech
+		## 示例       example exchanges - the strongest style anchor
+		## 记忆       things learned during play
+	Anything else is ignored, so the file stays hand-editable.			*/
+static void ai_append( char *dst, size_t cap, const char *line )
+{
+	size_t l = strlen( dst );
+	while ( *line == ' ' || *line == '\t' ) line++;
+	if ( l + strlen( line ) + 2 >= cap ) return;
+	memcpy( dst + l, line, strlen( line ) );
+	dst[ l + strlen( line ) ] = '\n';
+	dst[ l + strlen( line ) + 1 ] = '\0';
+}
+
 static void ai_load_persona( const char *npc )
 {
 	static char data[ 8192 ];
 	char path[ 256 ];
 	char line[ 512 ];
 	const char *p;
-	int section = 0;				/* 1 = persona, 2 = memory			*/
-	size_t pl, ml;
+	int section = 0;	/* 1 persona, 2 memory, 3 tone, 4 examples	*/
+	size_t ml;
 
 	if ( npc == NULL || npc[ 0 ] == '\0' ) return;
 	if ( strcmp( npc, ai_persona_name ) == 0 ) return;
@@ -197,6 +215,8 @@ static void ai_load_persona( const char *npc )
 	ai_persona_name[ sizeof( ai_persona_name ) - 1 ] = '\0';
 	ai_persona[ 0 ] = '\0';
 	ai_memory[ 0 ] = '\0';
+	ai_tone[ 0 ] = '\0';
+	ai_example[ 0 ] = '\0';
 
 	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", npc );
 	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
@@ -214,21 +234,31 @@ static void ai_load_persona( const char *npc )
 		if ( strncmp( line, "##", 2 ) == 0 ) {
 			if ( strstr( line, "人设" ) != NULL ) section = 1;
 			else if ( strstr( line, "记忆" ) != NULL ) section = 2;
+			else if ( strstr( line, "关系语气" ) != NULL ) section = 3;
+			else if ( strstr( line, "示例" ) != NULL ) section = 4;
 			else section = 0;
 			continue;
 		}
-		if ( section == 0 ) continue;
-		pl = strlen( ai_persona );
+		if ( section == 0 || line[ 0 ] == '\0' ) continue;
+		pl = strlen( ai_persona ) + strlen( ai_tone ) + strlen( ai_example ) + 3;
 		ml = strlen( ai_memory );
-		if ( section == 1 && pl + strlen( line ) + 1 < sizeof( ai_persona ) )
-			strcat( ai_persona, line );
-		else if ( section == 2 && ml + strlen( line ) + 1 < sizeof( ai_memory ) )
+		if ( section == 1 ) ai_append( ai_persona, sizeof( ai_persona ), line );
+		else if ( section == 2 && ml + strlen( line ) + 2 < sizeof( ai_memory ) ) {
+			/*	Memory keeps its own line breaks: each entry is one fact and
+				the order carries meaning (later overrides earlier).		*/
 			strcat( ai_memory, line );
+			strcat( ai_memory, "\n" );
+		}
+		else if ( section == 3 ) ai_append( ai_tone, sizeof( ai_tone ), line );
+		else if ( section == 4 ) ai_append( ai_example, sizeof( ai_example ), line );
 	}
 	ai_trim( ai_persona );
 	ai_trim( ai_memory );
-	printf( "aichat: persona %s (%d bytes, memory %d)\n", npc,
-		(int)strlen( ai_persona ), (int)strlen( ai_memory ) );
+	ai_trim( ai_tone );
+	ai_trim( ai_example );
+	printf( "aichat: persona %s (%d bytes, memory %d, tone %d, example %d)\n", npc,
+		(int)strlen( ai_persona ), (int)strlen( ai_memory ),
+		(int)strlen( ai_tone ), (int)strlen( ai_example ) );
 	fflush( stdout );
 }
 
@@ -358,35 +388,40 @@ static size_t ai_write_cb( char *data, size_t sz, size_t nm, void *user )
 
 /*	Build the request body.  `question` is NULL for a scene remark.			*/
 static void ai_build_body( char *out, size_t n, const char *scene,
-				const char *persona, const char *memory, const char *question )
+				const char *persona, const char *tone, const char *example,
+				const char *memory, const char *question )
 {
-	char where[ 160 ];
-	/*	Same reason as ai_start: four buffers of this size do not belong on a
-		worker thread's stack either.  The worker runs one request at a time. */
-	static char sys[ 3072 ], sys_esc[ 6400 ];
-	static char usr[ 3072 ], usr_esc[ 6400 ];
+	/*	Same reason as ai_start: these buffers do not belong on a worker
+		thread's stack.  The worker runs one request at a time.			*/
+	static char sys[ 8192 ], sys_esc[ 24576 ];
+	static char usr[ 4096 ], usr_esc[ 12288 ];
+	size_t l;
 
-	snprintf( sys, sizeof( sys ),
-		"你是《Elona》中主人的随从「%s」。%s%s%s"
-		"只输出中文台词，50字以内，可以用两三个短句，第一人称，符合人设与记忆，"
-		"不要解释、不要动作描写、不要用括号。%s",
-		ai_npc,
-		persona[ 0 ] ? "人设：" : "", persona,
-		memory[ 0 ] ? "" : "",
-		/*	A reply to the player must never be skipped: the model used to
-			answer SKIP to a direct question and the panel looked dead.	*/
+#define AI_CAT( ... ) do { \
+		l = strlen( sys ); \
+		snprintf( sys + l, sizeof( sys ) - l, __VA_ARGS__ ); \
+	} while ( 0 )
+
+	sys[ 0 ] = '\0';
+	AI_CAT( "你是《Elona》中主人的随从「%s」。\n", ai_npc );
+	if ( persona[ 0 ] ) AI_CAT( "人设：\n%s\n", persona );
+	if ( tone[ 0 ] )    AI_CAT( "关系语气：\n%s\n", tone );
+	if ( example[ 0 ] )
+		AI_CAT( "说话示例（照这些示例的语气和长度，不要照抄内容）：\n%s\n", example );
+	if ( memory[ 0 ] )
+		AI_CAT( "记忆（越靠后越新；前后矛盾时以靠后的为准）：\n%s\n", memory );
+	AI_CAT( "只输出中文台词，50字以内，可以用两三个短句，第一人称；"
+		"不要解释、不要动作描写、不要用括号。"
+		"好感管亲近（越高越主动关心、越会示弱），主从管服从（越高越听话，越低越会顶嘴）；"
+		"两项独立判断，不要因为一项高就推断另一项。" );
+	AI_CAT( "%s",
 		question != NULL ? "主人正在跟你说话，必须用一句话回应，绝对不要输出 SKIP。"
 			: "若此刻不适合说话，只输出 SKIP。" );
-	if ( memory[ 0 ] ) {
-		snprintf( sys + strlen( sys ), sizeof( sys ) - strlen( sys ),
-			"记忆：%s", memory );
-	}
 	if ( question != NULL ) {
 		/*	Said twice on purpose - once in the system prompt, once in the
 			user turn - because this model otherwise drifts back to whatever
 			the persona was complaining about.								*/
-		snprintf( sys + strlen( sys ), sizeof( sys ) - strlen( sys ),
-			"主人刚刚问你：「%s」。回答必须针对这句话。", question );
+		AI_CAT( "主人刚刚问你：「%s」。回答必须针对这句话。", question );
 	}
 	if ( question != NULL ) {
 		/*	Only the first scene line (where and when) goes with a question:
@@ -410,11 +445,104 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		"{\"model\":\"%s\",\"messages\":["
 		"{\"role\":\"system\",\"content\":\"%s\"},"
 		"{\"role\":\"user\",\"content\":\"%s\"}],"
-		"\"temperature\":1.1,\"max_tokens\":200}",
+		"\"temperature\":1.0,\"max_tokens\":200}",
 		ai_model, sys_esc, usr_esc );
+#undef AI_CAT
 }
 
-static void ai_request( char *body )
+/*	Put a sentence on screen and into the three-line history.  Called with
+	ai_lock held by the worker, and through ai_push_line() by the panel.	*/
+static void ai_push_line_locked( const char *text )
+{
+	int hi;
+
+	strncpy( ai_line, text, sizeof( ai_line ) - 1 );
+	ai_line[ sizeof( ai_line ) - 1 ] = '\0';
+	strncpy( ai_last_line, text, sizeof( ai_last_line ) - 1 );
+	ai_last_line[ sizeof( ai_last_line ) - 1 ] = '\0';
+	for ( hi = AI_HISTORY - 1; hi > 0; hi-- )
+		memcpy( ai_hist[ hi ], ai_hist[ hi - 1 ], AI_MAX_LINE );
+	strncpy( ai_hist[ 0 ], text, AI_MAX_LINE - 1 );
+	ai_hist[ 0 ][ AI_MAX_LINE - 1 ] = '\0';
+	if ( ai_hist_n < AI_HISTORY ) ai_hist_n++;
+	ai_last_line_at = ai_now();
+	ai_seq++;
+}
+
+static void ai_push_line( const char *text )
+{
+	pthread_mutex_lock( &ai_lock );
+	ai_push_line_locked( text );
+	pthread_mutex_unlock( &ai_lock );
+	ai_log_line( "say", text );
+}
+
+/*	Count the "- " entries the memory section currently holds.			*/
+static int ai_memory_lines( void )
+{
+	const char *p = ai_memory;
+	int n = 0;
+
+	while ( *p ) {
+		if ( *p == '-' && ( p == ai_memory || p[ -1 ] == '\n' ) ) n++;
+		p++;
+	}
+	return n;
+}
+
+/*	Rewrite the followers's markdown so that the "## 记忆" section holds
+	`list` instead of what it had.  Every other line is copied verbatim, so
+	hand-written sections and comments survive the compaction.			*/
+static int ai_replace_memory( const char *list )
+{
+	static char data[ 8192 ], out[ 8192 ];
+	char path[ 256 ], tmp[ 256 ], line[ 512 ];
+	const char *p;
+	FILE *f;
+	size_t o = 0;
+	int in_mem = 0, seen = 0, r;
+
+	if ( list == NULL || list[ 0 ] == '\0' || ai_npc[ 0 ] == '\0' ) return 0;
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", ai_npc );
+	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
+		/*	Seed from the shared default on first write, so a follower can
+			gain a memory before the player has copied anything.		*/
+		char base[ 256 ];
+		snprintf( base, sizeof( base ), AI_DIR "npc/default.md" );
+		if ( ai_read_file( base, data, sizeof( data ) ) < 0 ) return 0;
+	}
+
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		if ( line[ 0 ] == '#' && line[ 1 ] == '#' ) {
+			in_mem = strstr( line, "记忆" ) != NULL;
+			if ( in_mem ) {
+				r = snprintf( out + o, sizeof( out ) - o, "%s\n%s\n", line, list );
+				if ( r > 0 && (size_t)r < sizeof( out ) - o ) o += (size_t)r;
+				seen = 1;
+				continue;
+			}
+		}
+		if ( in_mem ) continue;			/* old entries are dropped		*/
+		r = snprintf( out + o, sizeof( out ) - o, "%s\n", line );
+		if ( r > 0 && (size_t)r < sizeof( out ) - o ) o += (size_t)r;
+	}
+	if ( !seen ) {
+		r = snprintf( out + o, sizeof( out ) - o, "\n## 记忆\n%s\n", list );
+		if ( r > 0 && (size_t)r < sizeof( out ) - o ) o += (size_t)r;
+	}
+	snprintf( tmp, sizeof( tmp ), AI_DIR "npc/%s.md.new", ai_npc );
+	f = fopen( tmp, "wb" );
+	if ( f == NULL ) return 0;
+	fwrite( out, 1, strlen( out ), f );
+	fclose( f );
+	remove( path );
+	rename( tmp, path );
+	ai_persona_name[ 0 ] = '\0';		/* force a reload next context	*/
+	return 1;
+}
+
+static void ai_request( char *body, int mode )
 {
 	CURL *h;
 	struct curl_slist *hdrs;
@@ -469,27 +597,24 @@ static void ai_request( char *body )
 	}
 
 	pthread_mutex_lock( &ai_lock );
-	if ( rc == CURLE_OK && code == 200 &&
+	if ( mode == 1 ) {
+		/*	Memory compaction: the answer is a list, not a line, and it
+			never goes on screen.  A failed compaction is harmless - the
+			old memory stays and the next attempt waits for the timer.	*/
+		if ( rc == CURLE_OK && code == 200 &&
+				ai_parse_content( buf.p, result, sizeof( result ) ) ) {
+			ai_log_line( ai_replace_memory( result ) ? "mem" : "mem-fail", result );
+			ai_last_compress = ai_now();
+		}
+		ai_state = AI_STATE_READY;
+		ai_status_set( "AI 就绪" );
+	} else if ( rc == CURLE_OK && code == 200 &&
 			ai_parse_content( buf.p, result, sizeof( result ) ) ) {
 		if ( strcmp( result, "SKIP" ) == 0 || strcmp( result, "skip" ) == 0 ) {
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 		} else {
-			/*	r272: every answer goes into the three-line history, even one
-				that repeats the previous words - the panel shows a log, not
-				a single current line.										*/
-			int hi;
-			strncpy( ai_line, result, sizeof( ai_line ) - 1 );
-			ai_line[ sizeof( ai_line ) - 1 ] = '\0';
-			strncpy( ai_last_line, result, sizeof( ai_last_line ) - 1 );
-			ai_last_line[ sizeof( ai_last_line ) - 1 ] = '\0';
-			for ( hi = AI_HISTORY - 1; hi > 0; hi-- )
-				memcpy( ai_hist[ hi ], ai_hist[ hi - 1 ], AI_MAX_LINE );
-			strncpy( ai_hist[ 0 ], result, AI_MAX_LINE - 1 );
-			ai_hist[ 0 ][ AI_MAX_LINE - 1 ] = '\0';
-			if ( ai_hist_n < AI_HISTORY ) ai_hist_n++;
-			ai_last_line_at = ai_now();
-			ai_seq++;
+			ai_push_line_locked( result );
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 			ai_log_line( "say", result );
@@ -527,12 +652,12 @@ static void ai_request( char *body )
 	ai_busy = 0;
 }
 
-struct AI_JOB { char body[ AI_MAX_TEXT ]; };
+struct AI_JOB { char body[ AI_MAX_TEXT ]; int mode; };
 
 static void *ai_thread( void *arg )
 {
 	struct AI_JOB *job = (struct AI_JOB*)arg;
-	ai_request( job->body );
+	ai_request( job->body, job->mode );
 	free( job );
 	return NULL;
 }
@@ -547,6 +672,7 @@ static void ai_start( const char *question, const char *event )
 		text had been overwritten by the call below it.  Static is safe here
 		because every caller is the same thread (the panel's tick).			*/
 	static char scene[ AI_MAX_TEXT ], persona[ AI_MAX_PERSONA ], memory[ AI_MAX_MEMORY ];
+	static char tone[ 1024 ], example[ 2048 ];
 
 	if ( ai_busy || !ai_enabled || ai_key[ 0 ] == '\0' ) return;
 
@@ -558,6 +684,8 @@ static void ai_start( const char *question, const char *event )
 	}
 	snprintf( persona, sizeof( persona ), "%s", ai_persona );
 	snprintf( memory, sizeof( memory ), "%s", ai_memory );
+	snprintf( tone, sizeof( tone ), "%s", ai_tone );
+	snprintf( example, sizeof( example ), "%s", ai_example );
 	ai_busy = 1;
 	ai_busy_at = ai_now();
 	ai_state = AI_STATE_BUSY;
@@ -567,7 +695,8 @@ static void ai_start( const char *question, const char *event )
 
 	job = (struct AI_JOB*)malloc( sizeof( struct AI_JOB ) );
 	if ( job == NULL ) { ai_busy = 0; return; }
-	ai_build_body( job->body, sizeof( job->body ), scene, persona, memory, question );
+	job->mode = 0;
+	ai_build_body( job->body, sizeof( job->body ), scene, persona, tone, example, memory, question );
 	if ( pthread_create( &th, NULL, ai_thread, job ) != 0 ) {
 		free( job );
 		ai_busy = 0;
@@ -575,6 +704,53 @@ static void ai_start( const char *question, const char *event )
 		ai_state = AI_STATE_ERROR;
 		ai_status_set( "AI 线程失败" );
 		pthread_mutex_unlock( &ai_lock );
+		return;
+	}
+	pthread_detach( th );
+}
+
+/*	Compact the memory list once it has grown past a couple of dozen facts.
+	The answer is written back into the markdown (mode 1), never shown.	*/
+#define AI_MEMORY_MAX_LINES	18
+
+static void ai_start_compress( void )
+{
+	struct AI_JOB *job;
+	pthread_t th;
+	static char sys[ 1024 ], sys_esc[ 4096 ];
+	static char usr[ AI_MAX_MEMORY + 256 ], usr_esc[ ( AI_MAX_MEMORY + 256 ) * 3 ];
+	static char list[ AI_MAX_MEMORY ];
+
+	if ( ai_busy || !ai_enabled || ai_key[ 0 ] == '\0' ) return;
+	pthread_mutex_lock( &ai_lock );
+	if ( ai_memory[ 0 ] == '\0' ) { pthread_mutex_unlock( &ai_lock ); return; }
+	snprintf( list, sizeof( list ), "%s", ai_memory );
+	ai_busy = 1;
+	ai_busy_at = ai_now();
+	ai_state = AI_STATE_BUSY;
+	ai_status_set( "AI 整理记忆" );
+	ai_last_compress = ai_now();
+	pthread_mutex_unlock( &ai_lock );
+
+	snprintf( sys, sizeof( sys ),
+		"你是记忆整理器。把随从的记忆合并成不超过 6 条，每条一行，以「- 」开头。"
+		"保留具体事实，去掉重复，前后矛盾时保留靠后的那条。只输出列表，不要解释。" );
+	snprintf( usr, sizeof( usr ), "现有记忆：\n%s", list );
+	ai_json_escape( sys, sys_esc, sizeof( sys_esc ) );
+	ai_json_escape( usr, usr_esc, sizeof( usr_esc ) );
+
+	job = (struct AI_JOB*)malloc( sizeof( struct AI_JOB ) );
+	if ( job == NULL ) { ai_busy = 0; return; }
+	job->mode = 1;
+	snprintf( job->body, sizeof( job->body ),
+		"{\"model\":\"%s\",\"messages\":["
+		"{\"role\":\"system\",\"content\":\"%s\"},"
+		"{\"role\":\"user\",\"content\":\"%s\"}],"
+		"\"temperature\":0.3,\"max_tokens\":400}",
+		ai_model, sys_esc, usr_esc );
+	if ( pthread_create( &th, NULL, ai_thread, job ) != 0 ) {
+		free( job );
+		ai_busy = 0;
 		return;
 	}
 	pthread_detach( th );
@@ -647,6 +823,14 @@ void ai_chat_notify_event( const char *event, int priority )
 	pthread_mutex_unlock( &ai_lock );
 }
 
+static int ai_ends_with( const char *s, const char *suf )
+{
+	size_t a = strlen( s ), b = strlen( suf );
+	return a >= b && strcmp( s + a - b, suf ) == 0;
+}
+
+int ai_chat_remember( const char *instruction );	/* defined below		*/
+
 int ai_chat_ask( const char *question )
 {
 	if ( question == NULL || question[ 0 ] == '\0' ) return 0;
@@ -657,6 +841,28 @@ int ai_chat_ask( const char *question )
 		printf( "aichat: ask ignored, %s\n", ai_status );
 		fflush( stdout );
 		return 0;
+	}
+
+	/*	"（设定）" at the end of a line turns it into a memory entry instead
+		of a question: the text is appended to the follower's markdown and a
+		short acknowledgement is shown.  No request is made, so it is free
+		and works even while another line is still on its way.			*/
+	{
+		const char *suf = ai_ends_with( question, "（设定）" ) ? "（设定）"
+			: ai_ends_with( question, "(设定)" ) ? "(设定)" : NULL;
+		if ( suf != NULL ) {
+			char body[ AI_MAX_LINE ];
+			int cut = (int)( strlen( question ) - strlen( suf ) );
+			snprintf( body, sizeof( body ), "%.*s", cut, question );
+			ai_trim( body );
+			if ( body[ 0 ] != '\0' && ai_chat_remember( body ) ) {
+				ai_push_line( "记住了。" );
+				ai_log_line( "set", body );
+				printf( "aichat: memory set [%s]\n", body );
+				fflush( stdout );
+				return 1;
+			}
+		}
 	}
 	/*	A question outranks whatever the game just did: drop the queued
 		event so the reply is about what the player typed.					*/
@@ -691,33 +897,44 @@ int ai_chat_seq( void )
 
 int ai_chat_remember( const char *instruction )
 {
-	static char data[ 8192 ];
-	char path[ 256 ], tmp[ 256 ];
-	FILE *out;
+	static char data[ 8192 ], list[ AI_MAX_MEMORY ];
+	char path[ 256 ], line[ 512 ];
+	const char *p;
+	int in_mem = 0;
 
 	if ( instruction == NULL ) return 0;
 	while ( *instruction == ' ' || *instruction == '\t' ) instruction++;
 	if ( instruction[ 0 ] == '\0' || ai_npc[ 0 ] == '\0' ) return 0;
+
+	/*	Read the current list rather than blind-appending at the end of the
+		file: the memory section is not always last, and a line dropped into
+		the examples section would poison the style anchor.				*/
 	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", ai_npc );
-	snprintf( tmp, sizeof( tmp ), AI_DIR "npc/%s.md.new", ai_npc );
-	/*	Keep the file's own layout: copy it, and append the note under the
-		memory section.  A follower that is still living on the shared default
-		gets its own file seeded from it, so /设定 works before the player has
-		copied anything by hand.											*/
 	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
 		char base[ 256 ];
 		snprintf( base, sizeof( base ), AI_DIR "npc/default.md" );
 		if ( ai_read_file( base, data, sizeof( data ) ) < 0 ) return 0;
 	}
-	out = fopen( tmp, "wb" );
-	if ( out == NULL ) return 0;
-	fputs( data, out );
-	fprintf( out, "- %s\n", instruction );
-	fclose( out );
-	remove( path );
-	rename( tmp, path );
-	ai_persona_name[ 0 ] = '\0';		/* force a reload next context	*/
-	return 1;
+	list[ 0 ] = '\0';
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		if ( strncmp( line, "##", 2 ) == 0 ) {
+			in_mem = strstr( line, "记忆" ) != NULL;
+			continue;
+		}
+		if ( !in_mem || line[ 0 ] == '\0' ) continue;
+		if ( strlen( list ) + strlen( line ) + 2 < sizeof( list ) ) {
+			strcat( list, line );
+			strcat( list, "\n" );
+		}
+	}
+	/*	Newest last: the prompt tells the model that later entries win.	*/
+	if ( strlen( list ) + strlen( instruction ) + 4 < sizeof( list ) ) {
+		strcat( list, "- " );
+		strcat( list, instruction );
+		strcat( list, "\n" );
+	}
+	return ai_replace_memory( list );
 }
 
 /*	Debug chat channel: the keyboard is unavailable in the emulator, so a text
@@ -805,6 +1022,15 @@ void ai_chat_tick( void )
 		return;
 	}
 	pthread_mutex_unlock( &ai_lock );
+
+	/*	Housekeeping: a memory list longer than this stops being an asset.
+		Runs only when nothing else is pending, and at most every ten
+		minutes, so it never competes with a line the player is waiting for. */
+	if ( ai_memory_lines() >= AI_MEMORY_MAX_LINES &&
+			now - ai_last_compress > 600.0 ) {
+		ai_start_compress();
+		return;
+	}
 
 	if ( !ai_idle && now - ai_last_request >= (double)ai_interval && ai_scene[ 0 ] != '\0' ) {
 		ai_start( NULL, "无事发生，安静地待着" );
