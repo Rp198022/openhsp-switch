@@ -427,6 +427,15 @@ static int		sw_ovl_ai_w_battle = 0;
 static int		sw_ovl_ai_w_cond = 0;
 static int		sw_ovl_ai_w_cond_ready = 0;
 static unsigned int	sw_ovl_ai_w_tick = 0;
+/*	r292: the events that are worth a line the moment they happen - a
+	welcome after a load, a death, a follower called back, and the game's
+	own notes about the follower (skill practice, eating, drinking).		*/
+static char		sw_ovl_ai_w_greet_name[ 64 ] = "";	/* who we already greeted */
+static int		sw_ovl_ai_w_pet_seen = 0;	/* follower is in the party	*/
+static int		sw_ovl_ai_w_ply_dead = 0;
+static int		sw_ovl_ai_w_pet_dead = 0;
+static int		sw_ovl_ai_w_pet_hp = -1;	/* pet hp percent, -1 = unread */
+static char		sw_ovl_ai_w_msg[ 300 ] = "";	/* newest log row, UTF-8	*/
 
 /*	r269: unattended consoles.  A fingerprint of everything the panel tracks
 	changes on every turn the player takes and stays put while the game is
@@ -1522,6 +1531,26 @@ static const char *sw_ovl_msg_peek( const char *pet_name, int speaker, int pet_s
 	return out;
 }
 
+/*	r292: the newest row of the game's log, whatever it says.  msg_peek()
+	above only returns the follower's own lines; the watcher also needs the
+	rows that merely talk ABOUT her ("X 的重武器精通精进了").  Raw GBK.	*/
+static const char *sw_ovl_msg_latest( void )
+{
+	static char out[ 512 ];
+	int i;
+	const char *s;
+
+	if ( sw_ovl_pv_msg == NULL ) return "";
+	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
+		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
+		if ( s != NULL && s[ 0 ] != '\0' ) {
+			snprintf( out, sizeof( out ), "%s", s );
+			return out;
+		}
+	}
+	return "";
+}
+
 static const char *sw_ovl_attr_name( int i )
 {
 	static const char *nm[8] = {
@@ -2090,10 +2119,28 @@ static int sw_ovl_ai_log_hot( const char *s )
 	filled, so the watcher costs a few comparisons per frame and nothing at
 	all when the game is idle.  Thresholds are deliberately coarse: the
 	model only needs "something happened", not a telemetry feed.			*/
+/*	r292: which game notes about the follower deserve a line of her own.
+	Combat rows name her too ("X 受到了 5 点伤害") and arrive every swing,
+	so they stay out; growth, food and gear are what the player would
+	actually want a reaction to.											*/
+static int sw_ovl_ai_pet_note( const char *u )
+{
+	static const char *kw[] = {
+		"精通", "精进", "熟练", "技能", "成长", "升级", "学会", "记住",
+		"吃了", "喝了", "进食", "饮水", "吃饱", "饿", "装备", "穿上",
+		"拾起", "得到", "获得", "经验", "体力", "恢复", "变强",
+	};
+	int i;
+
+	for ( i = 0; i < (int)( sizeof( kw ) / sizeof( kw[ 0 ] ) ); i++ )
+		if ( strstr( u, kw[ i ] ) != NULL ) return 1;
+	return 0;
+}
+
 static void sw_ovl_ai_watch( void )
 {
 	unsigned int now = SDL_GetTicks();
-	char line[ 240 ], note[ 192 ], logbuf[ 240 ];
+	char line[ 240 ], note[ 384 ], logbuf[ 240 ];
 	const char *p;
 	size_t n;
 	int hp_pct, i;
@@ -2127,6 +2174,56 @@ static void sw_ovl_ai_watch( void )
 			sw_ovl_ai_w_log_tick = now;
 		}
 	}
+
+	/*	r292: rows that talk ABOUT the follower.  Section 1 drops them on
+		purpose - a row carrying her name is usually her own speech, and
+		echoing that back makes her parrot herself - but skill practice,
+		eating and drinking are the game narrating her, so they get a forced
+		line even while the log is otherwise busy.							*/
+	{
+		const char *raw = sw_ovl_msg_latest();
+		if ( raw[ 0 ] ) {
+			char u[ 300 ], nm[ 96 ];
+			snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
+			snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
+			if ( nm[ 0 ] && strcmp( u, sw_ovl_ai_w_msg ) != 0 ) {
+				int speech = ( sw_ovl_speaker() == sw_ovl_party_slot[1] );
+				int mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
+				if ( !speech && mine && sw_ovl_ai_pet_note( u ) ) {
+					size_t c;
+					snprintf( note, sizeof( note ), "游戏日志里出现了关于你的消息：%.*s",
+						120, u );
+					for ( c = 0; note[ c ]; c++ )
+						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+					ai_chat_notify_event( note, 4 );
+				}
+				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", u );
+			}
+		}
+	}
+
+	/*	r292: death and waking up.  The first read only records what the save
+		was loaded with, so a load never announces a corpse.  Priority 5 puts
+		both above every other event in the queue.							*/
+	if ( sw_ovl_ai_w_hp_pct >= 0 && sw_ovl_party_mhp[0] > 0 ) {
+		int dead = sw_ovl_party_hp[0] <= 0;
+		if ( dead && !sw_ovl_ai_w_ply_dead )
+			ai_chat_notify_event( "主人倒下了，失去了意识", 5 );
+		else if ( !dead && sw_ovl_ai_w_ply_dead )
+			ai_chat_notify_event( "主人醒过来了", 4 );
+		sw_ovl_ai_w_ply_dead = dead;
+	}
+	if ( sw_ovl_ai_w_pet_hp >= 0 && sw_ovl_party_mhp[1] > 0 ) {
+		int pct = sw_ovl_party_hp[1] * 100 / sw_ovl_party_mhp[1];
+		int dead = pct <= 0;
+		if ( dead && !sw_ovl_ai_w_pet_dead )
+			ai_chat_notify_event( "你倒下了，眼前一黑", 5 );
+		else if ( !dead && sw_ovl_ai_w_pet_dead )
+			ai_chat_notify_event( "你又站了起来，喘着气", 5 );
+		sw_ovl_ai_w_pet_dead = dead;
+	}
+	if ( sw_ovl_party_mhp[1] > 0 )
+		sw_ovl_ai_w_pet_hp = sw_ovl_party_hp[1] * 100 / sw_ovl_party_mhp[1];
 
 	/*	2. Only the events that a snapshot cannot carry survive here.  Plain
 		number drift (money, weight, level, recovery) is printed as a delta
@@ -2986,6 +3083,26 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		strip is skipped while slot[1] is -1, and that cache was never filled. */
 	sw_ovl_party_slot[0] = slot[0];
 	sw_ovl_party_slot[1] = slot[1];
+
+	/*	r292: greet once when the sheet first sees a follower, and again
+		whenever she leaves the party and comes back (revive, re-summon, or
+		loading another save).  Queued here because this is where the party
+		is known; the tick below sends it on the next free worker.			*/
+	{
+		int have = ( slot[1] >= 0 && sw_ovl_party_name[1][0] != '\0' );
+		if ( have ) {
+			char nm[ 64 ];
+			snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
+			if ( strcmp( nm, sw_ovl_ai_w_greet_name ) != 0 ) {
+				snprintf( sw_ovl_ai_w_greet_name, sizeof( sw_ovl_ai_w_greet_name ),
+					"%s", nm );
+				ai_chat_notify_event( "主人刚刚回到游戏，你就跟在旁边", 4 );
+			} else if ( !sw_ovl_ai_w_pet_seen ) {
+				ai_chat_notify_event( "主人又把你叫回队伍里了", 5 );
+			}
+		}
+		sw_ovl_ai_w_pet_seen = have;
+	}
 
 	/*	r261: feed the chatter worker and redraw when its line moves.  Without
 		a follower there is nobody to speak, so the module stays untouched.	*/
