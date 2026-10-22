@@ -187,6 +187,65 @@ static char		sw_ovl_bat_name[ 64 ] = "";
 static int		sw_ovl_bat_hp = 0, sw_ovl_bat_mhp = 0;
 static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 
+/*	r285: gdata(GDATA_AREA) is a number; the game turns it into a name in
+	mapname().  The port cannot call that HSP function, so the names are
+	copied from the 2.33 Chinese build's own table (start.ax, GBK) - the
+	same words the player sees when the area message is printed.			*/
+static const struct { int id; const char *name; } sw_ovl_area_tbl[] = {
+	{ 1, "世界地图" }, { 2, "野外" }, { 3, "莱希墨苏" }, { 4, "北提里斯" },
+	{ 5, "韦尔尼斯" }, { 6, "斗技场" }, { 7, "自家" }, { 8, "地城" },
+	{ 9, "实验场" }, { 10, "鲁米艾斯特墓地" }, { 11, "卡普尔港" }, { 12, "约恩村" },
+	{ 13, "任务" }, { 14, "特尔斐" }, { 15, "帕罗米亚" }, { 16, "灼热之塔" },
+	{ 17, "死者的洞窟" }, { 18, "古城" }, { 19, "龙窟" }, { 20, "众神休战之地" },
+	{ 21, "电子巨蛋" }, { 22, "混沌之城·兽" }, { 23, "混沌之城·机甲" },
+	{ 24, "混沌之城·畸形" }, { 25, "莱娜" }, { 26, "山道" }, { 27, "小狗之洞窟" },
+	{ 28, "小鬼之洞窟" }, { 29, "妹之馆" }, { 30, "避难所" }, { 31, "牧场" },
+	{ 32, "帕罗米亚大使馆" }, { 33, "诺耶尔" }, { 34, "米拉鲁·盖罗克工房" },
+	{ 35, "家居巨蛋" }, { 36, "鲁米艾斯特" }, { 37, "金字塔" }, { 38, "牛头人之巢穴" },
+	{ 39, "地牢" }, { 40, "宠物斗技场" }, { 41, "监狱" }, { 42, "巢穴" },
+	{ 43, "提里斯关所北侧" }, { 44, "南提里斯" }, { 45, "提里斯关所南侧" },
+	{ 46, "烟与烟斗之亭" }, { 47, "海" }, { 48, "提里斯关所南侧" },
+	{ 49, "莱米伊德遗迹" }, { 50, "埃雷鲁" }, { 51, "鲁奥萨" }, { 52, "梅尔卡恩" },
+	{ 53, "克莱阿尔玛" }, { 54, "瓦卢姆" }, { 55, "梅洛卡斯" }, { 56, "阿克·贝尔库" },
+	{ 57, "路多斯" }, { 58, "异形的神殿" }, { 59, "黄泉之谷" }, { 60, "机械要塞" },
+	{ 61, "女仆馆" }, { 62, "混沌之城·破坏" }, { 63, "混沌之城·机皇" },
+	{ 64, "混沌之城·地狱" }, { 65, "古之庭院" }, { 66, "监狱" }, { 67, "道场" },
+	{ 68, "风之山道" }, { 69, "犬神之森" }, { 70, "失落伊尔瓦" },
+	{ 71, "乌鲁姆·莱纵" }, { 72, "伊尔瓦神立图书馆" }, { 73, "艾沃达纳魔导船" },
+	{ 74, "阿摩利的暗牢" }, { 75, "阳牢之塔" }, { 76, "混沌巨城" },
+	{ 77, "路斯特尔仙窟" }, { 78, "塞尔特火山" }, { 79, "中央神殿" },
+	{ 80, "沉睡的神舰·船坞" }, { 81, "欧鲁德朗" }, { 82, "隐蔽的工房" },
+	{ 83, "星渡之收获船" }, { 84, "魔女之家" }, { 85, "丧失狂宫" },
+	{ 86, "众神的休战地" }, { 87, "冒险课堂" }, { 88, "梅尔卡雨林" },
+	{ 89, "重力谷" }, { 90, "山麓遗迹" }, { 91, "伊姆瓦尔" }, { 92, "扎伊尔" },
+	{ 93, "恶魔岬" }, { 95, "拉斯基利斯山谷·南" }, { 96, "拉斯基利斯山谷·西" },
+	{ 100, "废弃的怪物牧场" }, { 101, "博物馆" }, { 102, "商店" },
+	{ 103, "田地" }, { 104, "仓库" }, { 105, "野营地" },
+	{ 0, NULL }
+};
+
+static const char *sw_ovl_area_name( int id )
+{
+	int i;
+
+	for ( i = 0; sw_ovl_area_tbl[ i ].name != NULL; i++ )
+		if ( sw_ovl_area_tbl[ i ].id == id ) return sw_ovl_area_tbl[ i ].name;
+	return "";
+}
+
+/*	Areas that are a single place rather than a depth: a town does not get
+	"地下第 1 层" appended, a dungeon does.								*/
+static int sw_ovl_area_is_dungeon( int id )
+{
+	if ( id == 3 || id == 8 || id == 16 || id == 17 || id == 18 || id == 19 ||
+			id == 26 || id == 27 || id == 28 || id == 29 || id == 37 || id == 38 ||
+			id == 39 || id == 41 || id == 42 ) return 1;
+	if ( id >= 58 && id <= 70 ) return 1;
+	if ( id >= 74 && id <= 80 ) return 1;
+	if ( id >= 89 && id <= 90 ) return 1;
+	return 0;
+}
+
 /*	r277: the battle sheet wants the numbers a player checks before choosing
 	a move - the target's level, speed, PV/DV and whatever is riding on it.
 	Indices are from Elona+'s defines (2.32 _reference/defines_2.32.hsp):
@@ -251,6 +310,7 @@ static int			sw_ovl_ply_debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 #define SW_OVL_GD_CARGO			80	/* cart / luggage weight		*/
 #define SW_OVL_GD_CARGO_LIMIT	82
 #define SW_OVL_GD_LEVEL			22	/* current dungeon depth		*/
+#define SW_OVL_GD_AREA			20	/* AREA_*, see sw_ovl_area_tbl	*/
 /*	Ether disease: global trait() is dim trait,500 and the ether traits are
 	201..228 (defines/2.32.hsp).  A negative value means the symptom is
 	present; its magnitude is the stage, so the count and the worst stage
@@ -264,6 +324,7 @@ static int		sw_ovl_ply_weight[2] = { -1, -1 }, sw_ovl_ply_carry[2] = { -1, -1 };
 static int		sw_ovl_ply_equipw[2] = { -1, -1 }, sw_ovl_ply_barrier[2] = { -1, -1 };
 static int		sw_ovl_ply_cargo = -1, sw_ovl_ply_cargol = -1;
 static int		sw_ovl_ply_level = -1;
+static int		sw_ovl_ply_area = -1;
 static int		sw_ovl_ply_ether = -1, sw_ovl_ply_ether_worst = 0;
 static int		sw_ovl_ply_year = -1, sw_ovl_ply_month = -1, sw_ovl_ply_day = -1;
 static int		sw_ovl_ply_hour = -1, sw_ovl_ply_weather = -1;
@@ -2799,6 +2860,7 @@ static int sw_ovl_party_refresh( int *slot )
 			SW_OVL_PLY_SYNC( sw_ovl_ply_cargo,  sw_ovl_gdata( SW_OVL_GD_CARGO ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_cargol, sw_ovl_gdata( SW_OVL_GD_CARGO_LIMIT ) );
 			SW_OVL_PLY_SYNC( sw_ovl_ply_level,  sw_ovl_gdata( SW_OVL_GD_LEVEL ) );
+			SW_OVL_PLY_SYNC( sw_ovl_ply_area,   sw_ovl_gdata( SW_OVL_GD_AREA ) );
 			{
 				int worst = 0, n = sw_ovl_ether_scan( &worst );
 				if ( n != sw_ovl_ply_ether || worst != sw_ovl_ply_ether_worst ) {
@@ -2933,10 +2995,21 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 
 		ai_chat_init();
 		snprintf( npc, sizeof( npc ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
-		if ( sw_ovl_ply_level > 0 )
-			snprintf( where, sizeof( where ), "地下第 %d 层", sw_ovl_ply_level );
-		else
-			snprintf( where, sizeof( where ), "地表" );
+		/*	r285: the model gets a real place name instead of "地下第 N 层" -
+			"韦尔尼斯" or "莱希墨苏 第 3 层".  Unknown area ids fall back to
+			the old wording, so nothing regresses on a modded map.		*/
+		{
+			const char *an = sw_ovl_area_name( sw_ovl_ply_area );
+
+			if ( an[ 0 ] && sw_ovl_area_is_dungeon( sw_ovl_ply_area ) && sw_ovl_ply_level > 0 )
+				snprintf( where, sizeof( where ), "%s 第 %d 层", an, sw_ovl_ply_level );
+			else if ( an[ 0 ] )
+				snprintf( where, sizeof( where ), "%s", an );
+			else if ( sw_ovl_ply_level > 0 )
+				snprintf( where, sizeof( where ), "地下第 %d 层", sw_ovl_ply_level );
+			else
+				snprintf( where, sizeof( where ), "地表" );
+		}
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
 
