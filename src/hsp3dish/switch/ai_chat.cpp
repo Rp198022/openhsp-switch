@@ -585,6 +585,15 @@ static int ai_world_block( const char *question, const char *scene, char *out, s
 		used++;
 	}
 	out[ o ] = '\0';
+	/*	Temporary probe: proves whether the files were read and what the
+		question matched.  Removed once the world book is verified.			*/
+	if ( question != NULL && question[ 0 ] != '\0' ) {
+		FILE *f = fopen( AI_DIR "world_debug.txt", "wb" );
+		if ( f != NULL ) {
+			fprintf( f, "entries=%d\nquestion=%s\n%s", ai_world_n, question, out );
+			fclose( f );
+		}
+	}
 	return (int)o;
 }
 
