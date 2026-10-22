@@ -218,6 +218,9 @@ static int			sw_ovl_foe_sig = -1;
 static int			sw_ovl_pet_speed = -1, sw_ovl_pet_pv = -1, sw_ovl_pet_dv = -1;
 static int			sw_ovl_pet_nbuff = 0;
 static int			sw_ovl_pet_buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+static int			sw_ovl_ply_speed = -1, sw_ovl_ply_pv = -1, sw_ovl_ply_dv = -1;
+static int			sw_ovl_ply_nbuff = 0;
+static int			sw_ovl_ply_buffid[ SW_OVL_FOE_BUFF_SHOWN ];
 
 /*	r254: the player's own always-checked numbers, drawn under the bars on
 	the party sheet's left strip.  All of them are plain cdata/gdata fields;
@@ -1230,6 +1233,9 @@ static unsigned int sw_ovl_foe_hash( void )
 	FH( sw_ovl_pet_speed ); FH( sw_ovl_pet_pv ); FH( sw_ovl_pet_dv );
 	FH( sw_ovl_pet_nbuff );
 	for ( j = 0; j < sw_ovl_pet_nbuff; j++ ) FH( sw_ovl_pet_buffid[ j ] );
+	FH( sw_ovl_ply_speed ); FH( sw_ovl_ply_pv ); FH( sw_ovl_ply_dv );
+	FH( sw_ovl_ply_nbuff );
+	for ( j = 0; j < sw_ovl_ply_nbuff; j++ ) FH( sw_ovl_ply_buffid[ j ] );
 #undef FH
 	return h;
 }
@@ -2521,6 +2527,25 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 		char v[ 160 ];
 		int c, first = 1;
 
+		/*	The player's own fighting numbers first, then the target.		*/
+		y += 4;
+		snprintf( v, sizeof( v ), "%d", sw_ovl_ply_speed );
+		y += sw_ovl_ply_line( panel, "速度", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+		snprintf( v, sizeof( v ), "PV %d DV %d", sw_ovl_ply_pv, sw_ovl_ply_dv );
+		y += sw_ovl_ply_line( panel, "防御", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+		if ( sw_ovl_ply_nbuff > 0 ) {
+			int i;
+			v[ 0 ] = '\0';
+			for ( i = 0; i < sw_ovl_ply_nbuff; i++ ) {
+				if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+				strncat( v, sw_ovl_buff_name( sw_ovl_ply_buffid[ i ] ),
+					sizeof( v ) - 1 - strlen( v ) );
+			}
+			y += sw_ovl_ply_line( panel, "强化", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+		}
+
 		y += 10;
 		hr.x = 8; hr.y = y - 4; hr.w = strip_w - 16; hr.h = 2;
 		SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 255 ) );
@@ -2780,6 +2805,10 @@ static int sw_ovl_party_refresh( int *slot )
 		sw_ovl_pet_pv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_PV, slot[1] ) : -1;
 		sw_ovl_pet_dv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_DV, slot[1] ) : -1;
 		sw_ovl_buff_scan( slot[1], sw_ovl_pet_buffid, &sw_ovl_pet_nbuff );
+		sw_ovl_ply_speed = sw_ovl_cdata( SW_OVL_CD_SPEED, 0 );
+		sw_ovl_ply_pv    = sw_ovl_cdata( SW_OVL_CD_PV, 0 );
+		sw_ovl_ply_dv    = sw_ovl_cdata( SW_OVL_CD_DV, 0 );
+		sw_ovl_buff_scan( 0, sw_ovl_ply_buffid, &sw_ovl_ply_nbuff );
 		hash = (int)sw_ovl_foe_hash();
 		if ( hash != sw_ovl_foe_sig ) { dirty = 1; sw_ovl_foe_sig = hash; }
 	}
