@@ -21,7 +21,8 @@
 
 #include "ai_chat.h"
 
-#define AI_MAX_TEXT		16384	/* request body / answer scratch		*/
+#define AI_MAX_TEXT		20480	/* request body / answer scratch; three
+								   replayed turns ride along from r283	*/
 #define AI_MAX_LINE		512		/* one spoken line					*/
 #define AI_MAX_PERSONA	2048
 #define AI_MAX_MEMORY	4096
@@ -50,6 +51,14 @@ static char			ai_last_line[ AI_MAX_LINE ] = "";
 static char			ai_hist[ AI_HISTORY ][ AI_MAX_LINE ];
 static int			ai_hist_n = 0;
 static int			ai_seq = 0;							/* bumps on every shown line */
+/*	r283: the last few question/answer pairs are sent back with the next
+	question, so the model can follow a conversation instead of treating
+	every line as the first one.  Scene remarks are not kept - they have no
+	user half and their block is long - only real questions are.		*/
+#define AI_TURNS	3
+static char			ai_turn_q[ AI_TURNS ][ AI_MAX_LINE ];
+static char			ai_turn_a[ AI_TURNS ][ AI_MAX_LINE ];
+static int			ai_turn_n = 0;
 static char			ai_pending[ AI_MAX_LINE ] = "";		/* question waiting its turn */
 static int			ai_has_pending = 0;
 static int			ai_state = AI_STATE_OFF;
@@ -391,9 +400,11 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 				const char *memory, const char *question )
 {
 	/*	Same reason as ai_start: these buffers do not belong on a worker
-		thread's stack.  The worker runs one request at a time.			*/
-	static char sys[ 8192 ], sys_esc[ 24576 ];
-	static char usr[ 4096 ], usr_esc[ 12288 ];
+		thread's stack.  The worker runs one request at a time.  r283: the
+		system block now has room for the whole persona + memory - at 8 KB
+		a long memory pushed the rules at the end out of the prompt.	*/
+	static char sys[ AI_MAX_TEXT ], sys_esc[ AI_MAX_TEXT + 1024 ];
+	static char usr[ 4096 ], usr_esc[ 8192 ];
 	size_t l;
 
 #define AI_CAT( ... ) do { \
@@ -440,12 +451,45 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	ai_json_escape( sys, sys_esc, sizeof( sys_esc ) );
 	ai_json_escape( usr, usr_esc, sizeof( usr_esc ) );
 
-	snprintf( out, n,
-		"{\"model\":\"%s\",\"messages\":["
-		"{\"role\":\"system\",\"content\":\"%s\"},"
-		"{\"role\":\"user\",\"content\":\"%s\"}],"
-		"\"temperature\":1.0,\"max_tokens\":200}",
-		ai_model, sys_esc, usr_esc );
+	/*	r283: replay the last few question/answer pairs before this one, so
+		"那刚才那个呢" has something to point at.  The copy is taken under
+		the lock because the worker writes that history when an answer
+		lands.																*/
+	{
+		static char q_esc[ 2048 ], a_esc[ 2048 ];
+		static char hq[ AI_TURNS ][ AI_MAX_LINE ], ha[ AI_TURNS ][ AI_MAX_LINE ];
+		size_t len;
+		int hn, i, r;
+
+		pthread_mutex_lock( &ai_lock );
+		hn = ai_turn_n;
+		for ( i = 0; i < hn; i++ ) {
+			memcpy( hq[ i ], ai_turn_q[ i ], AI_MAX_LINE );
+			memcpy( ha[ i ], ai_turn_a[ i ], AI_MAX_LINE );
+		}
+		pthread_mutex_unlock( &ai_lock );
+
+		snprintf( out, n,
+			"{\"model\":\"%s\",\"messages\":[{\"role\":\"system\",\"content\":\"%s\"}",
+			ai_model, sys_esc );
+		len = strlen( out );
+		for ( i = 0; i < hn && len < n; i++ ) {
+			ai_json_escape( hq[ i ], q_esc, sizeof( q_esc ) );
+			ai_json_escape( ha[ i ], a_esc, sizeof( a_esc ) );
+			r = snprintf( out + len, n - len,
+				",{\"role\":\"user\",\"content\":\"%s\"},"
+				"{\"role\":\"assistant\",\"content\":\"%s\"}",
+				q_esc, a_esc );
+			if ( r <= 0 || (size_t)r >= n - len ) break;
+			len += (size_t)r;
+		}
+		if ( len < n ) {
+			snprintf( out + len, n - len,
+				",{\"role\":\"user\",\"content\":\"%s\"}],"
+				"\"temperature\":1.0,\"max_tokens\":200}",
+				usr_esc );
+		}
+	}
 #undef AI_CAT
 }
 
@@ -476,6 +520,27 @@ static void ai_push_line( const char *text )
 	ai_log_line( "say", text );
 }
 
+/*	Remember one question and the answer it got.  Called with ai_lock held,
+	from the worker.  Older pairs fall off the front.					*/
+static void ai_turn_add( const char *q, const char *a )
+{
+	int i;
+
+	if ( q == NULL || q[ 0 ] == '\0' || a == NULL || a[ 0 ] == '\0' ) return;
+	if ( ai_turn_n < AI_TURNS ) {
+		snprintf( ai_turn_q[ ai_turn_n ], AI_MAX_LINE, "%s", q );
+		snprintf( ai_turn_a[ ai_turn_n ], AI_MAX_LINE, "%s", a );
+		ai_turn_n++;
+		return;
+	}
+	for ( i = 1; i < AI_TURNS; i++ ) {
+		memcpy( ai_turn_q[ i - 1 ], ai_turn_q[ i ], AI_MAX_LINE );
+		memcpy( ai_turn_a[ i - 1 ], ai_turn_a[ i ], AI_MAX_LINE );
+	}
+	snprintf( ai_turn_q[ AI_TURNS - 1 ], AI_MAX_LINE, "%s", q );
+	snprintf( ai_turn_a[ AI_TURNS - 1 ], AI_MAX_LINE, "%s", a );
+}
+
 /*	Count the "- " entries the memory section currently holds.			*/
 static int ai_memory_lines( void )
 {
@@ -487,6 +552,32 @@ static int ai_memory_lines( void )
 		p++;
 	}
 	return n;
+}
+
+/*	Keep only the "- " lines the compactor produced, at most six of them.
+	Models like to wrap a list in a sentence; that sentence must not end up
+	in the follower's file, where every later read would see it as memory. */
+static void ai_memory_clean( const char *in, char *out, size_t n )
+{
+	const char *p = in;
+	char line[ 512 ];
+	size_t o = 0;
+	int keep = 0;
+
+	out[ 0 ] = '\0';
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		size_t l;
+		ai_trim( line );
+		if ( line[ 0 ] != '-' ) continue;
+		if ( keep >= 6 ) break;
+		l = strlen( line );
+		if ( o + l + 2 >= n ) break;
+		memcpy( out + o, line, l );
+		o += l;
+		out[ o++ ] = '\n';
+		keep++;
+	}
+	if ( o > 0 ) out[ o - 1 ] = '\0';		/* drop the trailing newline	*/
 }
 
 /*	Rewrite the followers's markdown so that the "## 记忆" section holds
@@ -541,7 +632,7 @@ static int ai_replace_memory( const char *list )
 	return 1;
 }
 
-static void ai_request( char *body, int mode )
+static void ai_request( char *body, int mode, const char *question )
 {
 	CURL *h;
 	struct curl_slist *hdrs;
@@ -600,9 +691,19 @@ static void ai_request( char *body, int mode )
 		/*	Memory compaction: the answer is a list, not a line, and it
 			never goes on screen.  A failed compaction is harmless - the
 			old memory stays and the next attempt waits for the timer.	*/
+		static char cleaned[ AI_MAX_MEMORY ];	/* 4 KB, not on the stack */
+
 		if ( rc == CURLE_OK && code == 200 &&
 				ai_parse_content( buf.p, result, sizeof( result ) ) ) {
-			ai_log_line( ai_replace_memory( result ) ? "mem" : "mem-fail", result );
+			ai_memory_clean( result, cleaned, sizeof( cleaned ) );
+			if ( cleaned[ 0 ] && ai_replace_memory( cleaned ) ) {
+				/*	The panel's copy follows at once; without this the old
+					count kept the timer firing every ten minutes.		*/
+				snprintf( ai_memory, sizeof( ai_memory ), "%s", cleaned );
+				ai_log_line( "mem", cleaned );
+			} else {
+				ai_log_line( "mem-fail", result );
+			}
 			ai_last_compress = ai_now();
 		}
 		ai_state = AI_STATE_READY;
@@ -614,6 +715,9 @@ static void ai_request( char *body, int mode )
 			ai_status_set( "AI 就绪" );
 		} else {
 			ai_push_line_locked( result );
+			/*	r283: keep the pair so the next question can build on it.
+				Scene remarks have no question and are not stored.		*/
+			ai_turn_add( question, result );
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 			ai_log_line( "say", result );
@@ -651,12 +755,12 @@ static void ai_request( char *body, int mode )
 	ai_busy = 0;
 }
 
-struct AI_JOB { char body[ AI_MAX_TEXT ]; int mode; };
+struct AI_JOB { char body[ AI_MAX_TEXT ]; char question[ AI_MAX_LINE ]; int mode; };
 
 static void *ai_thread( void *arg )
 {
 	struct AI_JOB *job = (struct AI_JOB*)arg;
-	ai_request( job->body, job->mode );
+	ai_request( job->body, job->mode, job->question );
 	free( job );
 	return NULL;
 }
@@ -695,6 +799,8 @@ static void ai_start( const char *question, const char *event )
 	job = (struct AI_JOB*)malloc( sizeof( struct AI_JOB ) );
 	if ( job == NULL ) { ai_busy = 0; return; }
 	job->mode = 0;
+	snprintf( job->question, sizeof( job->question ), "%s",
+		question != NULL ? question : "" );
 	ai_build_body( job->body, sizeof( job->body ), scene, persona, tone, example, memory, question );
 	if ( pthread_create( &th, NULL, ai_thread, job ) != 0 ) {
 		free( job );
@@ -741,6 +847,7 @@ static void ai_start_compress( void )
 	job = (struct AI_JOB*)malloc( sizeof( struct AI_JOB ) );
 	if ( job == NULL ) { ai_busy = 0; return; }
 	job->mode = 1;
+	job->question[ 0 ] = '\0';			/* compaction is not a conversation */
 	snprintf( job->body, sizeof( job->body ),
 		"{\"model\":\"%s\",\"messages\":["
 		"{\"role\":\"system\",\"content\":\"%s\"},"
@@ -783,6 +890,9 @@ void ai_chat_set_context( const char *npc_name, const char *scene )
 		strncpy( ai_npc, npc_name, sizeof( ai_npc ) - 1 );
 		ai_npc[ sizeof( ai_npc ) - 1 ] = '\0';
 		ai_last_line[ 0 ] = '\0';
+		/*	A different speaker means a different conversation: keeping the
+			old pairs would put somebody else's words in her mouth.		*/
+		ai_turn_n = 0;
 	}
 	if ( strcmp( scene, ai_scene ) != 0 ) {
 		strncpy( ai_scene, scene, sizeof( ai_scene ) - 1 );
