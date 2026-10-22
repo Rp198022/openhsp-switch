@@ -240,7 +240,6 @@ static void ai_load_persona( const char *npc )
 			continue;
 		}
 		if ( section == 0 || line[ 0 ] == '\0' ) continue;
-		pl = strlen( ai_persona ) + strlen( ai_tone ) + strlen( ai_example ) + 3;
 		ml = strlen( ai_memory );
 		if ( section == 1 ) ai_append( ai_persona, sizeof( ai_persona ), line );
 		else if ( section == 2 && ml + strlen( line ) + 2 < sizeof( ai_memory ) ) {
