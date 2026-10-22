@@ -2160,6 +2160,54 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				by += sw_ovl_ply_line( panel, "", v, by, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
 		}
+		/*	The follower's strip has the same empty half under its bars: the
+			two relation scales - separate numbers, separate names - plus the
+			figures a follower actually carries.  Ether is player-only, so it
+			never appears here.  In battle the barrier and the enemy's share
+			of HP join them; the enemy block on the player's strip is far down
+			the screen by then.												*/
+		if ( ix == 1 && sw_ovl_party_slot[ ix ] >= 0 &&
+				( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) ) {
+			char v[ 200 ];
+			int first = 1, c;
+
+			y += 4;
+			snprintf( v, sizeof( v ), "%d %s", sw_ovl_party_imp[ ix ],
+				sw_ovl_imp_name( sw_ovl_party_imp[ ix ] ) );
+			y += sw_ovl_ply_line( panel, "好感", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%d %s", sw_ovl_party_ms[ ix ],
+				sw_ovl_ms_name( sw_ovl_party_ms[ ix ] ) );
+			y += sw_ovl_ply_line( panel, "顺从", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			v[ 0 ] = '\0';
+			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+				if ( sw_ovl_ply_cond[ ix ][ c ] <= 0 ) continue;
+				if ( !first ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+				strncat( v, sw_ovl_bat_cond[ c ].name, sizeof( v ) - 1 - strlen( v ) );
+				first = 0;
+			}
+			if ( first ) snprintf( v, sizeof( v ), "正常" );
+			y += sw_ovl_ply_line( panel, "状态", v, y, strip_w, !first ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%d%%", sw_ovl_lim( sw_ovl_ply_hunger[ ix ] / 100, 0, 100 ) );
+			y += sw_ovl_ply_line( panel, "饱腹", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[ ix ], sw_ovl_ply_plat[ ix ] );
+			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			if ( sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
+				if ( sw_ovl_ply_barrier[ ix ] > 0 ) {
+					snprintf( v, sizeof( v ), "%d", sw_ovl_ply_barrier[ ix ] );
+					y += sw_ovl_ply_line( panel, "屏障", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+				}
+				if ( sw_ovl_bat_name[ 0 ] != '\0' && sw_ovl_bat_mhp > 0 ) {
+					snprintf( v, sizeof( v ), "%d%%",
+						sw_ovl_lim( sw_ovl_bat_hp * 100 / sw_ovl_bat_mhp, 0, 100 ) );
+					y += sw_ovl_ply_line( panel, "敌人", v, y, strip_w, 1 ) * SW_OVL_PLY_LINE_H;
+				}
+			}
+		}
 		if ( sw_ovl_mode == SW_OVL_MODE_DETAIL )
 		for ( i = 0; i < SW_OVL_PARTY_ATTR_COUNT; i++ ) {
 			int nw;
@@ -2253,7 +2301,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 	}
 
-	if ( sw_ovl_mode == SW_OVL_MODE_PARTY && ix == 1 ) {
+	if ( ( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) && ix == 1 ) {
 		/*	r272: the whole lower half of the pet's strip is the answer box,
 			and it shows the last three lines so a conversation reads as a
 			conversation.  The oldest is pushed out by the newest.			*/
