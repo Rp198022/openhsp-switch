@@ -187,6 +187,38 @@ static char		sw_ovl_bat_name[ 64 ] = "";
 static int		sw_ovl_bat_hp = 0, sw_ovl_bat_mhp = 0;
 static int		sw_ovl_bat_condv[ SW_OVL_BAT_COND_N ];
 
+/*	r277: the battle sheet wants the numbers a player checks before choosing
+	a move - the target's level, speed, PV/DV and whatever is riding on it.
+	Indices are from Elona+'s defines (2.32 _reference/defines_2.32.hsp):
+	CDATA_SPEED 11, CDATA_TARGET 29, CDATA_LEVEL 38, CDATA_PV 70,
+	CDATA_DV 71, buffs start at 280 with three cells each (id, power,
+	remaining turns).  Every fighter is read the same way.				*/
+#define SW_OVL_CD_SPEED			11
+#define SW_OVL_CD_TARGET		29
+#define SW_OVL_CD_LEVEL			38
+#define SW_OVL_CD_PV			70
+#define SW_OVL_CD_DV			71
+#define SW_OVL_CD_BUFF_BASE		280
+#define SW_OVL_CD_BUFF_STRIDE	3
+#define SW_OVL_CD_BUFF_N		72
+#define SW_OVL_CD_BUFF_TURNS	2
+#define SW_OVL_FOE_BUFF_SHOWN	3
+
+typedef struct {
+	int		slot;					/* chara index, -1 = nothing		*/
+	int		level, speed, pv, dv, hp, mhp;
+	int		cond[ SW_OVL_BAT_COND_N ];
+	int		nbuff;
+	int		buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+	char	name[ 64 ];				/* still GBK						*/
+} SW_OVL_FOE;
+
+static SW_OVL_FOE	sw_ovl_foe[ 2 ];	/* 0 = player's target, 1 = pet's */
+static int			sw_ovl_foe_sig = -1;
+static int			sw_ovl_pet_speed = -1, sw_ovl_pet_pv = -1, sw_ovl_pet_dv = -1;
+static int			sw_ovl_pet_nbuff = 0;
+static int			sw_ovl_pet_buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+
 /*	r254: the player's own always-checked numbers, drawn under the bars on
 	the party sheet's left strip.  All of them are plain cdata/gdata fields;
 	the weight pair uses the game's cnvweight() scale (value / 1000, one
@@ -245,6 +277,9 @@ static PVal		*sw_ovl_pv_inv = NULL;	/* item data: dim 70,5480 INT	*/
 static PVal		*sw_ovl_pv_msg = NULL;
 static PVal		*sw_ovl_pv_msgline = NULL;
 static PVal		*sw_ovl_pv_inf_maxlog = NULL;
+/*	r277: the game's own buff table (sdim buffname,20,72).  Reading it keeps
+	the battle sheet's buff words in Chinese without a hand-kept list.	*/
+static PVal		*sw_ovl_pv_buffname = NULL;
 
 /*	r203: the most recent custom-talk speaker.  chara_func.hsp:207 sets
 	`chatc = customtalk_charid` before dispatching any custom line and
@@ -356,6 +391,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_pv_chatc = NULL;
 	sw_ovl_pv_trait = NULL;
 	sw_ovl_pv_inv = NULL;
+	sw_ovl_pv_buffname = NULL;
 	sw_ovl_party_sheet[0] = 0;
 	sw_ovl_party_sheet[1] = 0;
 	sw_ovl_party_slot[0] = 0;
@@ -937,6 +973,7 @@ static int sw_ovl_party_resolve( void )
 	sw_ovl_pv_msgline = NULL;
 	sw_ovl_pv_inf_maxlog = NULL;
 	sw_ovl_pv_chatc = NULL;
+	sw_ovl_pv_buffname = NULL;
 
 	id = code_getdebug_seekvar( "cdata" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdata = &ctx->mem_var[ id ];
@@ -953,6 +990,9 @@ static int sw_ovl_party_resolve( void )
 
 	id = code_getdebug_seekvar( "chatc" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_chatc = &ctx->mem_var[ id ];
+
+	id = code_getdebug_seekvar( "buffname" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_buffname = &ctx->mem_var[ id ];
 
 	id = code_getdebug_seekvar( "trait" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_trait = &ctx->mem_var[ id ];
@@ -1107,6 +1147,91 @@ static const char *sw_ovl_cdatan( int field, int slot )
 	/*	HspVarCorePtrAPTR writes pv->offset; the pointer is only valid
 		until the next call on the same PVal, so callers copy at once.	*/
 	return (const char*)HspVarCorePtrAPTR( sw_ovl_pv_cdatan, field + slot * sw_ovl_pv_cdatan->len[1] );
+}
+
+/*	r277: one word from the game's own buff table (sdim buffname,20,72).
+	The interpreter keeps its strings in GBK like the rest of the game.	*/
+static const char *sw_ovl_utf8( const char *in );	/* defined further down */
+
+static const char *sw_ovl_buff_name( int id )
+{
+	static char out[ 64 ];
+	const char *s;
+
+	out[ 0 ] = '\0';
+	if ( sw_ovl_pv_buffname == NULL ) return out;
+	if ( id <= 0 ) return out;
+	if ( id >= sw_ovl_pv_buffname->len[1] && id >= sw_ovl_pv_buffname->len[0] ) return out;
+	s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_buffname, id );
+	if ( s == NULL || s[ 0 ] == '\0' ) return out;
+	snprintf( out, sizeof( out ), "%s", sw_ovl_utf8( s ) );
+	return out;
+}
+
+/*	The buff ids currently riding on one character.  Buff id 0 is "none";
+	a cell with no turns left is a buff that has already expired.		*/
+static void sw_ovl_buff_scan( int slot, int *ids, int *n )
+{
+	int i, id, turns;
+
+	*n = 0;
+	if ( slot < 0 ) return;
+	for ( i = 0; i < SW_OVL_CD_BUFF_N && *n < SW_OVL_FOE_BUFF_SHOWN; i++ ) {
+		id = sw_ovl_cdata( SW_OVL_CD_BUFF_BASE + i * SW_OVL_CD_BUFF_STRIDE, slot );
+		turns = sw_ovl_cdata( SW_OVL_CD_BUFF_BASE + i * SW_OVL_CD_BUFF_STRIDE
+			+ SW_OVL_CD_BUFF_TURNS, slot );
+		if ( id > 0 && turns > 0 ) ids[ ( *n )++ ] = id;
+	}
+}
+
+/*	Fill one battle-sheet target.  slot 0 is "the player itself" in Elona's
+	TARGET field, so it means nobody.  A dead or empty slot reads as none. */
+static void sw_ovl_foe_read( int which, int slot )
+{
+	SW_OVL_FOE *f = &sw_ovl_foe[ which ];
+	int i;
+
+	f->slot = -1;
+	f->level = f->speed = f->pv = f->dv = f->hp = f->mhp = 0;
+	f->nbuff = 0;
+	f->name[ 0 ] = '\0';
+	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ ) f->cond[ i ] = 0;
+	if ( slot <= 0 ) return;
+	if ( sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, slot ) != 1 ) return;
+
+	f->slot = slot;
+	snprintf( f->name, sizeof( f->name ), "%s", sw_ovl_cdatan( 0, slot ) );
+	f->level = sw_ovl_cdata( SW_OVL_CD_LEVEL, slot );
+	f->speed = sw_ovl_cdata( SW_OVL_CD_SPEED, slot );
+	f->pv    = sw_ovl_cdata( SW_OVL_CD_PV, slot );
+	f->dv    = sw_ovl_cdata( SW_OVL_CD_DV, slot );
+	f->hp    = sw_ovl_cdata( SW_OVL_PARTY_CD_HP, slot );
+	f->mhp   = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, slot );
+	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ )
+		f->cond[ i ] = sw_ovl_cdata( sw_ovl_bat_cond[ i ].field, slot );
+	sw_ovl_buff_scan( slot, f->buffid, &f->nbuff );
+}
+
+/*	Values that move during a fight; the sheet is rebuilt when it changes. */
+static unsigned int sw_ovl_foe_hash( void )
+{
+	unsigned int h = 2166136261u;
+	int i, j;
+
+#define FH( v ) h = ( h ^ (unsigned int)( v ) ) * 16777619u
+	for ( i = 0; i < 2; i++ ) {
+		SW_OVL_FOE *f = &sw_ovl_foe[ i ];
+		FH( f->slot ); FH( f->level ); FH( f->speed ); FH( f->pv ); FH( f->dv );
+		FH( f->hp ); FH( f->mhp ); FH( f->nbuff );
+		for ( j = 0; j < SW_OVL_BAT_COND_N; j++ ) FH( f->cond[ j ] );
+		for ( j = 0; j < f->nbuff; j++ ) FH( f->buffid[ j ] );
+		for ( j = 0; j < 8 && f->name[ j ]; j++ ) FH( (unsigned char)f->name[ j ] );
+	}
+	FH( sw_ovl_pet_speed ); FH( sw_ovl_pet_pv ); FH( sw_ovl_pet_dv );
+	FH( sw_ovl_pet_nbuff );
+	for ( j = 0; j < sw_ovl_pet_nbuff; j++ ) FH( sw_ovl_pet_buffid[ j ] );
+#undef FH
+	return h;
 }
 
 static int sw_ovl_inv( int field, int idx )
@@ -2166,8 +2291,7 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			never appears here.  In battle the barrier and the enemy's share
 			of HP join them; the enemy block on the player's strip is far down
 			the screen by then.												*/
-		if ( ix == 1 && sw_ovl_party_slot[ ix ] >= 0 &&
-				( sw_ovl_mode == SW_OVL_MODE_PARTY || sw_ovl_mode == SW_OVL_MODE_BATTLE ) ) {
+		if ( ix == 1 && sw_ovl_party_slot[ ix ] >= 0 && sw_ovl_mode == SW_OVL_MODE_PARTY ) {
 			char v[ 200 ];
 			int first = 1, c;
 
@@ -2195,16 +2319,75 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 			snprintf( v, sizeof( v ), "%dgp %dpp", sw_ovl_ply_gold[ ix ], sw_ovl_ply_plat[ ix ] );
 			y += sw_ovl_ply_line( panel, "金", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+		}
+		/*	Battle flavour: the follower's own fighting numbers and buffs,
+			then the target it is actually on - what a player would otherwise
+			have to press examine for.  The player's own target is drawn on
+			the left strip, so the two never repeat each other.				*/
+		if ( ix == 1 && sw_ovl_party_slot[ ix ] >= 0 && sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
+			SW_OVL_FOE *f = &sw_ovl_foe[ 1 ];
+			char v[ 200 ];
+			int i, c, first = 1;
 
-			if ( sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
-				if ( sw_ovl_ply_barrier[ ix ] > 0 ) {
-					snprintf( v, sizeof( v ), "%d", sw_ovl_ply_barrier[ ix ] );
-					y += sw_ovl_ply_line( panel, "屏障", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			y += 4;
+			snprintf( v, sizeof( v ), "%d", sw_ovl_pet_speed );
+			y += sw_ovl_ply_line( panel, "速度", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			snprintf( v, sizeof( v ), "PV %d DV %d", sw_ovl_pet_pv, sw_ovl_pet_dv );
+			y += sw_ovl_ply_line( panel, "防御", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+
+			if ( sw_ovl_ply_barrier[ ix ] > 0 ) {
+				snprintf( v, sizeof( v ), "%d", sw_ovl_ply_barrier[ ix ] );
+				y += sw_ovl_ply_line( panel, "屏障", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			}
+			if ( sw_ovl_pet_nbuff > 0 ) {
+				v[ 0 ] = '\0';
+				for ( i = 0; i < sw_ovl_pet_nbuff; i++ ) {
+					if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+					strncat( v, sw_ovl_buff_name( sw_ovl_pet_buffid[ i ] ),
+						sizeof( v ) - 1 - strlen( v ) );
 				}
-				if ( sw_ovl_bat_name[ 0 ] != '\0' && sw_ovl_bat_mhp > 0 ) {
-					snprintf( v, sizeof( v ), "%d%%",
-						sw_ovl_lim( sw_ovl_bat_hp * 100 / sw_ovl_bat_mhp, 0, 100 ) );
-					y += sw_ovl_ply_line( panel, "敌人", v, y, strip_w, 1 ) * SW_OVL_PLY_LINE_H;
+				y += sw_ovl_ply_line( panel, "强化", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			}
+
+			{
+				SDL_Rect hr;
+				y += 6;
+				hr.x = 8; hr.y = y - 3; hr.w = strip_w - 16; hr.h = 2;
+				SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 255 ) );
+				sw_ovl_blit_small( panel, "— 随从目标 —", 110, 8, y ); y += 18;
+			}
+			if ( f->slot < 0 ) {
+				sw_ovl_blit_small( panel, "无", 200, 8, y + 2 );
+			} else {
+				snprintf( v, sizeof( v ), "%s", sw_ovl_utf8( f->name ) );
+				sw_ovl_blit_text( panel, v, 255, 8, y ); y += SW_OVL_LINE_H;
+
+				snprintf( v, sizeof( v ), "Lv%d  HP %d%%", f->level,
+					sw_ovl_lim( f->hp * 100 / ( f->mhp > 0 ? f->mhp : 1 ), 0, 100 ) );
+				sw_ovl_blit_small( panel, v, 230, 8, y + 2 ); y += 18;
+
+				snprintf( v, sizeof( v ), "速度 %d  PV %d  DV %d", f->speed, f->pv, f->dv );
+				sw_ovl_blit_small( panel, v, 225, 8, y + 2 ); y += 18;
+
+				v[ 0 ] = '\0';
+				for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+					if ( f->cond[ c ] <= 0 ) continue;
+					if ( !first ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+					strncat( v, sw_ovl_bat_cond[ c ].name, sizeof( v ) - 1 - strlen( v ) );
+					first = 0;
+				}
+				if ( first ) snprintf( v, sizeof( v ), "状态正常" );
+				sw_ovl_blit_small( panel, v, first ? 225 : 200, 8, y + 2 ); y += 18;
+
+				if ( f->nbuff > 0 ) {
+					v[ 0 ] = '\0';
+					for ( i = 0; i < f->nbuff; i++ ) {
+						if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+						strncat( v, sw_ovl_buff_name( f->buffid[ i ] ),
+							sizeof( v ) - 1 - strlen( v ) );
+					}
+					sw_ovl_blit_small( panel, v, 44, 8, y + 2 );
 				}
 			}
 		}
@@ -2330,30 +2513,52 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 
 	/*	r247: the battle sheet hangs the current enemy off the bottom of the
 	player's strip - the party rows above stay exactly as the party layer
-	draws them, so both portraits are still up.  The block is clipped by
-	the surface if the rows above have already used the height.			*/
-	if ( ix == 0 && sw_ovl_mode == SW_OVL_MODE_BATTLE && sw_ovl_bat_name[ 0 ] != '\0' ) {
-		int mhp = sw_ovl_bat_mhp, c, first = 1;
+	draws them, so both portraits are still up.  r277 adds what is actually
+	worth checking mid-fight: level, speed, PV/DV, conditions and buffs.	*/
+	if ( ix == 0 && sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
+		SW_OVL_FOE *f = &sw_ovl_foe[ 0 ];
 		SDL_Rect hr;
-		if ( mhp < 1 ) mhp = 1;
+		char v[ 160 ];
+		int c, first = 1;
+
 		y += 10;
 		hr.x = 8; hr.y = y - 4; hr.w = strip_w - 16; hr.h = 2;
 		SDL_FillRect( panel, &hr, SDL_MapRGBA( panel->format, 110, 94, 70, 255 ) );
 		sw_ovl_blit_text( panel, "— 战斗 —", 235, 8, y ); y += SW_OVL_LINE_H;
-		snprintf( buf, sizeof( buf ), "%s", sw_ovl_utf8( sw_ovl_bat_name ) );
-		sw_ovl_blit_text( panel, buf, 255, 8, y ); y += SW_OVL_LINE_H;
-		snprintf( buf, sizeof( buf ), "HP %d/%d (%d%%)", sw_ovl_bat_hp, mhp,
-			sw_ovl_lim( sw_ovl_bat_hp * 100 / mhp, 0, 100 ) );
-		sw_ovl_blit_text( panel, buf, 230, 8, y ); y += SW_OVL_LINE_H;
-		buf[ 0 ] = '\0';
-		for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
-			if ( sw_ovl_bat_condv[ c ] <= 0 ) continue;
-			if ( !first ) strncat( buf, " ", sizeof( buf ) - 1 - strlen( buf ) );
-			strncat( buf, sw_ovl_bat_cond[ c ].name, sizeof( buf ) - 1 - strlen( buf ) );
-			first = 0;
+		if ( f->slot < 0 ) {
+			sw_ovl_blit_text( panel, "无目标", 200, 8, y );
+		} else {
+			snprintf( buf, sizeof( buf ), "%s Lv%d", sw_ovl_utf8( f->name ), f->level );
+			sw_ovl_blit_text( panel, buf, 255, 8, y ); y += SW_OVL_LINE_H;
+
+			snprintf( buf, sizeof( buf ), "HP %d/%d (%d%%)", f->hp,
+				f->mhp > 0 ? f->mhp : 1,
+				sw_ovl_lim( f->hp * 100 / ( f->mhp > 0 ? f->mhp : 1 ), 0, 100 ) );
+			sw_ovl_blit_text( panel, buf, 230, 8, y ); y += SW_OVL_LINE_H;
+
+			snprintf( v, sizeof( v ), "速度 %d  PV %d  DV %d", f->speed, f->pv, f->dv );
+			sw_ovl_blit_small( panel, v, 225, 8, y + 2 ); y += 18;
+
+			v[ 0 ] = '\0';
+			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
+				if ( f->cond[ c ] <= 0 ) continue;
+				if ( !first ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+				strncat( v, sw_ovl_bat_cond[ c ].name, sizeof( v ) - 1 - strlen( v ) );
+				first = 0;
+			}
+			if ( first ) snprintf( v, sizeof( v ), "状态正常" );
+			sw_ovl_blit_small( panel, v, first ? 225 : 200, 8, y + 2 ); y += 18;
+
+			if ( f->nbuff > 0 ) {
+				int i;
+				v[ 0 ] = '\0';
+				for ( i = 0; i < f->nbuff; i++ ) {
+					if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+					strncat( v, sw_ovl_buff_name( f->buffid[ i ] ), sizeof( v ) - 1 - strlen( v ) );
+				}
+				sw_ovl_blit_small( panel, v, 44, 8, y + 2 );
+			}
 		}
-		if ( first ) snprintf( buf, sizeof( buf ), "状态正常" );
-		sw_ovl_blit_small( panel, buf, 225, 8, y + 2 );
 	}
 
 	sw_ovl_party_sheet[ ix ] = sw_ovl_upload_rgba( panel, &sw_ovl_party_sheet_w[ ix ], &sw_ovl_party_sheet_h[ ix ] );
@@ -2559,6 +2764,24 @@ static int sw_ovl_party_refresh( int *slot )
 			int v = sw_ovl_cdata( sw_ovl_bat_cond[ c ].field, s );
 			if ( v != sw_ovl_bat_condv[ c ] ) { dirty = 1; sw_ovl_bat_condv[ c ] = v; }
 		}
+	}
+
+	/*	r277: both strips carry their owner's own target this time - the
+		player's on the left, the follower's on the right.  The pet's own
+		speed/PV/DV ride above them.  One hash covers the lot.			*/
+	if ( sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
+		int ps = sw_ovl_cdata( SW_OVL_CD_TARGET, 0 );
+		int qs = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_TARGET, slot[1] ) : -1;
+		int hash;
+
+		sw_ovl_foe_read( 0, ps > 0 ? ps : sw_ovl_battle_slot );
+		sw_ovl_foe_read( 1, qs );
+		sw_ovl_pet_speed = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_SPEED, slot[1] ) : -1;
+		sw_ovl_pet_pv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_PV, slot[1] ) : -1;
+		sw_ovl_pet_dv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_DV, slot[1] ) : -1;
+		sw_ovl_buff_scan( slot[1], sw_ovl_pet_buffid, &sw_ovl_pet_nbuff );
+		hash = (int)sw_ovl_foe_hash();
+		if ( hash != sw_ovl_foe_sig ) { dirty = 1; sw_ovl_foe_sig = hash; }
 	}
 #undef SW_OVL_PLY_SYNC
 	return dirty;
