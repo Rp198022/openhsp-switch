@@ -2870,7 +2870,11 @@ static int sw_ovl_party_refresh( int *slot )
 		int hash;
 
 		sw_ovl_foe_read( 0, ps > 0 ? ps : sw_ovl_battle_slot );
-		sw_ovl_foe_read( 1, qs );
+		/*	A follower's TARGET only exists while it is actually swinging
+			(action.hsp sets it for the blow and clears it again), so the
+			engaged enemy is the useful fallback - otherwise this block sits
+			at "无" through the whole fight.								*/
+		sw_ovl_foe_read( 1, qs > 0 ? qs : sw_ovl_battle_slot );
 		sw_ovl_pet_speed = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_SPEED, slot[1] ) : -1;
 		sw_ovl_pet_pv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_PV, slot[1] ) : -1;
 		sw_ovl_pet_dv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_DV, slot[1] ) : -1;
