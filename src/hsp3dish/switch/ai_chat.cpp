@@ -410,7 +410,7 @@ static size_t ai_write_cb( char *data, size_t sz, size_t nm, void *user )
 #define AI_WORLD_MAX	96
 #define AI_WORLD_NAME	48
 #define AI_WORLD_KEYS	128
-#define AI_WORLD_BODY	512
+#define AI_WORLD_BODY	1024
 #define AI_WORLD_SHOW	6
 #define AI_WORLD_BUDGET	2600	/* bytes of entry text, Chinese is 3/char	*/
 #define AI_WORLD_RECENT	3
@@ -490,10 +490,17 @@ static void ai_world_load( void )
 				stage = 2;
 				continue;
 			}
-			if ( stage == 2 && line[ 0 ] != '\0' && bl + strlen( line ) + 1 < sizeof( body ) ) {
-				memcpy( body + bl, line, strlen( line ) );
-				bl += strlen( line );
-				body[ bl ] = '\0';
+			if ( stage == 2 && line[ 0 ] != '\0' ) {
+				/*	Clip instead of dropping: a body longer than the buffer
+					used to leave `body` empty, which silently threw the whole
+					entry away - half the book went missing that way.	*/
+				size_t ll = strlen( line );
+				if ( bl + ll + 1 >= sizeof( body ) ) ll = sizeof( body ) - 1 - bl;
+				if ( ll > 0 ) {
+					memcpy( body + bl, line, ll );
+					bl += ll;
+					body[ bl ] = '\0';
+				}
 			}
 		}
 		if ( stage >= 2 ) ai_world_push( name, keys, body );
