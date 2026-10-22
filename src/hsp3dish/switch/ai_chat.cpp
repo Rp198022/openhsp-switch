@@ -493,6 +493,70 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 #undef AI_CAT
 }
 
+/*	Save / restore the question/answer pairs next to the persona, so a
+	conversation survives a restart.  One file per follower:
+	  data/npc/<name>.chat, two lines per turn ("Q", "A", tab-separated).
+	The writer runs with ai_lock held (worker side).						*/
+#define AI_CHAT_BUF	( AI_TURNS * ( AI_MAX_LINE * 2 + 8 ) )
+
+static void ai_turn_save_locked( void )
+{
+	static char buf[ AI_CHAT_BUF ];
+	char path[ 256 ];
+	size_t o = 0;
+	int i;
+	FILE *f;
+
+	if ( ai_npc[ 0 ] == '\0' ) return;
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat", ai_npc );
+	if ( ai_turn_n <= 0 ) {
+		remove( path );
+		return;
+	}
+	buf[ 0 ] = '\0';
+	for ( i = 0; i < ai_turn_n && o < sizeof( buf ); i++ ) {
+		int r = snprintf( buf + o, sizeof( buf ) - o, "Q\t%s\nA\t%s\n",
+			ai_turn_q[ i ], ai_turn_a[ i ] );
+		if ( r <= 0 || (size_t)r >= sizeof( buf ) - o ) break;
+		o += (size_t)r;
+	}
+	f = fopen( path, "wb" );
+	if ( f == NULL ) return;
+	fwrite( buf, 1, o, f );
+	fclose( f );
+}
+
+static void ai_turn_load( const char *npc )
+{
+	static char data[ AI_CHAT_BUF ];
+	char path[ 256 ], line[ AI_MAX_LINE ], q[ AI_MAX_LINE ];
+	const char *p;
+
+	pthread_mutex_lock( &ai_lock );
+	ai_turn_n = 0;
+	pthread_mutex_unlock( &ai_lock );
+	if ( npc == NULL || npc[ 0 ] == '\0' ) return;
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat", npc );
+	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) return;
+
+	q[ 0 ] = '\0';
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		if ( line[ 0 ] == 'Q' && line[ 1 ] == '\t' ) {
+			snprintf( q, sizeof( q ), "%s", line + 2 );
+		} else if ( line[ 0 ] == 'A' && line[ 1 ] == '\t' && q[ 0 ] ) {
+			pthread_mutex_lock( &ai_lock );
+			if ( ai_turn_n < AI_TURNS ) {
+				snprintf( ai_turn_q[ ai_turn_n ], AI_MAX_LINE, "%s", q );
+				snprintf( ai_turn_a[ ai_turn_n ], AI_MAX_LINE, "%s", line + 2 );
+				ai_turn_n++;
+			}
+			pthread_mutex_unlock( &ai_lock );
+			q[ 0 ] = '\0';
+		}
+	}
+}
+
 /*	Put a sentence on screen and into the three-line history.  Called with
 	ai_lock held by the worker, and through ai_push_line() by the panel.	*/
 static void ai_push_line_locked( const char *text )
@@ -531,6 +595,7 @@ static void ai_turn_add( const char *q, const char *a )
 		snprintf( ai_turn_q[ ai_turn_n ], AI_MAX_LINE, "%s", q );
 		snprintf( ai_turn_a[ ai_turn_n ], AI_MAX_LINE, "%s", a );
 		ai_turn_n++;
+		ai_turn_save_locked();
 		return;
 	}
 	for ( i = 1; i < AI_TURNS; i++ ) {
@@ -539,6 +604,7 @@ static void ai_turn_add( const char *q, const char *a )
 	}
 	snprintf( ai_turn_q[ AI_TURNS - 1 ], AI_MAX_LINE, "%s", q );
 	snprintf( ai_turn_a[ AI_TURNS - 1 ], AI_MAX_LINE, "%s", a );
+	ai_turn_save_locked();
 }
 
 /*	Count the "- " entries the memory section currently holds.			*/
@@ -884,6 +950,8 @@ void ai_chat_init( void )
 
 void ai_chat_set_context( const char *npc_name, const char *scene )
 {
+	int changed = 0;
+
 	if ( !ai_enabled || npc_name == NULL || scene == NULL ) return;
 	pthread_mutex_lock( &ai_lock );
 	if ( strcmp( npc_name, ai_npc ) != 0 ) {
@@ -893,6 +961,7 @@ void ai_chat_set_context( const char *npc_name, const char *scene )
 		/*	A different speaker means a different conversation: keeping the
 			old pairs would put somebody else's words in her mouth.		*/
 		ai_turn_n = 0;
+		changed = 1;
 	}
 	if ( strcmp( scene, ai_scene ) != 0 ) {
 		strncpy( ai_scene, scene, sizeof( ai_scene ) - 1 );
@@ -900,6 +969,8 @@ void ai_chat_set_context( const char *npc_name, const char *scene )
 	}
 	pthread_mutex_unlock( &ai_lock );
 	ai_load_persona( npc_name );
+	/*	Only on a change - this runs every frame, the file read does not. */
+	if ( changed ) ai_turn_load( npc_name );
 }
 
 void ai_chat_notify_event( const char *event, int priority )

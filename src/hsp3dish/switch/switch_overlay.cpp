@@ -2564,8 +2564,22 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				strncat( box, "\n", sizeof( box ) - 1 - strlen( box ) );
 			strncat( box, one, sizeof( box ) - 1 - strlen( box ) );
 		}
-		if ( box[ 0 ] )
-			sw_ovl_chat_lines( panel, box, 8, panel->h - 8, SW_OVL_AI_ROWS, 1 );
+		if ( box[ 0 ] ) {
+			if ( sw_ovl_mode == SW_OVL_MODE_BATTLE ) {
+				/*	The battle strip is already full; keep its answers at
+					the bottom where they have always been.			*/
+				sw_ovl_chat_lines( panel, box, 8, panel->h - 8, SW_OVL_AI_ROWS, 1 );
+			} else {
+				/*	r284: the answer box starts right under the rows above
+					(the money line), not at the bottom of the strip, so the
+					two blocks read as one list.  The room left decides how
+					many rows fit.										*/
+				int maxl = ( panel->h - y - 12 ) / 18;
+				if ( maxl < 1 ) maxl = 1;
+				if ( maxl > SW_OVL_AI_ROWS ) maxl = SW_OVL_AI_ROWS;
+				sw_ovl_chat_lines( panel, box, 8, y + 6, maxl, 0 );
+			}
+		}
 	}
 
 	/*	r247: the battle sheet hangs the current enemy off the bottom of the
