@@ -624,6 +624,7 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	static char sys[ AI_MAX_TEXT ], sys_esc[ AI_MAX_TEXT + 1024 ];
 	static char usr[ 4096 ], usr_esc[ 8192 ];
 	size_t l;
+	int world_hit = 0;
 
 #define AI_CAT( ... ) do { \
 		l = strlen( sys ); \
@@ -642,9 +643,10 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		/*	r286: a few world-book entries, but only the ones this request
 			touches.  On a miss nothing is added at all.					*/
 		static char world[ 3072 ];
-		if ( ai_world_block( question, scene, world, sizeof( world ) ) > 0 )
-			AI_CAT( "世界设定（提里斯大陆，北提里斯是第一章的舞台；下面的资料只在与话题"
-				"相关时参考，不要主动背诵，不要照抄原句）：\n%s\n", world );
+		world_hit = ai_world_block( question, scene, world, sizeof( world ) ) > 0;
+		if ( world_hit )
+			AI_CAT( "世界设定（下面这些是你本来就知道的事。主人问到时就按它回答，"
+				"用你自己的口气说，别照读原文，别说不知道）：\n%s\n", world );
 	}
 	AI_CAT( "只输出中文台词，50字以内，可以用两三个短句，第一人称；"
 		"不要解释、不要动作描写、不要用括号。"
@@ -658,6 +660,9 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			user turn - because this model otherwise drifts back to whatever
 			the persona was complaining about.								*/
 		AI_CAT( "主人刚刚问你：「%s」。回答必须针对这句话。", question );
+		if ( world_hit )		/*	r290: the data is right above it	*/
+			AI_CAT( "这句话问的是世界设定里的东西，按上面给的资料回答，"
+				"不要推说没去过、不知道。" );
 	}
 	if ( question != NULL ) {
 		/*	Only the first scene line (where and when) goes with a question:
