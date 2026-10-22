@@ -208,19 +208,22 @@ typedef struct {
 	int		slot;					/* chara index, -1 = nothing		*/
 	int		level, speed, pv, dv, hp, mhp;
 	int		cond[ SW_OVL_BAT_COND_N ];
-	int		nbuff;
+	int		nbuff, ndebuff;
 	int		buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+	int		debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 	char	name[ 64 ];				/* still GBK						*/
 } SW_OVL_FOE;
 
 static SW_OVL_FOE	sw_ovl_foe[ 2 ];	/* 0 = player's target, 1 = pet's */
 static int			sw_ovl_foe_sig = -1;
 static int			sw_ovl_pet_speed = -1, sw_ovl_pet_pv = -1, sw_ovl_pet_dv = -1;
-static int			sw_ovl_pet_nbuff = 0;
+static int			sw_ovl_pet_nbuff = 0, sw_ovl_pet_ndebuff = 0;
 static int			sw_ovl_pet_buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+static int			sw_ovl_pet_debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 static int			sw_ovl_ply_speed = -1, sw_ovl_ply_pv = -1, sw_ovl_ply_dv = -1;
-static int			sw_ovl_ply_nbuff = 0;
+static int			sw_ovl_ply_nbuff = 0, sw_ovl_ply_ndebuff = 0;
 static int			sw_ovl_ply_buffid[ SW_OVL_FOE_BUFF_SHOWN ];
+static int			sw_ovl_ply_debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 
 /*	r254: the player's own always-checked numbers, drawn under the bars on
 	the party sheet's left strip.  All of them are plain cdata/gdata fields;
@@ -280,9 +283,12 @@ static PVal		*sw_ovl_pv_inv = NULL;	/* item data: dim 70,5480 INT	*/
 static PVal		*sw_ovl_pv_msg = NULL;
 static PVal		*sw_ovl_pv_msgline = NULL;
 static PVal		*sw_ovl_pv_inf_maxlog = NULL;
-/*	r277: the game's own buff table (sdim buffname,20,72).  Reading it keeps
-	the battle sheet's buff words in Chinese without a hand-kept list.	*/
+/*	r277: the game's own buff table (sdim buffname,20,72) and its type
+	column (dim bdataref,7,72; field 0 is BUFF_TYPE_BUFF/HEX/FOOD).  Reading
+	them keeps the battle sheet's words in Chinese without a hand-kept
+	list, and tells a buff from a debuff without guessing.				*/
 static PVal		*sw_ovl_pv_buffname = NULL;
+static PVal		*sw_ovl_pv_bdataref = NULL;
 
 /*	r203: the most recent custom-talk speaker.  chara_func.hsp:207 sets
 	`chatc = customtalk_charid` before dispatching any custom line and
@@ -395,6 +401,7 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_pv_trait = NULL;
 	sw_ovl_pv_inv = NULL;
 	sw_ovl_pv_buffname = NULL;
+	sw_ovl_pv_bdataref = NULL;
 	sw_ovl_party_sheet[0] = 0;
 	sw_ovl_party_sheet[1] = 0;
 	sw_ovl_party_slot[0] = 0;
@@ -977,6 +984,7 @@ static int sw_ovl_party_resolve( void )
 	sw_ovl_pv_inf_maxlog = NULL;
 	sw_ovl_pv_chatc = NULL;
 	sw_ovl_pv_buffname = NULL;
+	sw_ovl_pv_bdataref = NULL;
 
 	id = code_getdebug_seekvar( "cdata" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_cdata = &ctx->mem_var[ id ];
@@ -996,6 +1004,11 @@ static int sw_ovl_party_resolve( void )
 
 	id = code_getdebug_seekvar( "buffname" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_buffname = &ctx->mem_var[ id ];
+
+	id = code_getdebug_seekvar( "bdataref" );
+	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_bdataref = &ctx->mem_var[ id ];
+	if ( sw_ovl_pv_bdataref == NULL )
+		sw_ovl_pv_bdataref = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 7, 72, -1 );
 
 	id = code_getdebug_seekvar( "trait" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_trait = &ctx->mem_var[ id ];
@@ -1171,19 +1184,35 @@ static const char *sw_ovl_buff_name( int id )
 	return out;
 }
 
-/*	The buff ids currently riding on one character.  Buff id 0 is "none";
-	a cell with no turns left is a buff that has already expired.		*/
-static void sw_ovl_buff_scan( int slot, int *ids, int *n )
+/*	The buff ids currently riding on one character, split into buffs and
+	hexes.  Buff id 0 is "none"; a cell with no turns left has expired.
+	The type comes from the game's own table (bdataref field 0): 1 = buff,
+	2 = hex.  When the table is unreachable everything counts as a buff so
+	nothing silently disappears from the sheet.							*/
+static int sw_ovl_buff_is_hex( int id )
+{
+	if ( sw_ovl_pv_bdataref == NULL ) return 0;
+	if ( id < 0 || id >= sw_ovl_pv_bdataref->len[2] ) return 0;
+	return ((int*)sw_ovl_pv_bdataref->pt)[ id * sw_ovl_pv_bdataref->len[1] ] == 2;
+}
+
+static void sw_ovl_buff_scan( int slot, int *bids, int *nb, int *dids, int *nd )
 {
 	int i, id, turns;
 
-	*n = 0;
+	*nb = 0;
+	*nd = 0;
 	if ( slot < 0 ) return;
-	for ( i = 0; i < SW_OVL_CD_BUFF_N && *n < SW_OVL_FOE_BUFF_SHOWN; i++ ) {
+	for ( i = 0; i < SW_OVL_CD_BUFF_N; i++ ) {
 		id = sw_ovl_cdata( SW_OVL_CD_BUFF_BASE + i * SW_OVL_CD_BUFF_STRIDE, slot );
 		turns = sw_ovl_cdata( SW_OVL_CD_BUFF_BASE + i * SW_OVL_CD_BUFF_STRIDE
 			+ SW_OVL_CD_BUFF_TURNS, slot );
-		if ( id > 0 && turns > 0 ) ids[ ( *n )++ ] = id;
+		if ( id <= 0 || turns <= 0 ) continue;
+		if ( sw_ovl_buff_is_hex( id ) ) {
+			if ( *nd < SW_OVL_FOE_BUFF_SHOWN ) dids[ ( *nd )++ ] = id;
+		} else {
+			if ( *nb < SW_OVL_FOE_BUFF_SHOWN ) bids[ ( *nb )++ ] = id;
+		}
 	}
 }
 
@@ -1197,6 +1226,7 @@ static void sw_ovl_foe_read( int which, int slot )
 	f->slot = -1;
 	f->level = f->speed = f->pv = f->dv = f->hp = f->mhp = 0;
 	f->nbuff = 0;
+	f->ndebuff = 0;
 	f->name[ 0 ] = '\0';
 	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ ) f->cond[ i ] = 0;
 	if ( slot <= 0 ) return;
@@ -1212,7 +1242,7 @@ static void sw_ovl_foe_read( int which, int slot )
 	f->mhp   = sw_ovl_cdata( SW_OVL_PARTY_CD_MAX_HP, slot );
 	for ( i = 0; i < SW_OVL_BAT_COND_N; i++ )
 		f->cond[ i ] = sw_ovl_cdata( sw_ovl_bat_cond[ i ].field, slot );
-	sw_ovl_buff_scan( slot, f->buffid, &f->nbuff );
+	sw_ovl_buff_scan( slot, f->buffid, &f->nbuff, f->debuffid, &f->ndebuff );
 }
 
 /*	Values that move during a fight; the sheet is rebuilt when it changes. */
@@ -1225,17 +1255,20 @@ static unsigned int sw_ovl_foe_hash( void )
 	for ( i = 0; i < 2; i++ ) {
 		SW_OVL_FOE *f = &sw_ovl_foe[ i ];
 		FH( f->slot ); FH( f->level ); FH( f->speed ); FH( f->pv ); FH( f->dv );
-		FH( f->hp ); FH( f->mhp ); FH( f->nbuff );
+		FH( f->hp ); FH( f->mhp ); FH( f->nbuff ); FH( f->ndebuff );
 		for ( j = 0; j < SW_OVL_BAT_COND_N; j++ ) FH( f->cond[ j ] );
 		for ( j = 0; j < f->nbuff; j++ ) FH( f->buffid[ j ] );
+		for ( j = 0; j < f->ndebuff; j++ ) FH( f->debuffid[ j ] );
 		for ( j = 0; j < 8 && f->name[ j ]; j++ ) FH( (unsigned char)f->name[ j ] );
 	}
 	FH( sw_ovl_pet_speed ); FH( sw_ovl_pet_pv ); FH( sw_ovl_pet_dv );
-	FH( sw_ovl_pet_nbuff );
+	FH( sw_ovl_pet_nbuff ); FH( sw_ovl_pet_ndebuff );
 	for ( j = 0; j < sw_ovl_pet_nbuff; j++ ) FH( sw_ovl_pet_buffid[ j ] );
+	for ( j = 0; j < sw_ovl_pet_ndebuff; j++ ) FH( sw_ovl_pet_debuffid[ j ] );
 	FH( sw_ovl_ply_speed ); FH( sw_ovl_ply_pv ); FH( sw_ovl_ply_dv );
-	FH( sw_ovl_ply_nbuff );
+	FH( sw_ovl_ply_nbuff ); FH( sw_ovl_ply_ndebuff );
 	for ( j = 0; j < sw_ovl_ply_nbuff; j++ ) FH( sw_ovl_ply_buffid[ j ] );
+	for ( j = 0; j < sw_ovl_ply_ndebuff; j++ ) FH( sw_ovl_ply_debuffid[ j ] );
 #undef FH
 	return h;
 }
@@ -2355,6 +2388,15 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 				}
 				y += sw_ovl_ply_line( panel, "强化", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 			}
+			if ( sw_ovl_pet_ndebuff > 0 ) {
+				v[ 0 ] = '\0';
+				for ( i = 0; i < sw_ovl_pet_ndebuff; i++ ) {
+					if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+					strncat( v, sw_ovl_buff_name( sw_ovl_pet_debuffid[ i ] ),
+						sizeof( v ) - 1 - strlen( v ) );
+				}
+				y += sw_ovl_ply_line( panel, "弱化", v, y, strip_w, 1 ) * SW_OVL_PLY_LINE_H;
+			}
 
 			{
 				SDL_Rect hr;
@@ -2393,7 +2435,16 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 						strncat( v, sw_ovl_buff_name( f->buffid[ i ] ),
 							sizeof( v ) - 1 - strlen( v ) );
 					}
-					sw_ovl_blit_small( panel, v, 44, 8, y + 2 );
+					sw_ovl_blit_small( panel, v, 44, 8, y + 2 ); y += 18;
+				}
+				if ( f->ndebuff > 0 ) {
+					v[ 0 ] = '\0';
+					for ( i = 0; i < f->ndebuff; i++ ) {
+						if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+						strncat( v, sw_ovl_buff_name( f->debuffid[ i ] ),
+							sizeof( v ) - 1 - strlen( v ) );
+					}
+					sw_ovl_blit_small( panel, v, 200, 8, y + 2 );
 				}
 			}
 		}
@@ -2545,6 +2596,16 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			y += sw_ovl_ply_line( panel, "强化", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
 		}
+		if ( sw_ovl_ply_ndebuff > 0 ) {
+			int i;
+			v[ 0 ] = '\0';
+			for ( i = 0; i < sw_ovl_ply_ndebuff; i++ ) {
+				if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+				strncat( v, sw_ovl_buff_name( sw_ovl_ply_debuffid[ i ] ),
+					sizeof( v ) - 1 - strlen( v ) );
+			}
+			y += sw_ovl_ply_line( panel, "弱化", v, y, strip_w, 1 ) * SW_OVL_PLY_LINE_H;
+		}
 
 		y += 10;
 		hr.x = 8; hr.y = y - 4; hr.w = strip_w - 16; hr.h = 2;
@@ -2581,7 +2642,16 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 					if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
 					strncat( v, sw_ovl_buff_name( f->buffid[ i ] ), sizeof( v ) - 1 - strlen( v ) );
 				}
-				sw_ovl_blit_small( panel, v, 44, 8, y + 2 );
+				sw_ovl_blit_small( panel, v, 44, 8, y + 2 ); y += 18;
+			}
+			if ( f->ndebuff > 0 ) {
+				int i;
+				v[ 0 ] = '\0';
+				for ( i = 0; i < f->ndebuff; i++ ) {
+					if ( v[ 0 ] ) strncat( v, " ", sizeof( v ) - 1 - strlen( v ) );
+					strncat( v, sw_ovl_buff_name( f->debuffid[ i ] ), sizeof( v ) - 1 - strlen( v ) );
+				}
+				sw_ovl_blit_small( panel, v, 200, 8, y + 2 );
 			}
 		}
 	}
@@ -2804,11 +2874,13 @@ static int sw_ovl_party_refresh( int *slot )
 		sw_ovl_pet_speed = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_SPEED, slot[1] ) : -1;
 		sw_ovl_pet_pv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_PV, slot[1] ) : -1;
 		sw_ovl_pet_dv    = slot[1] >= 0 ? sw_ovl_cdata( SW_OVL_CD_DV, slot[1] ) : -1;
-		sw_ovl_buff_scan( slot[1], sw_ovl_pet_buffid, &sw_ovl_pet_nbuff );
+		sw_ovl_buff_scan( slot[1], sw_ovl_pet_buffid, &sw_ovl_pet_nbuff,
+			sw_ovl_pet_debuffid, &sw_ovl_pet_ndebuff );
 		sw_ovl_ply_speed = sw_ovl_cdata( SW_OVL_CD_SPEED, 0 );
 		sw_ovl_ply_pv    = sw_ovl_cdata( SW_OVL_CD_PV, 0 );
 		sw_ovl_ply_dv    = sw_ovl_cdata( SW_OVL_CD_DV, 0 );
-		sw_ovl_buff_scan( 0, sw_ovl_ply_buffid, &sw_ovl_ply_nbuff );
+		sw_ovl_buff_scan( 0, sw_ovl_ply_buffid, &sw_ovl_ply_nbuff,
+			sw_ovl_ply_debuffid, &sw_ovl_ply_ndebuff );
 		hash = (int)sw_ovl_foe_hash();
 		if ( hash != sw_ovl_foe_sig ) { dirty = 1; sw_ovl_foe_sig = hash; }
 	}
