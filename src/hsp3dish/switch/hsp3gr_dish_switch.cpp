@@ -739,6 +739,20 @@ static void sw_kbd_offer( void )
 		printf( "\n" );
 		fflush( stdout );
 	}
+	/*	Eden's HLE hands the line back with its terminator, and the console
+		keyboard can append stray control bytes.  Elona puts every byte into
+		the name, so a CR/LF in there shows as a second line in the save
+		list (seen in Eden); drop control bytes before the conversion, the
+		same rule sw_path_to_utf8 applies to paths.						*/
+	{
+		int si, di;
+		for ( si = 0, di = 0; text[si] != 0; si++ ) {
+			unsigned char c = (unsigned char)text[si];
+			if ( c < 0x20 || c == 0x7F ) continue;
+			text[di++] = text[si];
+		}
+		text[di] = 0;
+	}
 	n = sw_utf8_to_cp932( text, sw_kbd_buf, SW_KBD_MAX - 1 );
 	{
 		int di;
@@ -748,6 +762,22 @@ static void sw_kbd_offer( void )
 		}
 		printf( " (n=%d)\n", n );
 		fflush( stdout );
+	}
+	/*	Same record on the card: Eden has no console, and a wrong byte on
+		hardware only shows as a box glyph in game.  Overwritten per input. */
+	{
+		FILE *lf = fopen( "sdmc:/switch/openhsp/kbdlog.txt", "wb" );
+		if ( lf != NULL ) {
+			int di;
+			fprintf( lf, "in:" );
+			for ( di = 0; text[di] != 0 && di < 64; di++ )
+				fprintf( lf, " %02x", (unsigned char)text[di] );
+			fprintf( lf, "\nout:" );
+			for ( di = 0; di < n && di < 64; di++ )
+				fprintf( lf, " %02x", (unsigned char)sw_kbd_buf[di] );
+			fprintf( lf, "\nn=%d\n", n );
+			fclose( lf );
+		}
 	}
 	sw_kbd_pos = 0;
 	sw_kbd_buf[n] = 13;					/* the CR that ends the wait loop	*/
