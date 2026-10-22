@@ -423,8 +423,19 @@ typedef struct {
 
 static AI_WORLD_ENTRY	ai_world[ AI_WORLD_MAX ];
 static int				ai_world_n = -1;				/* -1 = not read yet */
+static int				ai_world_dbg_read = 0;			/* probe: bytes read	*/
 static char				ai_world_recent[ AI_WORLD_RECENT ][ AI_WORLD_NAME ];
 static int				ai_world_recent_pos = 0;
+
+/*	Temporary probe, removed once the world book is verified.				*/
+static void ai_world_probe( const char *question, const char *block )
+{
+	FILE *f = fopen( AI_DIR "world_debug.txt", "wb" );
+	if ( f == NULL ) return;
+	fprintf( f, "entries=%d read=%d\nquestion=%s\n%s",
+		ai_world_n, ai_world_dbg_read, question != NULL ? question : "", block );
+	fclose( f );
+}
 
 static void ai_world_push( const char *name, const char *keys, const char *body )
 {
@@ -456,7 +467,11 @@ static void ai_world_load( void )
 		const char *p;
 
 		snprintf( path, sizeof( path ), AI_DIR "npc/world/%s", files[ i ] );
-		if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) continue;
+		{
+			int rd = ai_read_file( path, data, sizeof( data ) );
+			if ( rd < 0 ) continue;
+			ai_world_dbg_read += rd;
+		}
 		p = data;
 		while ( ai_next_line( &p, line, sizeof( line ) ) ) {
 			ai_trim( line );
@@ -546,6 +561,7 @@ static int ai_world_block( const char *question, const char *scene, char *out, s
 	size_t o = 0;
 
 	if ( ai_world_n < 0 ) ai_world_load();
+	if ( question != NULL && question[ 0 ] != '\0' ) ai_world_probe( question, "" );
 	if ( ai_world_n <= 0 || out == NULL || n < 32 ) return 0;
 	out[ 0 ] = '\0';
 
@@ -585,15 +601,7 @@ static int ai_world_block( const char *question, const char *scene, char *out, s
 		used++;
 	}
 	out[ o ] = '\0';
-	/*	Temporary probe: proves whether the files were read and what the
-		question matched.  Removed once the world book is verified.			*/
-	if ( question != NULL && question[ 0 ] != '\0' ) {
-		FILE *f = fopen( AI_DIR "world_debug.txt", "wb" );
-		if ( f != NULL ) {
-			fprintf( f, "entries=%d\nquestion=%s\n%s", ai_world_n, question, out );
-			fclose( f );
-		}
-	}
+	if ( question != NULL && question[ 0 ] != '\0' ) ai_world_probe( question, out );
 	return (int)o;
 }
 
