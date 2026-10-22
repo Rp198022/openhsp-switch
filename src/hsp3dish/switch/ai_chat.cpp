@@ -394,6 +394,200 @@ static size_t ai_write_cb( char *data, size_t sz, size_t nm, void *user )
 	return sz * nm;
 }
 
+/*	World book ------------------------------------------------------------
+	data/npc/world/*.md, generated on the PC side and shipped inside the SD
+	folder.  One entry per block:
+
+		## 韦尔尼斯
+		韦尔尼斯，Vernis，矿镇
+		<正文>
+
+	Nothing is downloaded here: a matched entry is copied into the system
+	prompt, so a follower can answer "韦尔尼斯是什么样的" without paying for
+	a search.  The files are read once per run - an edited entry only shows
+	up after a restart, same as the persona markdown.						*/
+#define AI_WORLD_FILES	5
+#define AI_WORLD_MAX	96
+#define AI_WORLD_NAME	48
+#define AI_WORLD_KEYS	128
+#define AI_WORLD_BODY	512
+#define AI_WORLD_SHOW	6
+#define AI_WORLD_BUDGET	2600	/* bytes of entry text, Chinese is 3/char	*/
+#define AI_WORLD_RECENT	3
+
+typedef struct {
+	char	name[ AI_WORLD_NAME ];
+	char	keys[ AI_WORLD_KEYS ];
+	char	body[ AI_WORLD_BODY ];
+} AI_WORLD_ENTRY;
+
+static AI_WORLD_ENTRY	ai_world[ AI_WORLD_MAX ];
+static int				ai_world_n = -1;				/* -1 = not read yet */
+static char				ai_world_recent[ AI_WORLD_RECENT ][ AI_WORLD_NAME ];
+static int				ai_world_recent_pos = 0;
+
+static void ai_world_push( const char *name, const char *keys, const char *body )
+{
+	AI_WORLD_ENTRY *e;
+
+	if ( ai_world_n < 0 || ai_world_n >= AI_WORLD_MAX ) return;
+	if ( name == NULL || name[ 0 ] == '\0' || body == NULL || body[ 0 ] == '\0' ) return;
+	e = &ai_world[ ai_world_n++ ];
+	snprintf( e->name, sizeof( e->name ), "%s", name );
+	snprintf( e->keys, sizeof( e->keys ), "%s", keys != NULL ? keys : "" );
+	snprintf( e->body, sizeof( e->body ), "%s", body );
+}
+
+static void ai_world_load( void )
+{
+	static const char *files[ AI_WORLD_FILES ] = {
+		"places.md", "dungeons.md", "landmarks.md", "systems.md", "npcs.md" };
+	static char data[ 65536 ];
+	static char line[ 1024 ];
+	int i;
+
+	ai_world_n = 0;
+	ai_world_recent_pos = 0;
+	for ( i = 0; i < AI_WORLD_FILES; i++ ) {
+		char path[ 256 ], name[ AI_WORLD_NAME ] = "", keys[ AI_WORLD_KEYS ] = "";
+		char body[ AI_WORLD_BODY ] = "";
+		size_t bl = 0;
+		int stage = 0;			/* 0 idle, 1 saw "##", 2 read the key line */
+		const char *p;
+
+		snprintf( path, sizeof( path ), AI_DIR "npc/world/%s", files[ i ] );
+		if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) continue;
+		p = data;
+		while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+			ai_trim( line );
+			if ( line[ 0 ] == '#' && line[ 1 ] == '#' ) {
+				if ( stage >= 2 ) ai_world_push( name, keys, body );
+				snprintf( name, sizeof( name ), "%s", line + 2 );
+				ai_trim( name );
+				keys[ 0 ] = '\0';
+				body[ 0 ] = '\0';
+				bl = 0;
+				stage = 1;
+				continue;
+			}
+			if ( stage == 1 ) {
+				snprintf( keys, sizeof( keys ), "%s", line );
+				stage = 2;
+				continue;
+			}
+			if ( stage == 2 && line[ 0 ] != '\0' && bl + strlen( line ) + 1 < sizeof( body ) ) {
+				memcpy( body + bl, line, strlen( line ) );
+				bl += strlen( line );
+				body[ bl ] = '\0';
+			}
+		}
+		if ( stage >= 2 ) ai_world_push( name, keys, body );
+	}
+}
+
+/*	Longest keyword of this entry found inside `hay`; 0 when none.
+	Keys are comma separated - both the ASCII and the full-width comma are
+	accepted because the generator writes whichever the model produced.		*/
+static int ai_world_score( const AI_WORLD_ENTRY *e, const char *hay )
+{
+	char kw[ 64 ];
+	int i, k = 0, best = 0;
+
+	if ( hay == NULL || hay[ 0 ] == '\0' ) return 0;
+	for ( i = 0; ; i++ ) {
+		unsigned char c = (unsigned char)e->keys[ i ];
+		int sep = 0;
+
+		if ( c == '\0' || c == ',' || c == ' ' ) sep = 1;
+		else if ( c == 0xEF && (unsigned char)e->keys[ i + 1 ] == 0xBC &&
+				  (unsigned char)e->keys[ i + 2 ] == 0x8C ) sep = 1;	/* ，	*/
+		else if ( c == 0xE3 && (unsigned char)e->keys[ i + 1 ] == 0x80 &&
+				  (unsigned char)e->keys[ i + 2 ] == 0x81 ) sep = 1;	/* 、	*/
+		if ( sep ) {
+			kw[ k ] = '\0';
+			ai_trim( kw );
+			/*	Six bytes is two Chinese characters: one character alone
+				("城", "家") would match half the questions.			*/
+			if ( strlen( kw ) >= 6 && strstr( hay, kw ) != NULL &&
+				 (int)strlen( kw ) > best ) best = (int)strlen( kw );
+			k = 0;
+			if ( c == '\0' ) break;
+			if ( c >= 0xE0 ) i += 2;
+			continue;
+		}
+		if ( k < (int)sizeof( kw ) - 1 ) kw[ k++ ] = e->keys[ i ];
+	}
+	return best;
+}
+
+static int ai_world_recent_has( const char *name )
+{
+	int i;
+	for ( i = 0; i < AI_WORLD_RECENT; i++ )
+		if ( ai_world_recent[ i ][ 0 ] && strcmp( ai_world_recent[ i ], name ) == 0 ) return 1;
+	return 0;
+}
+
+static void ai_world_recent_add( const char *name )
+{
+	snprintf( ai_world_recent[ ai_world_recent_pos ], AI_WORLD_NAME, "%s", name );
+	ai_world_recent_pos = ( ai_world_recent_pos + 1 ) % AI_WORLD_RECENT;
+}
+
+/*	Write the matching entries into `out`.  Returns the byte count, or 0
+	when nothing matched - the caller then adds nothing to the prompt.
+	The player's own words outrank the scene snapshot, and an entry that
+	was already injected in the last three requests is skipped unless the
+	player just named it again.											*/
+static int ai_world_block( const char *question, const char *scene, char *out, size_t n )
+{
+	int score[ AI_WORLD_MAX ], idx[ AI_WORLD_MAX ];
+	int m = 0, i, j, used = 0;
+	size_t o = 0;
+
+	if ( ai_world_n < 0 ) ai_world_load();
+	if ( ai_world_n <= 0 || out == NULL || n < 32 ) return 0;
+	out[ 0 ] = '\0';
+
+	for ( i = 0; i < ai_world_n; i++ ) {
+		int s = ai_world_score( &ai_world[ i ], question );
+		if ( s > 0 ) s += 1000;
+		else s = ai_world_score( &ai_world[ i ], scene );
+		if ( s > 0 ) {
+			score[ m ] = s;
+			idx[ m ] = i;
+			m++;
+		}
+	}
+	if ( m == 0 ) return 0;
+
+	for ( i = 1; i < m; i++ ) {
+		int s = score[ i ], id = idx[ i ];
+		for ( j = i - 1; j >= 0 && score[ j ] < s; j-- ) {
+			score[ j + 1 ] = score[ j ];
+			idx[ j + 1 ] = idx[ j ];
+		}
+		score[ j + 1 ] = s;
+		idx[ j + 1 ] = id;
+	}
+
+	for ( i = 0; i < m && used < AI_WORLD_SHOW; i++ ) {
+		AI_WORLD_ENTRY *e = &ai_world[ idx[ i ] ];
+		size_t len = strlen( e->body );
+		int r;
+
+		if ( ai_world_recent_has( e->name ) && score[ i ] < 1000 ) continue;
+		if ( o > 0 && o + len + strlen( e->name ) + 8 > AI_WORLD_BUDGET ) continue;
+		r = snprintf( out + o, n - o, "- %s：%s\n", e->name, e->body );
+		if ( r <= 0 || (size_t)r >= n - o ) break;
+		o += (size_t)r;
+		ai_world_recent_add( e->name );
+		used++;
+	}
+	out[ o ] = '\0';
+	return (int)o;
+}
+
 /*	Build the request body.  `question` is NULL for a scene remark.			*/
 static void ai_build_body( char *out, size_t n, const char *scene,
 				const char *persona, const char *tone, const char *example,
@@ -420,6 +614,14 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		AI_CAT( "说话示例（照这些示例的语气和长度，不要照抄内容）：\n%s\n", example );
 	if ( memory[ 0 ] )
 		AI_CAT( "记忆（越靠后越新；前后矛盾时以靠后的为准）：\n%s\n", memory );
+	{
+		/*	r286: a few world-book entries, but only the ones this request
+			touches.  On a miss nothing is added at all.					*/
+		static char world[ 3072 ];
+		if ( ai_world_block( question, scene, world, sizeof( world ) ) > 0 )
+			AI_CAT( "世界设定（提里斯大陆，北提里斯是第一章的舞台；下面的资料只在与话题"
+				"相关时参考，不要主动背诵，不要照抄原句）：\n%s\n", world );
+	}
 	AI_CAT( "只输出中文台词，50字以内，可以用两三个短句，第一人称；"
 		"不要解释、不要动作描写、不要用括号。"
 		"好感管亲近（越高越主动关心、越会示弱），主从管服从（越高越听话，越低越会顶嘴）；"
