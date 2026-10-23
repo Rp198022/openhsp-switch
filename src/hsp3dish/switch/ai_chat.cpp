@@ -838,8 +838,9 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		/*	r307: the game is flat 2D pixels, so a written gesture is the only
 			body language the player can see.  Kept sparse - one in every few
 			lines - and limited to things that do not move the scene.		*/
-		"可以带一点肢体动作，写在句首或句尾的全角括号里，"
-		"例如「（凑近一点）主人，肚子饿了吧」；大约三四句里带一处就够，多了显做作。"
+		"可以带肢体动作，写在句首或句尾的全角括号里，"
+		"例如「（凑近一点）主人，肚子饿了吧」；但不要每句都带，"
+		"大约三句里一句就够了，其余句子直接说台词。"
 		"括号里只放不改变场景的小动作：歪头、凑近、别开视线、拉衣角、蹭一下、攥紧手。"
 		/*	r306: she cannot touch the world - the game moves nobody on her
 			word.  A promise like 「我去给你做饭」 never happens on screen,
@@ -876,6 +877,22 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			for ( i = sn - 1; i >= 0; i-- )
 				if ( said[ i ][ 0 ] ) AI_CAT( "- 「%s」\n", said[ i ] );
 		}
+	}
+	/*	r310: an action in every line reads as a stage play instead of a
+		companion talking.  If either of the last two lines carried one, this
+		one must be plain speech; that settles the ratio near one in three.	*/
+	{
+		int had = 0, i;
+
+		pthread_mutex_lock( &ai_lock );
+		for ( i = 0; i < 2 && i < ai_hist_n; i++ )
+			if ( strstr( ai_hist[ i ], "（" ) != NULL || strchr( ai_hist[ i ], '(' ) != NULL )
+				had = 1;
+		pthread_mutex_unlock( &ai_lock );
+		if ( had )
+			AI_CAT( "最近两句已经写过括号动作了。这一句直接说台词，不要加动作。\n" );
+		else
+			AI_CAT( "这一句可以带一处很短的括号动作，也可以不带——多数句子不带更自然。\n" );
 	}
 	/*	r303: expression tag.  Chooses the portrait the panel draws.
 		r309: the exact shape is spelled out - the model kept writing a single

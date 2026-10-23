@@ -642,10 +642,8 @@ static void sw_ovl_blit_chat( SDL_Surface *dst, const char *text, Uint8 r, Uint8
 	SDL_FreeSurface( c );
 }
 
-/*	r309: draw one chat row, painting a parenthesised action in green so a
-	gesture reads as stage direction instead of speech.  Each run is
-	measured separately, so the plain text after the bracket starts exactly
-	where the green run ends.											*/
+/*	r309: draw one run of a chat row (plain or action) and return the x where
+	the next run starts.												*/
 static int sw_ovl_chat_run( SDL_Surface *dst, const char *from, const char *to,
 	int act, int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 ar, Uint8 ag, Uint8 ab )
 {
@@ -672,11 +670,18 @@ static int sw_ovl_utf8_step( unsigned char b )
 	return 4;
 }
 
+/*	r309: draw one chat row, painting a parenthesised action in green so a
+	gesture reads as stage direction instead of speech.  Each run is
+	measured separately, so the plain text after the bracket starts exactly
+	where the green run ends.
+	r310: the open/closed state is carried across rows - a wrapped action
+	keeps its green on the following line, where there is no opening
+	bracket to start it.												*/
 static void sw_ovl_blit_chat_mixed( SDL_Surface *dst, const char *text, int x, int y,
-	Uint8 r, Uint8 g, Uint8 b, Uint8 ar, Uint8 ag, Uint8 ab )
+	Uint8 r, Uint8 g, Uint8 b, Uint8 ar, Uint8 ag, Uint8 ab, int *act_io )
 {
 	const char *p = text, *start = text;
-	int act = 0;
+	int act = act_io != NULL ? *act_io : 0;
 
 	if ( sw_ovl_font_chat == NULL ) { sw_ovl_blit_chat( dst, text, r, g, b, x, y ); return; }
 	while ( *p ) {
@@ -707,6 +712,7 @@ static void sw_ovl_blit_chat_mixed( SDL_Surface *dst, const char *text, int x, i
 	}
 	if ( *start )
 		sw_ovl_chat_run( dst, start, p, act, x, y, r, g, b, ar, ag, ab );
+	if ( act_io != NULL ) *act_io = act;
 }
 
 /*	Draw one line with a chosen face - the key strips fall back to a smaller
@@ -2148,17 +2154,21 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 	/*	r272: bottom mode takes y as the baseline the last row sits on, so a
 		two-line answer hugs the bottom instead of floating mid-strip.	*/
 	if ( bottom && shown > 0 ) y -= shown * 18;
-	for ( row = start, rrow = 0; row < nr; row++, rrow++ ) {
-		/*	r187v: colour like the game's own log below the HP bars - a quoted
-			line is dialogue (init.hsp msg_write paints those 210,250,160),
-			anything else is the plain log white.
-			r309: a parenthesised action inside the row is painted green.	*/
-		{
+	/*	r310: one action may wrap onto the next row; the state travels with
+		the loop so the rest of the gesture stays green.					*/
+	{
+		int act = 0;
+
+		for ( row = start, rrow = 0; row < nr; row++, rrow++ ) {
+			/*	r187v: colour like the game's own log below the HP bars - a quoted
+				line is dialogue (init.hsp msg_write paints those 210,250,160),
+				anything else is the plain log white.
+				r309: a parenthesised action inside the row is painted green.	*/
 			Uint8 cr = 40, cg = 34, cb = 28;
 
 			if ( strchr( rows[ row ], '"' ) != NULL ) { cr = 44; cg = 72; cb = 34; }
 			sw_ovl_blit_chat_mixed( panel, rows[ row ], x, y + rrow * 18,
-				cr, cg, cb, 46, 118, 58 );
+				cr, cg, cb, 46, 118, 58, &act );
 		}
 	}
 }
