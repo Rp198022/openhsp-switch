@@ -1445,8 +1445,10 @@ static const char *sw_ovl_utf8( const char *in )
 	return out;
 }
 
-/*	r295: the game's attribute/skill growth notices.  All of them come from
-	one fixed table in the .ax (label "txtskillchange":
+/*	r295/r297: the game's own narration about a character, as opposed to
+	something she says.  Three sources, all fixed wording:
+
+	1. "txtskillchange" table in the .ax - attribute and skill growth:
 
 		感到生命力的提升。 / 察觉到生命力在衰退。
 		感到玛那变强了。 / 感到玛那衰弱了。
@@ -1462,20 +1464,21 @@ static const char *sw_ovl_utf8( const char *in )
 		变得幸运了。 / 变得不幸了。
 		将技能的进步。 / 将技能的退步。
 
-	The line arrives as "<名字>" + one of these, so a name filter alone would
-	treat it as something she said - it is not, it is the game narrating her
-	stats.  Matching the fixed fragments is exact and survives translation
-	wording that the loose keyword list would miss.
-
-	Eating and drinking are the same thing, only the verb is inline instead
-	of a table: proc.hsp *eat / *drinkPotion build
+	2. Inline verbs from proc.hsp - *eat / *drinkPotion build
 
 		npcn(cc) + itemname(ci, 1) + "を食べ終えた。"	→ "<名字>吃完了<食物>。"
 		npcn(tc) + itemname(ci, 1) + "を飲み干した。"	→ "<名字>喝光了<饮料>。"
 		npcn(cc) + itemname(ci, 1) + "を…送进了嘴中。"	→ 开始吃的提示
 
-	so those verbs are matched here as well.								*/
-static int sw_ovl_ai_growth_line( const char *u )
+	3. The condition table (@11934500) and the interaction results
+	   (@12360600) - poison, bleeding, falling asleep, being hugged, and
+	   the reactions to a pat or a whisper.
+
+	Every one of them arrives as "<名字>" + one of these, so a name filter
+	alone would treat it as something she said - it is not, it is the game
+	narrating her.  Matching the fixed fragments is exact, and it keeps
+	those rows out of the panel's chatter.									*/
+static int sw_ovl_ai_story_line( const char *u )
 {
 	static const char *frag[] = {
 		/*	txtskillchange table											*/
@@ -1488,6 +1491,19 @@ static int sw_ovl_ai_growth_line( const char *u )
 		"技能的进步", "技能的退步",
 		/*	food and drink verbs											*/
 		"送进了嘴中", "吃完了", "喝光了", "吃掉了", "喝掉了",
+		/*	condition table (@11934500)										*/
+		"害怕了", "开始颤栗了", "混乱了", "麻痹了", "中毒了", "睡着了",
+		"开始流血了", "喝醉了", "发狂了", "生病了", "意识模糊了",
+		"感到了恐惧", "失禁了", "遭到冥界寒气的侵蚀", "翻着白眼倒下了",
+		/*	recovering from them											*/
+		"从混乱中恢复了", "从失明中恢复了", "从恐惧中重新振作",
+		"从胆怯中恢复了", "的颤栗停止了",
+		/*	interaction results (@12360600)									*/
+		"的身体好热", "反倒紧紧抱住", "默不作声，侧耳倾听", "抱紧了你，在耳畔",
+		"把你紧紧地搂住", "骨碌骨碌地滚着", "主动凑上前来用身子蹭你",
+		"痒得不住地扭动身子", "一脸沉醉地听着你说话", "玩笑般地笑了",
+		/*	riding															*/
+		"骑上了你",
 	};
 	int i;
 
@@ -1495,6 +1511,26 @@ static int sw_ovl_ai_growth_line( const char *u )
 	for ( i = 0; i < (int)( sizeof( frag ) / sizeof( frag[ 0 ] ) ); i++ )
 		if ( strstr( u, frag[ i ] ) != NULL ) return 1;
 	return 0;
+}
+
+/*	r297: the watcher hands the model a fact about the follower, so her own
+	name becomes "你" - "X 中毒了。" turns into "你中毒了。".  Without this
+	she answers in the third person about herself.							*/
+static void sw_ovl_ai_self_phrase( const char *u, const char *nm, char *out, size_t n )
+{
+	const char *p;
+	size_t pre;
+
+	if ( u == NULL || nm == NULL || nm[ 0 ] == '\0' || out == NULL || n < 8 ) {
+		if ( out != NULL && n > 0 ) snprintf( out, n, "%s", u != NULL ? u : "" );
+		return;
+	}
+	p = strstr( u, nm );
+	if ( p == NULL ) { snprintf( out, n, "%s", u ); return; }
+	pre = (size_t)( p - u );
+	if ( pre > n - 4 ) pre = n - 4;
+	memcpy( out, u, pre );
+	snprintf( out + pre, n - pre, "你%s", p + strlen( nm ) );
 }
 
 /*	Latest log lines belonging to the pet, joined oldest-first.  Two routes,
@@ -1570,7 +1606,7 @@ static const char *sw_ovl_msg_peek( const char *pet_name, int speaker, int pet_s
 				/*	r295: "X 将…技能的进步。" names her but is the game
 					talking about her stats, not her talking.  Keeping it
 					out here is what separates the two kinds of row.	*/
-				if ( sw_ovl_ai_growth_line( sw_ovl_utf8( s ) ) ) break;
+				if ( sw_ovl_ai_story_line( sw_ovl_utf8( s ) ) ) break;
 				hits[ got++ ] = s; break;
 			}
 	}
@@ -2178,22 +2214,17 @@ static int sw_ovl_ai_log_hot( const char *s )
 	filled, so the watcher costs a few comparisons per frame and nothing at
 	all when the game is idle.  Thresholds are deliberately coarse: the
 	model only needs "something happened", not a telemetry feed.			*/
-/*	r292: which game notes about the follower deserve a line of her own.
-	Combat rows name her too ("X 受到了 5 点伤害") and arrive every swing,
-	so they stay out; growth, food and gear are what the player would
-	actually want a reaction to.											*/
-static int sw_ovl_ai_pet_note( const char *u )
+/*	r297: rows that are about her but are still noise.  Damage, misses and
+	resist rolls name her and arrive every single swing; everything else
+	that carries her name is worth a reaction, template or not.			*/
+static int sw_ovl_ai_combat_noise( const char *u )
 {
 	static const char *kw[] = {
-		"精通", "精进", "熟练", "技能", "成长", "升级", "学会", "记住",
-		"吃了", "喝了", "进食", "饮水", "吃饱", "饿", "装备", "穿上",
-		"拾起", "得到", "获得", "经验", "体力", "恢复", "变强",
+		"受到", "伤害", "命中", "闪避", "回避", "抵抗", "打中", "挡住了",
 	};
 	int i;
 
-	/*	r295: the fixed growth table is the reliable half of this filter.	*/
-	if ( sw_ovl_ai_growth_line( u ) ) return 1;
-
+	if ( u == NULL ) return 0;
 	for ( i = 0; i < (int)( sizeof( kw ) / sizeof( kw[ 0 ] ) ); i++ )
 		if ( strstr( u, kw[ i ] ) != NULL ) return 1;
 	return 0;
@@ -2254,17 +2285,23 @@ static void sw_ovl_ai_watch( void )
 				snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
 				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
 				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
-					char raw[ 300 ], u[ 400 ];
-					int mine, speech;
+					char raw[ 300 ], u[ 400 ], self[ 400 ];
+					int mine, speech, story;
 
 					if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
 					snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
 					/*	Her own spoken line is already the panel's chatter.	*/
 					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
 					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
-					if ( speech || !mine || !sw_ovl_ai_pet_note( u ) ) continue;
+					/*	r297: every row about her is worth a reaction now, not
+						just the ones on a known template - only bare combat
+						rows stay out, because they arrive every swing.		*/
+					story = sw_ovl_ai_story_line( u );
+					if ( speech || !mine ) continue;
+					if ( !story && sw_ovl_ai_combat_noise( u ) ) continue;
+					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
 					snprintf( note, sizeof( note ),
-						"游戏日志里出现了关于你的消息：%.*s", 120, u );
+						"游戏日志里出现了关于你的消息：%.*s", 120, self );
 					{
 						size_t c;
 						for ( c = 0; note[ c ]; c++ )
