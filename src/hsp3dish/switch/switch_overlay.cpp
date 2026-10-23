@@ -3087,7 +3087,10 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 	/*	r292: greet once when the sheet first sees a follower, and again
 		whenever she leaves the party and comes back (revive, re-summon, or
 		loading another save).  Queued here because this is where the party
-		is known; the tick below sends it on the next free worker.			*/
+		is known; the tick below sends it on the next free worker.  The init
+		call must come first: notify_event drops everything while the module
+		is still asleep, and this is the first event of a run.				*/
+	ai_chat_init();
 	{
 		int have = ( slot[1] >= 0 && sw_ovl_party_name[1][0] != '\0' );
 		if ( have ) {
