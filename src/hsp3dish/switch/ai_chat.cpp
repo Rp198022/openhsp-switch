@@ -89,6 +89,8 @@ static char			ai_emotion_default[ 64 ] = "";	/* first name in list	*/
 static char			ai_emotion_list[ 2048 ] = "";	/* "平静、微笑、…"		*/
 static int			ai_emotion_n = 0;
 
+static void ai_load_emotions( const char *npc );	/* defined below		*/
+
 static double ai_now( void )
 {
 	struct timespec ts;
