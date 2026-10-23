@@ -1545,6 +1545,11 @@ static int sw_ovl_ai_feed_line( const char *u )
 		"感到了恐惧", "失禁了", "遭到冥界寒气的侵蚀", "翻着白眼倒下了",
 		/*	food and drink													*/
 		"送进了嘴中", "吃完了", "喝光了", "吃掉了", "喝掉了",
+		/*	intimate interaction results (@12360600) - hug, pat, whisper,
+			spoiled behaviour, sleeping side by side						*/
+		"的身体好热", "反倒紧紧抱住", "默不作声，侧耳倾听", "抱紧了你，在耳畔",
+		"把你紧紧地搂住", "骨碌骨碌地滚着", "主动凑上前来用身子蹭你",
+		"痒得不住地扭动身子", "一脸沉醉地听着你说话", "玩笑般地笑了",
 	};
 	int i;
 
