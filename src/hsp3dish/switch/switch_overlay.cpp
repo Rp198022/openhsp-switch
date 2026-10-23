@@ -1607,6 +1607,54 @@ static int sw_ovl_ai_story_line( const char *u )
 	return 0;
 }
 
+/*	r314: the log spells the follower's name in more than one shape - the full
+	"title name" string, the given name alone, or the title alone - so a plain
+	substring test against the full name misses rows such as "……技能的进步。".
+	Split on spaces and on the Chinese possessive "的" and accept any part.	*/
+static int sw_ovl_ai_name_hit( const char *u, const char *name )
+{
+	const char *p, *q;
+	char tok[ 96 ];
+	size_t sl;
+
+	if ( u == NULL || name == NULL || name[ 0 ] == '\0' ) return 0;
+	if ( strstr( u, name ) != NULL ) return 1;
+	p = name;
+	while ( *p != '\0' ) {
+		/*	skip separators first, so a token can never be zero bytes long	*/
+		if ( *p == ' ' ) { p++; continue; }
+		if ( (unsigned char)p[ 0 ] == 0xE7 && (unsigned char)p[ 1 ] == 0x9A &&
+				(unsigned char)p[ 2 ] == 0x84 ) { p += 3; continue; }
+		sl = 0;
+		while ( p[ sl ] != '\0' && p[ sl ] != ' ' && sl < 95 ) {
+			if ( (unsigned char)p[ sl ] == 0xE7 && (unsigned char)p[ sl + 1 ] == 0x9A &&
+					(unsigned char)p[ sl + 2 ] == 0x84 ) break;	/* 的 */
+			sl++;
+		}
+		if ( sl >= 2 ) {
+			memcpy( tok, p, sl ); tok[ sl ] = '\0';
+			if ( strstr( u, tok ) != NULL ) return 1;
+		}
+		p += sl;
+	}
+	/*	the part after the last possessive, e.g. "少女的西弗安拉" -> "西弗安拉" */
+	q = strstr( name, "\xE7\x9A\x84" );
+	while ( q != NULL ) {
+		const char *nx = strstr( q + 3, "\xE7\x9A\x84" );
+		if ( nx == NULL ) break;
+		q = nx;
+	}
+	if ( q != NULL ) {
+		q += 3;
+		sl = strlen( q );
+		if ( sl >= 2 && sl < sizeof( tok ) ) {
+			memcpy( tok, q, sl ); tok[ sl ] = '\0';
+			if ( strstr( u, tok ) != NULL ) return 1;
+		}
+	}
+	return 0;
+}
+
 /*	r300: what gets fed to the model.  Three groups, all reproduced from the
 	code rather than from the pixels - the colour never reaches the log:
 
@@ -1627,12 +1675,13 @@ static int sw_ovl_ai_feed_line( const char *u )
 		"生命力的提升", "玛那变强", "变强壮了", "忍耐的快感",
 		"变得灵巧了", "世界变得更为亲近", "想学各种东西", "意志愈发坚定",
 		"魔力有所增长", "目光很惬意", "动作变慢了", "变得幸运了",
-		"技能的进步",
+		"技能的进步", "技能进步", "技能的提升", "技能提升",
+		"技能的向上", "技艺的进步", "精进了",
 		/*	red: decline													*/
 		"生命力在衰退", "玛那衰弱", "长了点赘肉", "没有耐力",
 		"变得笨拙了", "感觉的偏差", "学习意愿下降", "变得容易放弃",
 		"魔力在衰退", "不愿在人前露面", "变迟钝了", "变得不幸了",
-		"技能的退步",
+		"技能的退步", "技能退步",
 		/*	red: condition table											*/
 		"害怕了", "开始颤栗了", "混乱了", "麻痹了", "中毒了", "睡着了",
 		"开始流血了", "喝醉了", "发狂了", "生病了", "意识模糊了",
@@ -2174,16 +2223,27 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			sw_ovl_blit_chat_mixed( panel, rows[ row ], x, y + rrow * 18,
 				cr, cg, cb, 46, 118, 58, &act );
 		}
-		/*	r313: the newest line gets a rule under it, so the player can tell
-			at a glance which sentence is the fresh one.					*/
+		/*	r314: rules above and below the newest answer, so the fresh
+			sentence reads as one block instead of a single trailing mark.
+			The top rule is skipped when the answer starts at the first
+			visible row - there is no room above it.						*/
 		if ( nr > start ) {
 			SDL_Rect ul;
+			int first = nr - 1;
+			int tail = seg_of[ nr - 1 ];
+			Uint32 rule = SDL_MapRGB( panel->format, 150, 118, 78 );
+
+			while ( first > 0 && seg_of[ first - 1 ] == tail ) first--;
 
 			ul.x = x;
-			ul.y = y + ( nr - start - 1 ) * 18 + 17;
 			ul.w = panel->w - x - 10;
 			ul.h = 1;
-			SDL_FillRect( panel, &ul, SDL_MapRGB( panel->format, 150, 118, 78 ) );
+			ul.y = y + ( nr - start - 1 ) * 18 + 17;
+			SDL_FillRect( panel, &ul, rule );
+			if ( first > start ) {
+				ul.y = y + ( first - start ) * 18 - 3;
+				SDL_FillRect( panel, &ul, rule );
+			}
 		}
 	}
 }
@@ -2553,8 +2613,15 @@ static void sw_ovl_ai_watch( void )
 						last poll; stop before walking into it again.		*/
 					if ( prev[ 0 ] && strcmp( u, prev ) == 0 ) break;
 					/*	Her own spoken line is already the panel's chatter.	*/
-					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
-					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
+					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] &&
+						strchr( u, '"' ) != NULL );
+					mine = ( sw_ovl_ai_name_hit( u, nm ) || strstr( u, "随从" ) != NULL );
+					/*	r314: the skill rows never carry quotes and often carry
+						only part of her name, which used to drop them here.	*/
+					if ( strstr( u, "技能" ) != NULL ) {
+						printf( "hsp3switch: ai log skill -> %s (mine=%d)\n", u, mine );
+						fflush( stdout );
+					}
 					/*	r300: the coloured notices, plus eating and drinking.	*/
 					if ( speech || !mine || !sw_ovl_ai_feed_line( u ) ) continue;
 					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
