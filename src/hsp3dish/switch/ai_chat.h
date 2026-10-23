@@ -35,6 +35,10 @@ void ai_chat_init( void );
 	the overlay with a ready-made, human-readable block (already UTF-8).		*/
 void ai_chat_set_context( const char *npc_name, const char *scene );
 
+/*	The party has no follower any more: drop her persona, history, pending
+	question and queued event, so nothing is spent with nobody to speak.	*/
+void ai_chat_drop_context( void );
+
 /*	Queue a line because something happened.  `event` is the plain sentence
 	the model is told (e.g. "刚刚的战斗结束了，你们赢了"); priority decides
 	which event wins when two arrive inside one cooldown window.			*/

@@ -3248,6 +3248,10 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				ai_chat_notify_event( "主人又把你叫回队伍里了", 5 );
 			}
 		}
+		else {
+			/*	r302: nobody in the party - forget her so nothing is spent. */
+			ai_chat_drop_context();
+		}
 		sw_ovl_ai_w_pet_seen = have;
 	}
 

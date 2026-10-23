@@ -1058,6 +1058,9 @@ static void ai_start( const char *question, const char *event )
 	static char tone[ 1024 ], example[ 2048 ];
 
 	if ( ai_busy || !ai_enabled || ai_key[ 0 ] == '\0' ) return;
+	/*	No follower in the party means nobody to speak: the panel only feeds
+		the context while one is present, so this is the final guard.		*/
+	if ( ai_npc[ 0 ] == '\0' ) return;
 
 	pthread_mutex_lock( &ai_lock );
 	if ( event != NULL && event[ 0 ] ) {
@@ -1107,6 +1110,9 @@ static void ai_start_compress( void )
 	static char list[ AI_MAX_MEMORY ];
 
 	if ( ai_busy || !ai_enabled || ai_key[ 0 ] == '\0' ) return;
+	/*	No follower in the party means nobody to speak: the panel only feeds
+		the context while one is present, so this is the final guard.		*/
+	if ( ai_npc[ 0 ] == '\0' ) return;
 	pthread_mutex_lock( &ai_lock );
 	if ( ai_memory[ 0 ] == '\0' ) { pthread_mutex_unlock( &ai_lock ); return; }
 	snprintf( list, sizeof( list ), "%s", ai_memory );
@@ -1162,6 +1168,41 @@ void ai_chat_init( void )
 	retry_at = now + 10.0;
 }
 
+/*	r302: the party no longer has a follower.  Everything that belonged to
+	her is dropped, so a later question cannot be answered - or paid for -
+	by a character who is not there any more.							*/
+void ai_chat_drop_context( void )
+{
+	int i;
+
+	if ( !ai_enabled ) return;
+	pthread_mutex_lock( &ai_lock );
+	if ( ai_npc[ 0 ] == '\0' ) {
+		pthread_mutex_unlock( &ai_lock );
+		return;
+	}
+	ai_npc[ 0 ] = '\0';
+	ai_persona_name[ 0 ] = '\0';
+	ai_persona[ 0 ] = '\0';
+	ai_tone[ 0 ] = '\0';
+	ai_example[ 0 ] = '\0';
+	ai_memory[ 0 ] = '\0';
+	ai_scene[ 0 ] = '\0';
+	ai_last_line[ 0 ] = '\0';
+	ai_line[ 0 ] = '\0';
+	ai_hist_n = 0;
+	for ( i = 0; i < AI_HISTORY; i++ ) ai_hist[ i ][ 0 ] = '\0';
+	ai_turn_n = 0;
+	ai_event_prio = -1;
+	ai_event[ 0 ] = '\0';
+	ai_has_pending = 0;
+	ai_pending[ 0 ] = '\0';
+	ai_seq++;
+	pthread_mutex_unlock( &ai_lock );
+	printf( "aichat: follower left, context dropped\n" );
+	fflush( stdout );
+}
+
 void ai_chat_set_context( const char *npc_name, const char *scene )
 {
 	int changed = 0;
@@ -1169,12 +1210,18 @@ void ai_chat_set_context( const char *npc_name, const char *scene )
 	if ( !ai_enabled || npc_name == NULL || scene == NULL ) return;
 	pthread_mutex_lock( &ai_lock );
 	if ( strcmp( npc_name, ai_npc ) != 0 ) {
+		int i;
 		strncpy( ai_npc, npc_name, sizeof( ai_npc ) - 1 );
 		ai_npc[ sizeof( ai_npc ) - 1 ] = '\0';
 		ai_last_line[ 0 ] = '\0';
 		/*	A different speaker means a different conversation: keeping the
-			old pairs would put somebody else's words in her mouth.		*/
+			old pairs would put somebody else's words in her mouth.  The
+			panel's three-line box is cleared too, for the same reason.	*/
 		ai_turn_n = 0;
+		ai_line[ 0 ] = '\0';
+		ai_hist_n = 0;
+		for ( i = 0; i < AI_HISTORY; i++ ) ai_hist[ i ][ 0 ] = '\0';
+		ai_seq++;
 		changed = 1;
 	}
 	if ( strcmp( scene, ai_scene ) != 0 ) {
@@ -1233,6 +1280,12 @@ int ai_chat_ask( const char *question )
 	ai_chat_init();
 	if ( !ai_enabled || ai_key[ 0 ] == '\0' ) {
 		printf( "aichat: ask ignored, %s\n", ai_status );
+		fflush( stdout );
+		return 0;
+	}
+	/*	Typing with nobody in the party must not spend anything.			*/
+	if ( ai_npc[ 0 ] == '\0' ) {
+		printf( "aichat: ask ignored, no follower\n" );
 		fflush( stdout );
 		return 0;
 	}
