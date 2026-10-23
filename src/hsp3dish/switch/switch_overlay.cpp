@@ -2007,6 +2007,10 @@ static GLuint sw_ovl_ai_face_img( void )
 		return 0;
 	snprintf( key, sizeof( key ), "%s/%s", name, emo );
 	if ( strcmp( key, sw_ovl_ai_face_key ) == 0 ) return sw_ovl_ai_face_tex;
+	/*	r313: one line per expression change - a silent fallback to the game's
+		portrait was indistinguishable from "the model never asked for one".	*/
+	printf( "hsp3switch: ai face -> %s\n", key );
+	fflush( stdout );
 
 	snprintf( sw_ovl_ai_face_key, sizeof( sw_ovl_ai_face_key ), "%s", key );
 	if ( sw_ovl_ai_face_tex != 0 ) {
@@ -2169,6 +2173,17 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			if ( strchr( rows[ row ], '"' ) != NULL ) { cr = 44; cg = 72; cb = 34; }
 			sw_ovl_blit_chat_mixed( panel, rows[ row ], x, y + rrow * 18,
 				cr, cg, cb, 46, 118, 58, &act );
+		}
+		/*	r313: the newest line gets a rule under it, so the player can tell
+			at a glance which sentence is the fresh one.					*/
+		if ( nr > start ) {
+			SDL_Rect ul;
+
+			ul.x = x;
+			ul.y = y + ( nr - start - 1 ) * 18 + 17;
+			ul.w = panel->w - x - 10;
+			ul.h = 1;
+			SDL_FillRect( panel, &ul, SDL_MapRGB( panel->format, 150, 118, 78 ) );
 		}
 	}
 }
@@ -3501,6 +3516,18 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		}
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
+
+		/*	r313: loading a save rewinds the global turn counter, and that is
+			the one signal which always marks it.  The party was greeted only
+			when the process started, so a reload used to pass in silence.	*/
+		{
+			static int w_turn = -1;
+			int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
+
+			if ( w_turn >= 0 && turn + 5 < w_turn )
+				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
+			w_turn = turn;
+		}
 
 		/*	r305: a smile is not permanent.  Elona only advances time when a
 			turn is actually spent, so ten turns after the line she goes back

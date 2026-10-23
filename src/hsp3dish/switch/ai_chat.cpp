@@ -863,14 +863,42 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		int shape = ( ai_seq + ai_hist_n * 3 + (int)( ai_now() / 9.0 ) ) % 10;
 
 		shape_v = shape;
-		if ( shape < 6 )
+		if ( shape < 5 ) {
 			AI_CAT( "这一句正常说台词。" );
-		else if ( shape < 9 )
-			AI_CAT( "这一句只写一个括号动作，不要任何台词，"
-				"例如「（摸了摸扁下去的肚子）」。动作要短，只写一个。" );
-		else
+		} else if ( shape == 9 ) {
 			AI_CAT( "这一句只写极短的反应，六个字以内，"
 				"例如「……」「嗯。」「啧。」，不要完整句子。" );
+		} else {
+			/*	r313: the non-speech shapes.  A follower alone with the player
+				mostly watches, mutters and remembers; letting her narrate every
+				change is what made her read like a visual novel.			*/
+			switch ( ( shape + ai_seq ) % 6 ) {
+			case 0:
+				AI_CAT( "这一句只写一个括号动作，不要任何台词，"
+					"例如「（摸了摸扁下去的肚子）」。短，只写一个。" );
+				break;
+			case 1:
+				AI_CAT( "这一句只写你看到的东西，陈述一句，"
+					"既不提醒也不发问，例如「那边的草在动。」" );
+				break;
+			case 2:
+				AI_CAT( "这一句是自言自语，不是对主人说的，"
+					"例如「这味道……熟。」可以说半句。" );
+				break;
+			case 3:
+				AI_CAT( "这一句只是一个想不起来的小片段，只一句，"
+					"例如「这条街，我好像走过。」不要解释。" );
+				break;
+			case 4:
+				AI_CAT( "这一句只报一个事实，不带建议，"
+					"例如「剑钝了。」「靴子进水了。」" );
+				break;
+			default:
+				AI_CAT( "这一句只写两个连续的小动作，不要台词，"
+					"例如「（停步，侧耳）」。两个动作要有先后。" );
+				break;
+			}
+		}
 	}
 	AI_CAT( "不要解释、不要旁白。"
 		/*	r307: the game is flat 2D pixels, so a written gesture is the only
@@ -920,7 +948,7 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		- a strict one-in-three rotation felt mechanical.  Otherwise the model
 		decides, and the wording stays a suggestion rather than an order.
 		r312: skipped when this turn was already told to be an action only.	*/
-	if ( shape_v < 6 ) {
+	if ( shape_v < 5 ) {
 		int cnt = 0, i;
 
 		pthread_mutex_lock( &ai_lock );
