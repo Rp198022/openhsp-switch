@@ -30,6 +30,7 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL_image.h>
 
 #include <GL/gl.h>			/* shadowed by glcompat: maps to gles1_shim	*/
 
@@ -382,6 +383,12 @@ static int		sw_ovl_party_abil[2][ 8 ];
 static int		sw_ovl_party_rank[2][ 8 ];
 static int		sw_ovl_party_fix[2][ 5 ];
 static GLuint	sw_ovl_face_u_tex[2] = { 0, 0 };
+/*	r303: the expression portrait the model asked for, used by the follower
+	slot instead of the game's face atlas.  Keyed by "名字/情绪" so a new
+	line with the same expression does not reload the file.				*/
+static GLuint	sw_ovl_ai_face_tex = 0;
+static char		sw_ovl_ai_face_key[ 160 ] = "";
+static int		sw_ovl_ai_img_inited = 0;
 static int		sw_ovl_party_rel[2] = { 0, 0 };
 static int		sw_ovl_party_imp[2] = { 0, 0 };	/* cdata 17: impression	*/
 static int		sw_ovl_party_ms[2] = { 0, 0 };	/* cdata 169: master-servant */
@@ -480,6 +487,8 @@ void switch_overlay_ctx_reset( void )
 	sw_ovl_bat_name[0] = '\0';
 	sw_ovl_face_u_tex[0] = 0;
 	sw_ovl_face_u_tex[1] = 0;
+	sw_ovl_ai_face_tex = 0;
+	sw_ovl_ai_face_key[0] = '\0';
 	sw_ovl_face_u_id[0] = 0;
 	sw_ovl_face_u_id[1] = 0;
 }
@@ -1893,6 +1902,52 @@ static void sw_ovl_party_draw_box( SDL_Surface *panel, int strip_w )
 	SDL_FillRect( panel, &r, edge );
 }
 
+/*	r303: load data/npc/<名字>/<情绪>.png (or .bmp) for the follower slot.
+	Returns 0 when the expression is empty or the file is missing, so the
+	caller falls back to the game's own portrait.							*/
+static GLuint sw_ovl_ai_face_img( void )
+{
+	const char *emo = ai_chat_emotion();
+	char key[ 160 ], path[ 320 ], name[ 96 ];
+	SDL_Surface *s, *conv;
+
+	if ( emo[ 0 ] == '\0' || sw_ovl_party_name[ 1 ][ 0 ] == '\0' ) return 0;
+	snprintf( name, sizeof( name ), "%s", sw_ovl_utf8( sw_ovl_party_name[ 1 ] ) );
+	snprintf( key, sizeof( key ), "%s/%s", name, emo );
+	if ( strcmp( key, sw_ovl_ai_face_key ) == 0 ) return sw_ovl_ai_face_tex;
+
+	snprintf( sw_ovl_ai_face_key, sizeof( sw_ovl_ai_face_key ), "%s", key );
+	if ( sw_ovl_ai_face_tex != 0 ) {
+		glDeleteTextures( 1, &sw_ovl_ai_face_tex );
+		sw_ovl_ai_face_tex = 0;
+	}
+	if ( !sw_ovl_ai_img_inited ) {
+		IMG_Init( IMG_INIT_PNG );
+		sw_ovl_ai_img_inited = 1;
+	}
+	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s/%s.png", name, emo );
+	s = IMG_Load( path );
+	if ( s == NULL ) {
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s/%s.bmp", name, emo );
+		s = SDL_LoadBMP( path );
+	}
+	if ( s == NULL ) {
+		printf( "hsp3switch: no expression %s/%s\n", name, emo );
+		fflush( stdout );
+		return 0;
+	}
+	conv = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( conv == NULL ) return 0;
+	sw_ovl_ai_face_tex = sw_ovl_upload_rgba( conv, NULL, NULL );
+	SDL_FreeSurface( conv );
+	if ( sw_ovl_ai_face_tex != 0 ) {
+		printf( "hsp3switch: expression %s/%s loaded\n", name, emo );
+		fflush( stdout );
+	}
+	return sw_ovl_ai_face_tex;
+}
+
 /*	Paint one face cell of face1.bmp (16 columns of 48x72) for a character
 	slot, scaled into the centre of its portrait box.					*/
 static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y )
@@ -1900,8 +1955,20 @@ static void sw_ovl_draw_face( int slot, float strip_x, int strip_w, float top_y 
 	int p, col, row, bx, by, bw, bh, ax, ay, aw, ah;
 	float u0, v0, u1, v1;
 
-	if ( sw_ovl_face_tex == 0 || sw_ovl_face_w <= 0 || sw_ovl_face_h <= 0 ) return;
 	sw_ovl_party_ava_geom( strip_w, &bx, &by, &bw, &bh, &ax, &ay, &aw, &ah );
+	/*	r303: the follower's portrait follows the expression the model
+		picked; the game's own face is the fallback.					*/
+	if ( slot == 1 ) {
+		GLuint t = sw_ovl_ai_face_img();
+		if ( t != 0 ) {
+			sw_ovl_quad_uv( t, strip_x + (float)ax, top_y - (float)ay,
+				(float)aw, (float)ah, 0.0f, 0.0f, 1.0f, 1.0f );
+			return;
+		}
+	}
+	/*	Everything below needs the face atlas, so it is checked only now:
+		an expression image works even when face1.bmp is missing.			*/
+	if ( sw_ovl_face_tex == 0 || sw_ovl_face_w <= 0 || sw_ovl_face_h <= 0 ) return;
 	{
 		int pt = sw_ovl_cdata( SW_OVL_PARTY_CD_PORTRAIT, slot );
 		if ( pt < 0 ) {

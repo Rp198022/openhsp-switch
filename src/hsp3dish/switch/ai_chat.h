@@ -56,6 +56,11 @@ void ai_chat_set_idle( int idle );
 /*	The newest line to draw, or "" when there is nothing new.  UTF-8.		*/
 const char *ai_chat_text( void );
 
+/*	r303: the expression name the model picked for the newest line, or ""
+	when the follower ships no expression set.  The panel uses it to pick
+	data/npc/<name>/<emotion>.png.										*/
+const char *ai_chat_emotion( void );
+
 /*	The panel shows the last three lines; index 0 is the newest, and the
 	oldest is pushed out when a fourth arrives.								*/
 #define AI_HISTORY	3

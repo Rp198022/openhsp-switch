@@ -80,6 +80,15 @@ static char			ai_memory[ AI_MAX_MEMORY ] = "";
 static double		ai_last_compress = 0;
 static int			ai_compress_tried = 0;
 
+/*	r303: the expression set.  A follower may ship
+	  data/npc/<名字>/<情绪>.png  plus an emotions.txt listing the names.
+	The model appends [[emo:词]] to a line, the tag is stripped before the
+	line is shown, and the panel swaps the portrait for that expression.	*/
+static char			ai_emotion[ 64 ] = "";			/* current expression	*/
+static char			ai_emotion_default[ 64 ] = "";	/* first name in list	*/
+static char			ai_emotion_list[ 2048 ] = "";	/* "平静、微笑、…"		*/
+static int			ai_emotion_n = 0;
+
 static double ai_now( void )
 {
 	struct timespec ts;
@@ -264,10 +273,92 @@ static void ai_load_persona( const char *npc )
 	ai_trim( ai_memory );
 	ai_trim( ai_tone );
 	ai_trim( ai_example );
+	ai_load_emotions( npc );
 	printf( "aichat: persona %s (%d bytes, memory %d, tone %d, example %d)\n", npc,
 		(int)strlen( ai_persona ), (int)strlen( ai_memory ),
 		(int)strlen( ai_tone ), (int)strlen( ai_example ) );
 	fflush( stdout );
+}
+
+/*	Read data/npc/<名字>/emotions.txt.  One name per line, the first one is
+	the fallback the prompt tells the model to use when it cannot decide.
+	Rejects anything that could walk out of the folder, because the name
+	becomes a file name later.											*/
+static void ai_load_emotions( const char *npc )
+{
+	static char data[ 8192 ], line[ 80 ], path[ 256 ];
+	const char *p;
+	size_t o = 0;
+	int n = 0;
+
+	ai_emotion[ 0 ] = '\0';
+	ai_emotion_default[ 0 ] = '\0';
+	ai_emotion_list[ 0 ] = '\0';
+	ai_emotion_n = 0;
+	if ( npc == NULL || npc[ 0 ] == '\0' ) return;
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s/emotions.txt", npc );
+	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) return;
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		ai_trim( line );
+		if ( line[ 0 ] == '\0' ) continue;
+		if ( strchr( line, '/' ) != NULL || strchr( line, '\\' ) != NULL ||
+				strchr( line, ':' ) != NULL ) continue;
+		if ( o + strlen( line ) + 4 >= sizeof( ai_emotion_list ) ) break;
+		o += (size_t)snprintf( ai_emotion_list + o, sizeof( ai_emotion_list ) - o,
+			"%s%s", n > 0 ? "、" : "", line );
+		if ( n == 0 ) snprintf( ai_emotion_default, sizeof( ai_emotion_default ), "%s", line );
+		n++;
+	}
+	ai_emotion_n = n;
+	if ( n > 0 ) {
+		snprintf( ai_emotion, sizeof( ai_emotion ), "%s", ai_emotion_default );
+		printf( "aichat: %d expressions for %s\n", n, npc );
+		fflush( stdout );
+	}
+}
+
+static int ai_emotion_ok( const char *name )
+{
+	const char *p = ai_emotion_list;
+
+	if ( name == NULL || name[ 0 ] == '\0' ) return 0;
+	while ( *p ) {
+		const char *e = strstr( p, "、" );
+		size_t l = e != NULL ? (size_t)( e - p ) : strlen( p );
+		if ( strlen( name ) == l && strncmp( p, name, l ) == 0 ) return 1;
+		if ( e == NULL ) break;
+		p = e + 3;						/* "、" is three bytes in UTF-8	*/
+	}
+	return 0;
+}
+
+/*	Pull "[[emo:词]]" out of the answer.  An unknown word is ignored (the
+	last expression stays, so the portrait does not flicker), and the tag
+	never reaches the panel, the history or the log.						*/
+static void ai_take_emotion( char *text )
+{
+	char *a, *b, name[ 64 ];
+	size_t len;
+
+	if ( text == NULL ) return;
+	a = strstr( text, "[[emo:" );
+	if ( a == NULL ) return;
+	b = strstr( a, "]]" );
+	if ( b == NULL ) { *a = '\0'; ai_trim( text ); return; }
+	len = (size_t)( b - ( a + 6 ) );
+	if ( len >= sizeof( name ) ) len = sizeof( name ) - 1;
+	memcpy( name, a + 6, len );
+	name[ len ] = '\0';
+	ai_trim( name );
+	if ( ai_emotion_ok( name ) ) snprintf( ai_emotion, sizeof( ai_emotion ), "%s", name );
+	memmove( a, b + 2, strlen( b + 2 ) + 1 );
+	ai_trim( text );
+}
+
+const char *ai_chat_emotion( void )
+{
+	return ai_emotion;
 }
 
 /*	Append the shown line to the log file, tagged with the in-game clock.	*/
@@ -635,6 +726,11 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		"不要解释、不要动作描写、不要用括号。"
 		"好感管亲近（越高越主动关心、越会示弱），主从管服从（越高越听话，越低越会顶嘴）；"
 		"两项独立判断，不要因为一项高就推断另一项。" );
+	/*	r303: expression tag.  Chooses the portrait the panel draws.			*/
+	if ( ai_emotion_n > 0 )
+		AI_CAT( "情绪：台词最后另起一个方括号标记 [[emo:词]]（它不算台词，必须写），"
+			"词只能从下面选一个，拿不准就用「%s」。可用：%s\n",
+			ai_emotion_default, ai_emotion_list );
 	AI_CAT( "%s",
 		question != NULL ? "主人正在跟你说话，必须用一句话回应，绝对不要输出 SKIP。"
 			: "若此刻不适合说话，只输出 SKIP。" );
@@ -994,6 +1090,8 @@ static void ai_request( char *body, int mode, const char *question )
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 		} else {
+			/*	r303: the expression tag is metadata, not part of the line.	*/
+			ai_take_emotion( result );
 			ai_push_line_locked( result );
 			/*	r283: keep the pair so the next question can build on it.
 				Scene remarks have no question and are not stored.		*/
@@ -1187,6 +1285,10 @@ void ai_chat_drop_context( void )
 	ai_tone[ 0 ] = '\0';
 	ai_example[ 0 ] = '\0';
 	ai_memory[ 0 ] = '\0';
+	ai_emotion[ 0 ] = '\0';
+	ai_emotion_default[ 0 ] = '\0';
+	ai_emotion_list[ 0 ] = '\0';
+	ai_emotion_n = 0;
 	ai_scene[ 0 ] = '\0';
 	ai_last_line[ 0 ] = '\0';
 	ai_line[ 0 ] = '\0';
