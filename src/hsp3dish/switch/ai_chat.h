@@ -70,9 +70,10 @@ void ai_chat_emotion_calm( void );
 	alias.txt may have mapped to the original one after a rename.			*/
 const char *ai_chat_face_dir( void );
 
-/*	The panel shows the last three lines; index 0 is the newest, and the
-	oldest is pushed out when a fourth arrives.								*/
-#define AI_HISTORY	3
+/*	r307: answers are no longer capped at three short sentences, so the
+	panel keeps six of them and fits as many whole ones as the strip has
+	room for.  Index 0 is the newest.										*/
+#define AI_HISTORY	6
 const char *ai_chat_history( int index );
 int ai_chat_history_count( void );
 

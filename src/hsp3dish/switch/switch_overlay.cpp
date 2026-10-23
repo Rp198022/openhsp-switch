@@ -409,6 +409,11 @@ static char		sw_ovl_party_chat[2][ 1200 ] = { "", "" };
 	r269: the game's chatter row is gone - the whole lower half of the pet's
 	strip is the answer box, so a line may now run to four or five rows. */
 #define SW_OVL_AI_ROWS	15
+/*	r307: the party strip's answer box runs to the bottom of the strip, so
+	it uses every row that is actually free instead of stopping at fifteen
+	and leaving a bare band below.  This is only a guard against the row
+	scratch buffer, not a display limit.									*/
+#define SW_OVL_AI_ROWS_MAX	40
 static char		sw_ovl_ai_shown[ 512 ] = "";
 static int		sw_ovl_ai_seq_seen = 0;
 static int		sw_ovl_ai_last_battle = 0;
@@ -2005,9 +2010,13 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 {
 	/*	r272: 32 KB of rows on the render thread's stack was asking for
 		trouble - with three long answers the bottom rows went missing.	*/
-	static char rows[ 128 ][ 256 ];
+	static char rows[ 160 ][ 256 ];
+	/*	r307: which message each display row came from.  A '\n' in the
+		buffer separates two answers, so whole answers can be dropped from
+		the top instead of cutting the oldest one in half.				*/
+	static unsigned char seg_of[ 160 ];
 	char buf[ 256 ];
-	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h, shown;
+	int len, nr = 0, start, rrow, row, s, maxw, n, cw, w, h, shown, seg = 0;
 
 	if ( msg == NULL ) return;
 	len = (int)strlen( msg );
@@ -2033,17 +2042,36 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 		if ( n <= 0 ) n = 1;
 		if ( n > 255 ) n = 255;
 		memcpy( buf, msg + s, n ); buf[ n ] = '\0';
-		if ( nr >= 128 ) {
-			memmove( rows[ 0 ], rows[ 1 ], ( 128 - 1 ) * 256 );
-			nr = 127;
+		if ( nr >= 160 ) {
+			memmove( rows[ 0 ], rows[ 1 ], ( 160 - 1 ) * 256 );
+			memmove( seg_of, seg_of + 1, 160 - 1 );
+			nr = 159;
 		}
-		strncpy( rows[ nr ], buf, 255 ); rows[ nr ][ 255 ] = '\0'; nr++;
+		strncpy( rows[ nr ], buf, 255 ); rows[ nr ][ 255 ] = '\0';
+		seg_of[ nr ] = (unsigned char)( seg > 255 ? 255 : seg );
+		nr++;
 		s += n;
-		if ( s < len && msg[ s ] == '\n' ) s++;
+		if ( s < len && msg[ s ] == '\n' ) { s++; seg++; }
 	}
-	/*	Bottom-aligned: render only the newest maxl rows, old rows scroll off
-		the top; the newest message always shows in full at the bottom.  */
-	start = ( nr > maxl ) ? ( nr - maxl ) : 0;
+	/*	r307: take whole answers only, newest first: an answer is shown in
+		full or not at all, so no row is ever cut mid-sentence.  If a single
+		answer is taller than the box it still falls back to its last rows,
+		otherwise nothing could be read at all.							*/
+	{
+		int tail = seg_of[ nr - 1 ];
+
+		start = nr - 1;
+		while ( start > 0 && seg_of[ start - 1 ] == tail ) start--;
+		while ( start > 0 ) {
+			int prev = seg_of[ start - 1 ];
+			int r = start - 1;
+
+			while ( r > 0 && seg_of[ r - 1 ] == prev ) r--;
+			if ( nr - r > maxl ) break;
+			start = r;
+		}
+		if ( nr - start > maxl ) start = nr - maxl;
+	}
 	shown = nr - start;
 	/*	r272: bottom mode takes y as the baseline the last row sits on, so a
 		two-line answer hugs the bottom instead of floating mid-strip.	*/
@@ -2950,9 +2978,11 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 					(the money line), not at the bottom of the strip, so the
 					two blocks read as one list.  The room left decides how
 					many rows fit.										*/
+				/*	r307: use all of that room.  The old cap of fifteen rows
+					left a bare band under the answers on a tall strip.	*/
 				int maxl = ( panel->h - y - 12 ) / 18;
 				if ( maxl < 1 ) maxl = 1;
-				if ( maxl > SW_OVL_AI_ROWS ) maxl = SW_OVL_AI_ROWS;
+				if ( maxl > SW_OVL_AI_ROWS_MAX ) maxl = SW_OVL_AI_ROWS_MAX;
 				sw_ovl_chat_lines( panel, box, 8, y + 6, maxl, 0 );
 			}
 		}
