@@ -642,6 +642,73 @@ static void sw_ovl_blit_chat( SDL_Surface *dst, const char *text, Uint8 r, Uint8
 	SDL_FreeSurface( c );
 }
 
+/*	r309: draw one chat row, painting a parenthesised action in green so a
+	gesture reads as stage direction instead of speech.  Each run is
+	measured separately, so the plain text after the bracket starts exactly
+	where the green run ends.											*/
+static int sw_ovl_chat_run( SDL_Surface *dst, const char *from, const char *to,
+	int act, int x, int y, Uint8 r, Uint8 g, Uint8 b, Uint8 ar, Uint8 ag, Uint8 ab )
+{
+	char seg[ 256 ];
+	size_t len = (size_t)( to - from );
+	int w = 0, h = 0;
+
+	if ( len == 0 ) return x;
+	if ( len >= sizeof( seg ) ) len = sizeof( seg ) - 1;
+	memcpy( seg, from, len );
+	seg[ len ] = '\0';
+	if ( act ) sw_ovl_blit_chat( dst, seg, ar, ag, ab, x, y );
+	else       sw_ovl_blit_chat( dst, seg, r, g, b, x, y );
+	if ( sw_ovl_font_chat != NULL && TTF_SizeUTF8( sw_ovl_font_chat, seg, &w, &h ) == 0 )
+		x += w;
+	return x;
+}
+
+static int sw_ovl_utf8_step( unsigned char b )
+{
+	if ( b < 0x80 ) return 1;
+	if ( b < 0xE0 ) return 2;
+	if ( b < 0xF0 ) return 3;
+	return 4;
+}
+
+static void sw_ovl_blit_chat_mixed( SDL_Surface *dst, const char *text, int x, int y,
+	Uint8 r, Uint8 g, Uint8 b, Uint8 ar, Uint8 ag, Uint8 ab )
+{
+	const char *p = text, *start = text;
+	int act = 0;
+
+	if ( sw_ovl_font_chat == NULL ) { sw_ovl_blit_chat( dst, text, r, g, b, x, y ); return; }
+	while ( *p ) {
+		int open = 0, close = 0, cl = 1;
+
+		if ( (unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBC &&
+				(unsigned char)p[2] == 0x88 ) { open = 1; cl = 3; }	/* （	*/
+		else if ( p[0] == '(' ) { open = 1; cl = 1; }
+		else if ( (unsigned char)p[0] == 0xEF && (unsigned char)p[1] == 0xBC &&
+				(unsigned char)p[2] == 0x89 ) { close = 1; cl = 3; }	/* ）	*/
+		else if ( p[0] == ')' ) { close = 1; cl = 1; }
+
+		if ( open && !act ) {
+			x = sw_ovl_chat_run( dst, start, p, act, x, y, r, g, b, ar, ag, ab );
+			act = 1;
+			start = p;
+			p += cl;
+			continue;
+		}
+		if ( close && act ) {
+			p += cl;					/* the bracket stays green too	*/
+			x = sw_ovl_chat_run( dst, start, p, act, x, y, r, g, b, ar, ag, ab );
+			act = 0;
+			start = p;
+			continue;
+		}
+		p += sw_ovl_utf8_step( (unsigned char)*p );
+	}
+	if ( *start )
+		sw_ovl_chat_run( dst, start, p, act, x, y, r, g, b, ar, ag, ab );
+}
+
 /*	Draw one line with a chosen face - the key strips fall back to a smaller
 	font when the two columns cannot both fit the strip at 16px.			*/
 static void sw_ovl_blit_f( SDL_Surface *dst, TTF_Font *f, const char *text, Uint8 v, int x, int y )
@@ -2084,11 +2151,14 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 	for ( row = start, rrow = 0; row < nr; row++, rrow++ ) {
 		/*	r187v: colour like the game's own log below the HP bars - a quoted
 			line is dialogue (init.hsp msg_write paints those 210,250,160),
-			anything else is the plain log white.  */
-		if ( strchr( rows[ row ], '"' ) != NULL ) {
-			sw_ovl_blit_chat( panel, rows[ row ], 44, 72, 34, x, y + rrow * 18 );
-		} else {
-			sw_ovl_blit_chat( panel, rows[ row ], 40, 34, 28, x, y + rrow * 18 );
+			anything else is the plain log white.
+			r309: a parenthesised action inside the row is painted green.	*/
+		{
+			Uint8 cr = 40, cg = 34, cb = 28;
+
+			if ( strchr( rows[ row ], '"' ) != NULL ) { cr = 44; cg = 72; cb = 34; }
+			sw_ovl_blit_chat_mixed( panel, rows[ row ], x, y + rrow * 18,
+				cr, cg, cb, 46, 118, 58 );
 		}
 	}
 }

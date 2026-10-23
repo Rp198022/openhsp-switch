@@ -388,27 +388,71 @@ static int ai_emotion_ok( const char *name )
 	return 0;
 }
 
-/*	Pull "[[emo:词]]" out of the answer.  An unknown word is ignored (the
-	last expression stays, so the portrait does not flicker), and the tag
-	never reaches the panel, the history or the log.						*/
+/*	r309: the model writes [emo:词] as often as [[emo:词]], and sometimes
+	with a full-width colon.  The old parser only knew the double bracket,
+	so most tags stayed inside the line and the portrait never changed.
+	Returns a pointer at the "emo" word; the caller walks back over the
+	brackets so it can cut the whole tag out.							*/
+static char *ai_emo_open( char *t )
+{
+	char *p = t;
+
+	while ( ( p = strstr( p, "emo" ) ) != NULL ) {
+		if ( p > t && p[ -1 ] == '[' ) {
+			int ok = 0;
+
+			if ( p[ 3 ] == ':' ) ok = 1;
+			else if ( (unsigned char)p[ 3 ] == 0xEF && (unsigned char)p[ 4 ] == 0xBC &&
+					(unsigned char)p[ 5 ] == 0x9A ) ok = 1;		/* ：	*/
+			if ( ok ) return p;
+		}
+		p += 3;
+	}
+	return NULL;
+}
+
+/*	Pull "[[emo:词]]" (or "[emo:词]", "[[emo：词]]") out of the answer.
+	An unknown word is ignored so the portrait does not flicker; the tag
+	itself never reaches the panel, the history or the log.				*/
 static void ai_take_emotion( char *text )
 {
-	char *a, *b, name[ 64 ];
-	size_t len;
+	char name[ 64 ];
 
 	if ( text == NULL ) return;
-	a = strstr( text, "[[emo:" );
-	if ( a == NULL ) return;
-	b = strstr( a, "]]" );
-	if ( b == NULL ) { *a = '\0'; ai_trim( text ); return; }
-	len = (size_t)( b - ( a + 6 ) );
-	if ( len >= sizeof( name ) ) len = sizeof( name ) - 1;
-	memcpy( name, a + 6, len );
-	name[ len ] = '\0';
-	ai_trim( name );
-	if ( ai_emotion_ok( name ) ) snprintf( ai_emotion, sizeof( ai_emotion ), "%s", name );
-	memmove( a, b + 2, strlen( b + 2 ) + 1 );
-	ai_trim( text );
+	for ( ;; ) {
+		char *em = ai_emo_open( text );
+		char *a, *e, *half, *full, *ns;
+		size_t len, cl;
+
+		if ( em == NULL ) break;
+		a = em;
+		while ( a > text && a[ -1 ] == '[' ) a--;
+		half = strchr( em, ']' );
+		full = strstr( em, "\xEF\xBC\xBD" );		/* ］				*/
+		e = half;
+		cl = 1;
+		if ( full != NULL && ( e == NULL || full < e ) ) { e = full; cl = 3; }
+		if ( e == NULL ) {
+			/*	Unclosed tag: cut it off rather than show it to the player.	*/
+			*a = '\0';
+			ai_trim( text );
+			break;
+		}
+		ns = em + 3;
+		if ( ns[ 0 ] == ':' ) ns += 1;
+		else if ( (unsigned char)ns[ 0 ] == 0xEF && (unsigned char)ns[ 1 ] == 0xBC &&
+				(unsigned char)ns[ 2 ] == 0x9A ) ns += 3;
+		len = (size_t)( e - ns );
+		if ( len < sizeof( name ) ) {
+			memcpy( name, ns, len );
+			name[ len ] = '\0';
+			ai_trim( name );
+			if ( ai_emotion_ok( name ) )
+				snprintf( ai_emotion, sizeof( ai_emotion ), "%s", name );
+		}
+		memmove( a, e + cl, strlen( e + cl ) + 1 );
+		ai_trim( text );
+	}
 }
 
 const char *ai_chat_emotion( void )
@@ -833,9 +877,12 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 				if ( said[ i ][ 0 ] ) AI_CAT( "- 「%s」\n", said[ i ] );
 		}
 	}
-	/*	r303: expression tag.  Chooses the portrait the panel draws.			*/
+	/*	r303: expression tag.  Chooses the portrait the panel draws.
+		r309: the exact shape is spelled out - the model kept writing a single
+		bracket, which the old parser did not recognise.					*/
 	if ( ai_emotion_n > 0 )
-		AI_CAT( "情绪：台词最后另起一个方括号标记 [[emo:词]]（它不算台词，必须写），"
+		AI_CAT( "情绪：台词最后另起一个标记，格式必须是双中括号加半角冒号 "
+			"[[emo:词]]，例如 [[emo:平静]]；它不算台词，但必须写。"
 			"词只能从下面选一个，拿不准就用「%s」。可用：%s\n",
 			ai_emotion_default, ai_emotion_list );
 	AI_CAT( "%s",
@@ -1669,10 +1716,13 @@ void ai_chat_tick( void )
 	}
 
 	/*	Events no longer expire: whatever happened while a request was in
-		flight is still worth a line.  A short gap keeps a burst of game
-		events from turning into a burst of paid requests.					*/
+		flight is still worth a line.  r309: the gap is raised to 8 s and a
+		fresh line is never followed within 5 s, because a battle plus a
+		floor change plus a level-up used to arrive as three sentences in a
+		row and read as nagging.										*/
 	pthread_mutex_lock( &ai_lock );
-	if ( ai_event_prio >= 0 && now - ai_last_request >= 3.0 ) {
+	if ( ai_event_prio >= 0 && now - ai_last_request >= 8.0 &&
+			now - ai_last_line_at >= 5.0 ) {
 		char event[ 512 ];
 		snprintf( event, sizeof( event ), "%s", ai_event );
 		ai_event_prio = -1;
@@ -1692,7 +1742,11 @@ void ai_chat_tick( void )
 		return;
 	}
 
-	if ( !ai_idle && now - ai_last_request >= (double)ai_interval && ai_scene[ 0 ] != '\0' ) {
+	/*	r309: even the idle line waits a while after the previous one, so a
+		queued event that just fired is not immediately followed by scenery
+		commentary.  The interval stays the user's setting.				*/
+	if ( !ai_idle && now - ai_last_request >= (double)ai_interval &&
+			now - ai_last_line_at >= 15.0 && ai_scene[ 0 ] != '\0' ) {
 		ai_start( NULL, "无事发生，安静地待着" );
 	}
 }
