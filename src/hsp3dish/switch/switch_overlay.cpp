@@ -1445,6 +1445,46 @@ static const char *sw_ovl_utf8( const char *in )
 	return out;
 }
 
+/*	r295: the game's attribute/skill growth notices.  All of them come from
+	one fixed table in the .ax (label "txtskillchange":
+
+		感到生命力的提升。 / 察觉到生命力在衰退。
+		感到玛那变强了。 / 感到玛那衰弱了。
+		变强壮了。 / 感觉它长了点赘肉的样子。
+		体会到了忍耐的快感。 / 变得没有耐力了。
+		变得灵巧了。 / 变得笨拙了。
+		它开始觉得世界变得更为亲近了。 / 感到了感觉的偏差。
+		忽然变得想学各种东西了。 / 的学习意愿下降了。
+		的意志愈发坚定了。 / 变得容易放弃了。
+		察觉到魔力有所增长。 / 感觉到魔力在衰退。
+		感觉周围的目光很惬意。 / 突然变得不愿在人前露面了。
+		觉得周围的动作变慢了。 / 变迟钝了。
+		变得幸运了。 / 变得不幸了。
+		将技能的进步。 / 将技能的退步。
+
+	The line arrives as "<名字>" + one of these, so a name filter alone would
+	treat it as something she said - it is not, it is the game narrating her
+	stats.  Matching the fixed fragments is exact and survives translation
+	wording that the loose keyword list would miss.						*/
+static int sw_ovl_ai_growth_line( const char *u )
+{
+	static const char *frag[] = {
+		"生命力的提升", "生命力在衰退", "玛那变强", "玛那衰弱",
+		"变强壮了", "长了点赘肉", "忍耐的快感", "没有耐力",
+		"变得灵巧了", "变得笨拙了", "世界变得更为亲近", "感觉的偏差",
+		"想学各种东西", "学习意愿下降", "意志愈发坚定", "变得容易放弃",
+		"魔力有所增长", "魔力在衰退", "目光很惬意", "不愿在人前露面",
+		"动作变慢了", "变迟钝了", "变得幸运了", "变得不幸了",
+		"技能的进步", "技能的退步",
+	};
+	int i;
+
+	if ( u == NULL || u[ 0 ] == '\0' ) return 0;
+	for ( i = 0; i < (int)( sizeof( frag ) / sizeof( frag[ 0 ] ) ); i++ )
+		if ( strstr( u, frag[ i ] ) != NULL ) return 1;
+	return 0;
+}
+
 /*	Latest log lines belonging to the pet, joined oldest-first.  Two routes,
 	in this order: the game names the talker itself (chara_func.hsp:207 sets
 	chatc = customtalk_charid before dispatching a custom line), so the
@@ -1515,6 +1555,10 @@ static const char *sw_ovl_msg_peek( const char *pet_name, int speaker, int pet_s
 		if ( nk == 0 ) continue;
 		for ( kk = 0; kk < nk; kk++ )
 			if ( keys[ kk ][ 0 ] != '\0' && strstr( s, keys[ kk ] ) != NULL ) {
+				/*	r295: "X 将…技能的进步。" names her but is the game
+					talking about her stats, not her talking.  Keeping it
+					out here is what separates the two kinds of row.	*/
+				if ( sw_ovl_ai_growth_line( sw_ovl_utf8( s ) ) ) break;
 				hits[ got++ ] = s; break;
 			}
 	}
@@ -2131,6 +2175,9 @@ static int sw_ovl_ai_pet_note( const char *u )
 		"拾起", "得到", "获得", "经验", "体力", "恢复", "变强",
 	};
 	int i;
+
+	/*	r295: the fixed growth table is the reliable half of this filter.	*/
+	if ( sw_ovl_ai_growth_line( u ) ) return 1;
 
 	for ( i = 0; i < (int)( sizeof( kw ) / sizeof( kw[ 0 ] ) ); i++ )
 		if ( strstr( u, kw[ i ] ) != NULL ) return 1;
