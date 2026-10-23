@@ -2280,8 +2280,9 @@ static void sw_ovl_ai_watch( void )
 			char un[ 400 ];
 			snprintf( un, sizeof( un ), "%s", sw_ovl_utf8( newest ) );
 			if ( strcmp( un, sw_ovl_ai_w_msg ) != 0 ) {
-				char nm[ 96 ];
+				char nm[ 96 ], prev[ 300 ];
 				int back;
+				snprintf( prev, sizeof( prev ), "%s", sw_ovl_ai_w_msg );
 				snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
 				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
 				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
@@ -2290,6 +2291,9 @@ static void sw_ovl_ai_watch( void )
 
 					if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
 					snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
+					/*	The previous newest row was already handled with the
+						last poll; stop before walking into it again.		*/
+					if ( prev[ 0 ] && strcmp( u, prev ) == 0 ) break;
 					/*	Her own spoken line is already the panel's chatter.	*/
 					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
 					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
