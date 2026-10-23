@@ -1465,10 +1465,20 @@ static const char *sw_ovl_utf8( const char *in )
 	The line arrives as "<名字>" + one of these, so a name filter alone would
 	treat it as something she said - it is not, it is the game narrating her
 	stats.  Matching the fixed fragments is exact and survives translation
-	wording that the loose keyword list would miss.						*/
+	wording that the loose keyword list would miss.
+
+	Eating and drinking are the same thing, only the verb is inline instead
+	of a table: proc.hsp *eat / *drinkPotion build
+
+		npcn(cc) + itemname(ci, 1) + "を食べ終えた。"	→ "<名字>吃完了<食物>。"
+		npcn(tc) + itemname(ci, 1) + "を飲み干した。"	→ "<名字>喝光了<饮料>。"
+		npcn(cc) + itemname(ci, 1) + "を…送进了嘴中。"	→ 开始吃的提示
+
+	so those verbs are matched here as well.								*/
 static int sw_ovl_ai_growth_line( const char *u )
 {
 	static const char *frag[] = {
+		/*	txtskillchange table											*/
 		"生命力的提升", "生命力在衰退", "玛那变强", "玛那衰弱",
 		"变强壮了", "长了点赘肉", "忍耐的快感", "没有耐力",
 		"变得灵巧了", "变得笨拙了", "世界变得更为亲近", "感觉的偏差",
@@ -1476,6 +1486,8 @@ static int sw_ovl_ai_growth_line( const char *u )
 		"魔力有所增长", "魔力在衰退", "目光很惬意", "不愿在人前露面",
 		"动作变慢了", "变迟钝了", "变得幸运了", "变得不幸了",
 		"技能的进步", "技能的退步",
+		/*	food and drink verbs											*/
+		"送进了嘴中", "吃完了", "喝光了", "吃掉了", "喝掉了",
 	};
 	int i;
 
@@ -1575,24 +1587,27 @@ static const char *sw_ovl_msg_peek( const char *pet_name, int speaker, int pet_s
 	return out;
 }
 
-/*	r292: the newest row of the game's log, whatever it says.  msg_peek()
-	above only returns the follower's own lines; the watcher also needs the
-	rows that merely talk ABOUT her ("X 的重武器精通精进了").  Raw GBK.	*/
-static const char *sw_ovl_msg_latest( void )
+/*	r292/r296: the newest rows of the game's log, whatever they say.
+	msg_peek() above only returns the follower's own lines; the watcher also
+	needs the rows that merely talk ABOUT her ("X 的重武器精通精进了"),
+	and one action can leave several rows behind ("…送进了嘴中" then the
+	taste line), so it walks back a few.  Raw GBK.						*/
+static int sw_ovl_msg_row( int back, char *out, size_t n )
 {
-	static char out[ 512 ];
-	int i;
+	int i, seen = 0;
 	const char *s;
 
-	if ( sw_ovl_pv_msg == NULL ) return "";
+	if ( sw_ovl_pv_msg == NULL || out == NULL || n < 2 ) return 0;
 	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0; i-- ) {
 		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
-		if ( s != NULL && s[ 0 ] != '\0' ) {
-			snprintf( out, sizeof( out ), "%s", s );
-			return out;
+		if ( s == NULL || s[ 0 ] == '\0' ) continue;
+		if ( seen == back ) {
+			snprintf( out, n, "%s", s );
+			return 1;
 		}
+		seen++;
 	}
-	return "";
+	return 0;
 }
 
 static const char *sw_ovl_attr_name( int i )
@@ -2226,25 +2241,38 @@ static void sw_ovl_ai_watch( void )
 		purpose - a row carrying her name is usually her own speech, and
 		echoing that back makes her parrot herself - but skill practice,
 		eating and drinking are the game narrating her, so they get a forced
-		line even while the log is otherwise busy.							*/
+		line even while the log is otherwise busy.  One action can leave
+		several rows, hence the short walk back.							*/
 	{
-		const char *raw = sw_ovl_msg_latest();
-		if ( raw[ 0 ] ) {
-			char u[ 300 ], nm[ 96 ];
-			snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
-			snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
-			if ( nm[ 0 ] && strcmp( u, sw_ovl_ai_w_msg ) != 0 ) {
-				int speech = ( sw_ovl_speaker() == sw_ovl_party_slot[1] );
-				int mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
-				if ( !speech && mine && sw_ovl_ai_pet_note( u ) ) {
-					size_t c;
-					snprintf( note, sizeof( note ), "游戏日志里出现了关于你的消息：%.*s",
-						120, u );
-					for ( c = 0; note[ c ]; c++ )
-						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+		char newest[ 300 ];
+		if ( sw_ovl_msg_row( 0, newest, sizeof( newest ) ) ) {
+			char un[ 400 ];
+			snprintf( un, sizeof( un ), "%s", sw_ovl_utf8( newest ) );
+			if ( strcmp( un, sw_ovl_ai_w_msg ) != 0 ) {
+				char nm[ 96 ];
+				int back;
+				snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
+				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
+				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
+					char raw[ 300 ], u[ 400 ];
+					int mine, speech;
+
+					if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
+					snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
+					/*	Her own spoken line is already the panel's chatter.	*/
+					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
+					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
+					if ( speech || !mine || !sw_ovl_ai_pet_note( u ) ) continue;
+					snprintf( note, sizeof( note ),
+						"游戏日志里出现了关于你的消息：%.*s", 120, u );
+					{
+						size_t c;
+						for ( c = 0; note[ c ]; c++ )
+							if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+					}
 					ai_chat_notify_event( note, 4 );
+					break;
 				}
-				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", u );
 			}
 		}
 	}
