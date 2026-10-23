@@ -1513,6 +1513,28 @@ static int sw_ovl_ai_story_line( const char *u )
 	return 0;
 }
 
+/*	r299: the green ones only.  Green is what the game uses for the positive
+	half of txtskillchange - module.hsp calls txtef COLOR_GREEN right before
+	the growth line (negative == 0), and txtef COLOR_RED for the decline
+	(negative == 1).  The colour itself never reaches the log: txtef writes
+	it into a module-local that the next line reuses, so this list is the
+	reliable way to reproduce "green".									*/
+static int sw_ovl_ai_green_line( const char *u )
+{
+	static const char *frag[] = {
+		"生命力的提升", "玛那变强", "变强壮了", "忍耐的快感",
+		"变得灵巧了", "世界变得更为亲近", "想学各种东西", "意志愈发坚定",
+		"魔力有所增长", "目光很惬意", "动作变慢了", "变得幸运了",
+		"技能的进步",
+	};
+	int i;
+
+	if ( u == NULL || u[ 0 ] == '\0' ) return 0;
+	for ( i = 0; i < (int)( sizeof( frag ) / sizeof( frag[ 0 ] ) ); i++ )
+		if ( strstr( u, frag[ i ] ) != NULL ) return 1;
+	return 0;
+}
+
 /*	r297: the watcher hands the model a fact about the follower, so her own
 	name becomes "你" - "X 中毒了。" turns into "你中毒了。".  Without this
 	she answers in the third person about herself.							*/
@@ -2214,22 +2236,6 @@ static int sw_ovl_ai_log_hot( const char *s )
 	filled, so the watcher costs a few comparisons per frame and nothing at
 	all when the game is idle.  Thresholds are deliberately coarse: the
 	model only needs "something happened", not a telemetry feed.			*/
-/*	r297: rows that are about her but are still noise.  Damage, misses and
-	resist rolls name her and arrive every single swing; everything else
-	that carries her name is worth a reaction, template or not.			*/
-static int sw_ovl_ai_combat_noise( const char *u )
-{
-	static const char *kw[] = {
-		"受到", "伤害", "命中", "闪避", "回避", "抵抗", "打中", "挡住了",
-	};
-	int i;
-
-	if ( u == NULL ) return 0;
-	for ( i = 0; i < (int)( sizeof( kw ) / sizeof( kw[ 0 ] ) ); i++ )
-		if ( strstr( u, kw[ i ] ) != NULL ) return 1;
-	return 0;
-}
-
 static void sw_ovl_ai_watch( void )
 {
 	unsigned int now = SDL_GetTicks();
@@ -2287,7 +2293,7 @@ static void sw_ovl_ai_watch( void )
 				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
 				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
 					char raw[ 300 ], u[ 400 ], self[ 400 ];
-					int mine, speech, story;
+					int mine, speech;
 
 					if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
 					snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
@@ -2297,12 +2303,8 @@ static void sw_ovl_ai_watch( void )
 					/*	Her own spoken line is already the panel's chatter.	*/
 					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
 					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
-					/*	r297: every row about her is worth a reaction now, not
-						just the ones on a known template - only bare combat
-						rows stay out, because they arrive every swing.		*/
-					story = sw_ovl_ai_story_line( u );
-					if ( speech || !mine ) continue;
-					if ( !story && sw_ovl_ai_combat_noise( u ) ) continue;
+					/*	r299: green only - the positive growth notices.			*/
+					if ( speech || !mine || !sw_ovl_ai_green_line( u ) ) continue;
 					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
 					snprintf( note, sizeof( note ),
 						"游戏日志里出现了关于你的消息：%.*s", 120, self );
