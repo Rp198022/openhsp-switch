@@ -3097,9 +3097,11 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			char nm[ 64 ];
 			snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
 			if ( strcmp( nm, sw_ovl_ai_w_greet_name ) != 0 ) {
+				int first = ( sw_ovl_ai_w_greet_name[ 0 ] == '\0' );
 				snprintf( sw_ovl_ai_w_greet_name, sizeof( sw_ovl_ai_w_greet_name ),
 					"%s", nm );
-				ai_chat_notify_event( "主人刚刚回到游戏，你就跟在旁边", 4 );
+				ai_chat_notify_event( first ? "主人刚刚回到游戏，你就跟在旁边"
+					: "主人又把你叫回队伍里了", first ? 4 : 5 );
 			} else if ( !sw_ovl_ai_w_pet_seen ) {
 				ai_chat_notify_event( "主人又把你叫回队伍里了", 5 );
 			}
