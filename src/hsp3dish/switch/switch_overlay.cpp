@@ -308,6 +308,8 @@ static int			sw_ovl_ply_debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 #define SW_OVL_GD_DAY			12
 #define SW_OVL_GD_HOUR			13
 #define SW_OVL_GD_WEATHER		17
+#define SW_OVL_GD_TURN			4	/* player turns; the world only moves
+								   when one is spent						*/
 #define SW_OVL_GD_CARGO			80	/* cart / luggage weight		*/
 #define SW_OVL_GD_CARGO_LIMIT	82
 #define SW_OVL_GD_LEVEL			22	/* current dungeon depth		*/
@@ -1911,8 +1913,15 @@ static GLuint sw_ovl_ai_face_img( void )
 	char key[ 160 ], path[ 320 ], name[ 96 ];
 	SDL_Surface *s, *conv;
 
-	if ( emo[ 0 ] == '\0' || sw_ovl_party_name[ 1 ][ 0 ] == '\0' ) return 0;
-	snprintf( name, sizeof( name ), "%s", sw_ovl_utf8( sw_ovl_party_name[ 1 ] ) );
+	if ( emo[ 0 ] == '\0' ) return 0;
+	/*	r305: the folder follows the resolved base name, so a renamed pet
+		keeps her expression set.											*/
+	if ( ai_chat_face_dir()[ 0 ] != '\0' )
+		snprintf( name, sizeof( name ), "%s", ai_chat_face_dir() );
+	else if ( sw_ovl_party_name[ 1 ][ 0 ] != '\0' )
+		snprintf( name, sizeof( name ), "%s", sw_ovl_utf8( sw_ovl_party_name[ 1 ] ) );
+	else
+		return 0;
 	snprintf( key, sizeof( key ), "%s/%s", name, emo );
 	if ( strcmp( key, sw_ovl_ai_face_key ) == 0 ) return sw_ovl_ai_face_tex;
 
@@ -3347,6 +3356,24 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		}
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
+
+		/*	r305: a smile is not permanent.  Elona only advances time when a
+			turn is actually spent, so ten turns after the line she goes back
+			to the resting face; standing still leaves it untouched.		*/
+		{
+			static char emo_seen[ 64 ] = "";
+			static int emo_turn = -1;
+			const char *emo = ai_chat_emotion();
+			int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
+
+			if ( strcmp( emo, emo_seen ) != 0 ) {
+				snprintf( emo_seen, sizeof( emo_seen ), "%s", emo );
+				emo_turn = turn;
+			} else if ( emo_turn >= 0 && turn - emo_turn >= 10 ) {
+				ai_chat_emotion_calm();
+				emo_turn = -1;
+			}
+		}
 
 		/*	Events: each one is a plain sentence for the model to word. */
 		if ( sw_ovl_ai_last_battle && !sw_ovl_battle_on )

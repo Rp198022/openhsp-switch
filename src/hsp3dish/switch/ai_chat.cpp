@@ -86,8 +86,12 @@ static int			ai_compress_tried = 0;
 	line is shown, and the panel swaps the portrait for that expression.	*/
 static char			ai_emotion[ 64 ] = "";			/* current expression	*/
 static char			ai_emotion_default[ 64 ] = "";	/* first name in list	*/
+static char			ai_emotion_calm[ 64 ] = "";		/* 「平静」 if present	*/
 static char			ai_emotion_list[ 2048 ] = "";	/* "平静、微笑、…"		*/
 static int			ai_emotion_n = 0;
+/*	r305: the md/chat/expression folder a display name maps to.  Renaming a
+	pet changes cdatan, so alias.txt keeps the old files in use.			*/
+static char			ai_base_name[ 64 ] = "";
 
 static void ai_load_emotions( const char *npc );	/* defined below		*/
 
@@ -220,6 +224,48 @@ static void ai_append( char *dst, size_t cap, const char *line )
 	dst[ l + strlen( line ) + 1 ] = '\0';
 }
 
+static int ai_has_file( const char *path )
+{
+	FILE *f;
+
+	glue_fs_mutated();
+	f = fopen( path, "rb" );
+	if ( f == NULL ) return 0;
+	fclose( f );
+	return 1;
+}
+
+/*	r305: map a display name to the folder that holds her files.  Renaming a
+	pet in game only changes cdatan, so data/npc/alias.txt ("新名=旧名", one
+	per line) keeps the persona, the history and the expression folder in
+	use without rewriting anything.											*/
+static void ai_resolve_base( const char *npc, char *out, size_t n )
+{
+	char path[ 256 ], data[ 2048 ], line[ 200 ];
+	const char *p;
+
+	snprintf( out, n, "%s", npc );
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", npc );
+	if ( ai_has_file( path ) ) return;
+	if ( ai_read_file( AI_DIR "npc/alias.txt", data, sizeof( data ) ) < 0 ) return;
+	p = data;
+	while ( ai_next_line( &p, line, sizeof( line ) ) ) {
+		char *eq;
+
+		ai_trim( line );
+		if ( line[ 0 ] == '#' || line[ 0 ] == '\0' ) continue;
+		eq = strchr( line, '=' );
+		if ( eq == NULL ) continue;
+		*eq = '\0';
+		ai_trim( line );
+		ai_trim( eq + 1 );
+		if ( strcmp( line, npc ) == 0 && ( eq + 1 )[ 0 ] != '\0' ) {
+			snprintf( out, n, "%s", eq + 1 );
+			return;
+		}
+	}
+}
+
 static void ai_load_persona( const char *npc )
 {
 	static char data[ 8192 ];
@@ -237,8 +283,9 @@ static void ai_load_persona( const char *npc )
 	ai_memory[ 0 ] = '\0';
 	ai_tone[ 0 ] = '\0';
 	ai_example[ 0 ] = '\0';
+	ai_resolve_base( npc, ai_base_name, sizeof( ai_base_name ) );
 
-	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", npc );
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.md", ai_base_name );
 	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) {
 		/*	A save whose follower has no file of its own still gets the shared
 			default, so one persona can be tried before writing everyone's.	*/
@@ -275,8 +322,9 @@ static void ai_load_persona( const char *npc )
 	ai_trim( ai_memory );
 	ai_trim( ai_tone );
 	ai_trim( ai_example );
-	ai_load_emotions( npc );
-	printf( "aichat: persona %s (%d bytes, memory %d, tone %d, example %d)\n", npc,
+	ai_load_emotions( ai_base_name );
+	printf( "aichat: persona %s (base %s, %d bytes, memory %d, tone %d, example %d)\n",
+		npc, ai_base_name,
 		(int)strlen( ai_persona ), (int)strlen( ai_memory ),
 		(int)strlen( ai_tone ), (int)strlen( ai_example ) );
 	fflush( stdout );
@@ -291,10 +339,11 @@ static void ai_load_emotions( const char *npc )
 	static char data[ 8192 ], line[ 80 ], path[ 256 ];
 	const char *p;
 	size_t o = 0;
-	int n = 0;
+	int n = 0, calm = 0;
 
 	ai_emotion[ 0 ] = '\0';
 	ai_emotion_default[ 0 ] = '\0';
+	ai_emotion_calm[ 0 ] = '\0';
 	ai_emotion_list[ 0 ] = '\0';
 	ai_emotion_n = 0;
 	if ( npc == NULL || npc[ 0 ] == '\0' ) return;
@@ -310,12 +359,16 @@ static void ai_load_emotions( const char *npc )
 		o += (size_t)snprintf( ai_emotion_list + o, sizeof( ai_emotion_list ) - o,
 			"%s%s", n > 0 ? "、" : "", line );
 		if ( n == 0 ) snprintf( ai_emotion_default, sizeof( ai_emotion_default ), "%s", line );
+		if ( strcmp( line, "平静" ) == 0 ) calm = 1;
 		n++;
 	}
 	ai_emotion_n = n;
 	if ( n > 0 ) {
-		snprintf( ai_emotion, sizeof( ai_emotion ), "%s", ai_emotion_default );
-		printf( "aichat: %d expressions for %s\n", n, npc );
+		/*	r305: 「平静」 is the resting face when the set has one.			*/
+		snprintf( ai_emotion_calm, sizeof( ai_emotion_calm ), "%s",
+			calm ? "平静" : ai_emotion_default );
+		snprintf( ai_emotion, sizeof( ai_emotion ), "%s", ai_emotion_calm );
+		printf( "aichat: %d expressions for %s, calm=%s\n", n, npc, ai_emotion_calm );
 		fflush( stdout );
 	}
 }
@@ -361,6 +414,17 @@ static void ai_take_emotion( char *text )
 const char *ai_chat_emotion( void )
 {
 	return ai_emotion;
+}
+
+void ai_chat_emotion_calm( void )
+{
+	if ( ai_emotion_calm[ 0 ] == '\0' ) return;
+	snprintf( ai_emotion, sizeof( ai_emotion ), "%s", ai_emotion_calm );
+}
+
+const char *ai_chat_face_dir( void )
+{
+	return ai_base_name[ 0 ] ? ai_base_name : ai_npc;
 }
 
 /*	Append the shown line to the log file, tagged with the in-game clock.	*/
@@ -820,7 +884,8 @@ static void ai_turn_save_locked( void )
 	FILE *f;
 
 	if ( ai_npc[ 0 ] == '\0' ) return;
-	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat", ai_npc );
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat",
+		ai_base_name[ 0 ] ? ai_base_name : ai_npc );
 	if ( ai_turn_n <= 0 ) {
 		remove( path );
 		return;
@@ -841,14 +906,15 @@ static void ai_turn_save_locked( void )
 static void ai_turn_load( const char *npc )
 {
 	static char data[ AI_CHAT_BUF ];
-	char path[ 256 ], line[ AI_MAX_LINE ], q[ AI_MAX_LINE ];
+	char path[ 256 ], line[ AI_MAX_LINE ], q[ AI_MAX_LINE ], base[ 64 ];
 	const char *p;
 
 	pthread_mutex_lock( &ai_lock );
 	ai_turn_n = 0;
 	pthread_mutex_unlock( &ai_lock );
 	if ( npc == NULL || npc[ 0 ] == '\0' ) return;
-	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat", npc );
+	ai_resolve_base( npc, base, sizeof( base ) );
+	snprintf( path, sizeof( path ), AI_DIR "npc/%s.chat", base );
 	if ( ai_read_file( path, data, sizeof( data ) ) < 0 ) return;
 
 	q[ 0 ] = '\0';
@@ -1282,6 +1348,7 @@ void ai_chat_drop_context( void )
 		return;
 	}
 	ai_npc[ 0 ] = '\0';
+	ai_base_name[ 0 ] = '\0';
 	ai_persona_name[ 0 ] = '\0';
 	ai_persona[ 0 ] = '\0';
 	ai_tone[ 0 ] = '\0';
@@ -1289,6 +1356,7 @@ void ai_chat_drop_context( void )
 	ai_memory[ 0 ] = '\0';
 	ai_emotion[ 0 ] = '\0';
 	ai_emotion_default[ 0 ] = '\0';
+	ai_emotion_calm[ 0 ] = '\0';
 	ai_emotion_list[ 0 ] = '\0';
 	ai_emotion_n = 0;
 	ai_scene[ 0 ] = '\0';

@@ -61,6 +61,15 @@ const char *ai_chat_text( void );
 	data/npc/<name>/<emotion>.png.										*/
 const char *ai_chat_emotion( void );
 
+/*	Back to the resting expression (「平静」 when the set has one).  The
+	panel calls this when the player has taken a few turns since the line,
+	so a smile does not stay on her face for the whole session.			*/
+void ai_chat_emotion_calm( void );
+
+/*	The folder the expression images live in: the persona's base name, which
+	alias.txt may have mapped to the original one after a rename.			*/
+const char *ai_chat_face_dir( void );
+
 /*	The panel shows the last three lines; index 0 is the newest, and the
 	oldest is pushed out when a fourth arrives.								*/
 #define AI_HISTORY	3
