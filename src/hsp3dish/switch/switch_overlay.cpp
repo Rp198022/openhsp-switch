@@ -1513,19 +1513,38 @@ static int sw_ovl_ai_story_line( const char *u )
 	return 0;
 }
 
-/*	r299: the green ones only.  Green is what the game uses for the positive
-	half of txtskillchange - module.hsp calls txtef COLOR_GREEN right before
-	the growth line (negative == 0), and txtef COLOR_RED for the decline
-	(negative == 1).  The colour itself never reaches the log: txtef writes
-	it into a module-local that the next line reuses, so this list is the
-	reliable way to reproduce "green".									*/
-static int sw_ovl_ai_green_line( const char *u )
+/*	r300: what gets fed to the model.  Three groups, all reproduced from the
+	code rather than from the pixels - the colour never reaches the log:
+
+	  green  module.hsp:363/645  txtef COLOR_GREEN before txtskillchange(..., 0, ...)
+	  red    module.hsp:393/677  txtef COLOR_RED   before txtskillchange(..., 1, ...)
+	         plus the condition table (@11934500), which is the red half of a
+	         fight: poison, bleeding, confusion, paralysis, falling asleep
+	  food   proc.hsp *eat / *drinkPotion - white, but asked for by name:
+	         npcn(cc) + itemname + "を食べ終えた。" → "<名字>吃完了<食物>。"
+	         npcn(tc) + itemname + "を飲み干した。" → "<名字>喝光了<饮料>。"
+
+	The follower's own spoken lines are never here - those are the panel's
+	chatter and feeding them back would make her parrot herself.			*/
+static int sw_ovl_ai_feed_line( const char *u )
 {
 	static const char *frag[] = {
+		/*	green: growth													*/
 		"生命力的提升", "玛那变强", "变强壮了", "忍耐的快感",
 		"变得灵巧了", "世界变得更为亲近", "想学各种东西", "意志愈发坚定",
 		"魔力有所增长", "目光很惬意", "动作变慢了", "变得幸运了",
 		"技能的进步",
+		/*	red: decline													*/
+		"生命力在衰退", "玛那衰弱", "长了点赘肉", "没有耐力",
+		"变得笨拙了", "感觉的偏差", "学习意愿下降", "变得容易放弃",
+		"魔力在衰退", "不愿在人前露面", "变迟钝了", "变得不幸了",
+		"技能的退步",
+		/*	red: condition table											*/
+		"害怕了", "开始颤栗了", "混乱了", "麻痹了", "中毒了", "睡着了",
+		"开始流血了", "喝醉了", "发狂了", "生病了", "意识模糊了",
+		"感到了恐惧", "失禁了", "遭到冥界寒气的侵蚀", "翻着白眼倒下了",
+		/*	food and drink													*/
+		"送进了嘴中", "吃完了", "喝光了", "吃掉了", "喝掉了",
 	};
 	int i;
 
@@ -2303,8 +2322,8 @@ static void sw_ovl_ai_watch( void )
 					/*	Her own spoken line is already the panel's chatter.	*/
 					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] );
 					mine = ( strstr( u, nm ) != NULL || strstr( u, "随从" ) != NULL );
-					/*	r299: green only - the positive growth notices.			*/
-					if ( speech || !mine || !sw_ovl_ai_green_line( u ) ) continue;
+					/*	r300: the coloured notices, plus eating and drinking.	*/
+					if ( speech || !mine || !sw_ovl_ai_feed_line( u ) ) continue;
 					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
 					snprintf( note, sizeof( note ),
 						"游戏日志里出现了关于你的消息：%.*s", 120, self );
