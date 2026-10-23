@@ -303,6 +303,10 @@ static int			sw_ovl_ply_debuffid[ SW_OVL_FOE_BUFF_SHOWN ];
 #define SW_OVL_PLY_CD_SANITY	86
 #define SW_OVL_PLY_CD_EQUIPW	64	/* equipped gear weight			*/
 #define SW_OVL_PLY_CD_BARRIER	78	/* shield points, battle sheet only	*/
+/*	r308: the heart-lock route.  441 is CDATA_HEART_LOCK_RELATION in
+	defines_2.32.hsp; 0 means no route was chosen yet, -1..-7 are the
+	affection-family routes, -11..-13 the master-servant ones.		*/
+#define SW_OVL_PLY_CD_HEARTLOCK	441
 #define SW_OVL_GD_YEAR			10
 #define SW_OVL_GD_MONTH			11
 #define SW_OVL_GD_DAY			12
@@ -394,6 +398,7 @@ static int		sw_ovl_ai_img_inited = 0;
 static int		sw_ovl_party_rel[2] = { 0, 0 };
 static int		sw_ovl_party_imp[2] = { 0, 0 };	/* cdata 17: impression	*/
 static int		sw_ovl_party_ms[2] = { 0, 0 };	/* cdata 169: master-servant */
+static int		sw_ovl_party_hl[2] = { 0, 0 };	/* cdata 441: heart-lock route */
 static int		sw_ovl_wep[2][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
 static int		sw_ovl_face_u_id[2] = { 0, 0 };
 /*	Pet chat: the latest pet-related log lines joined by '\n', newest
@@ -432,7 +437,7 @@ static int		sw_ovl_ai_w_hp_pct = -1;
 static int		sw_ovl_ai_w_cargo = -1;
 static int		sw_ovl_ai_w_ether = -1;
 static int		sw_ovl_ai_w_imp = -1;		/* follower's affection		*/
-static int		sw_ovl_ai_w_ms = -1;		/* follower's master-servant	*/
+static int		sw_ovl_ai_w_hl = -1;		/* follower's heart-lock route	*/
 static int		sw_ovl_ai_w_weather = -1;
 static int		sw_ovl_ai_w_part = -1;		/* hour / 4					*/
 static int		sw_ovl_ai_w_hunger = -1;	/* satiety, 0-100			*/
@@ -2188,6 +2193,26 @@ static const char *sw_ovl_ms_name( int v )
 	return "忠义";
 }
 
+/*	r308: the heart-lock route chosen through the game's own ascension
+	conversations (chat.hsp chatval 119~128).  It says what the two of you
+	are to each other, which the affection number alone cannot.			*/
+static const char *sw_ovl_hl_name( int v )
+{
+	switch ( v ) {
+	case -1:  return "战友";
+	case -2:  return "朋友";
+	case -3:  return "对手";
+	case -4:  return "爱慕";
+	case -5:  return "弟子";
+	case -6:  return "师父";
+	case -7:  return "家人";
+	case -11: return "契约";
+	case -12: return "饲主";
+	case -13: return "忠诚";
+	default:  return "未定";
+	}
+}
+
 /*	r275: instead of writing one detector per number, the panel keeps the
 	snapshot it had when she last spoke and prints the deltas itself.  The
 	model is bad at comparing two blocks of numbers, but good at reacting to
@@ -2295,11 +2320,15 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 	}
 
 	sw_ovl_ai_diff( diff, sizeof( diff ) );
+	/*	r308: only the affection number and the heart-lock route are handed
+		over.  The master-servant axis stays in the panel: two numbers made
+		the model mix "obedient" into "affectionate", and the persona tiers
+		are written against affection alone.								*/
 	snprintf( out, n,
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
-		"关系：主人对你的好感 %d（%s），主从 %d（%s）\n"
+		"关系：好感 %d（%s），路线 %s\n"
 		"变化（自你上次开口）：%s\n"
 		"最近：%s",
 		where, sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
@@ -2307,7 +2336,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
 		php, cond, php2, hunger, wp,
 		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
-		sw_ovl_party_ms[ pet ], sw_ovl_ms_name( sw_ovl_party_ms[ pet ] ),
+		sw_ovl_hl_name( sw_ovl_party_hl[ pet ] ),
 		diff,
 		recent );
 
@@ -2519,12 +2548,16 @@ static void sw_ovl_ai_watch( void )
 	}
 	sw_ovl_ai_w_imp = sw_ovl_party_imp[1];
 
-	if ( sw_ovl_ai_w_ms >= 0 && sw_ovl_party_ms[1] != sw_ovl_ai_w_ms ) {
-		snprintf( line, sizeof( line ), "你和主人的主从关系变成了「%s」",
-			sw_ovl_ms_name( sw_ovl_party_ms[1] ) );
+	/*	r308: opening a heart lock is a once-in-a-playthrough moment, so it
+		outranks everything else.  The master-servant number is no longer
+		handed to the model, only this route - it says what the two of them
+		are to each other, which a number never could.						*/
+	if ( sw_ovl_ai_w_hl >= 0 && sw_ovl_party_hl[1] != sw_ovl_ai_w_hl ) {
+		snprintf( line, sizeof( line ), "你和主人之间的关系变成了「%s」",
+			sw_ovl_hl_name( sw_ovl_party_hl[1] ) );
 		ai_chat_notify_event( line, 5 );
 	}
-	sw_ovl_ai_w_ms = sw_ovl_party_ms[1];
+	sw_ovl_ai_w_hl = sw_ovl_party_hl[1];
 
 	/*	Weather and the part of day: cheap, frequent, and they give the
 		follower something new to talk about while walking.  Etherwind is
@@ -3224,9 +3257,11 @@ static int sw_ovl_party_refresh( int *slot )
 			/*	r272: affection (cdata 17) and the master-servant axis
 				(cdata 169) are separate scales with separate names; the sum
 				is only what the name row shows, as before.				*/
-			{ int im = sw_ovl_cdata( 17, s ), ms = sw_ovl_cdata( 169, s );
+			{ int im = sw_ovl_cdata( 17, s ), ms = sw_ovl_cdata( 169, s ),
+			      hl = sw_ovl_cdata( SW_OVL_PLY_CD_HEARTLOCK, s );
 			  if ( im != sw_ovl_party_imp[k] ) { dirty = 1; sw_ovl_party_imp[k] = im; }
 			  if ( ms != sw_ovl_party_ms[k] ) { dirty = 1; sw_ovl_party_ms[k] = ms; }
+			  if ( hl != sw_ovl_party_hl[k] ) { dirty = 1; sw_ovl_party_hl[k] = hl; }
 			  if ( im + ms != sw_ovl_party_rel[k] ) { dirty = 1; sw_ovl_party_rel[k] = im + ms; } }
 		/*	r203 probe: does the name-table route agree with the HUD's
 			dimension route, and is chatc actually pointing at a follower?

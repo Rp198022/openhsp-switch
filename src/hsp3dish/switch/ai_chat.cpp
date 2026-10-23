@@ -806,8 +806,33 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		"关心要落在提醒、询问、劝嘴上，"
 		"比如「主人，肚子饿了吧，先吃点东西」，而不是「我去给你做饭」。"
 		"这些只是你的说话准则，不必向主人解释。"
-		"好感管亲近（越高越主动关心、越会示弱），主从管服从（越高越听话，越低越会顶嘴）；"
-		"两项独立判断，不要因为一项高就推断另一项。" );
+		/*	r308: the master-servant number is no longer in the scene, and the
+			persona tiers are written against affection alone, so the model is
+			told to read one scale instead of balancing two.				*/
+		"关系好坏只看好感，以及你们一起经历过多少事：好感高了才亲近，"
+		"别因为别的原因提早熟络。"
+		/*	r308: one topic per line.  The weather sits in every scene block,
+			so without this she says the same thing four times in a row.	*/
+		"同一件事不要连着说两遍：上一句提了天气，这一句就换别的；没什么可说就短一点。" );
+	/*	r308: she never heard her own last lines, so she kept repeating the
+		weather.  Two remembered sentences plus an explicit "don't repeat"
+		give the model negative feedback instead of a blank slate.			*/
+	{
+		static char said[ 2 ][ AI_MAX_LINE ];
+		int sn = 0, i;
+
+		pthread_mutex_lock( &ai_lock );
+		for ( i = 0; i < 2 && i < ai_hist_n; i++ ) {
+			memcpy( said[ i ], ai_hist[ i ], AI_MAX_LINE );
+			sn++;
+		}
+		pthread_mutex_unlock( &ai_lock );
+		if ( sn > 0 ) {
+			AI_CAT( "你刚才说过的话（不要重复这些说法，也不要连着两次提同一件事）：\n" );
+			for ( i = sn - 1; i >= 0; i-- )
+				if ( said[ i ][ 0 ] ) AI_CAT( "- 「%s」\n", said[ i ] );
+		}
+	}
 	/*	r303: expression tag.  Chooses the portrait the panel draws.			*/
 	if ( ai_emotion_n > 0 )
 		AI_CAT( "情绪：台词最后另起一个方括号标记 [[emo:词]]（它不算台词，必须写），"
