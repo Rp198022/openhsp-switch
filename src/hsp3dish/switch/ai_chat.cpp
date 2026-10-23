@@ -825,6 +825,7 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	static char usr[ 4096 ], usr_esc[ 8192 ];
 	size_t l;
 	int world_hit = 0;
+	int shape_v = -1;			/* r312: reply shape for a scene remark		*/
 
 #define AI_CAT( ... ) do { \
 		l = strlen( sys ); \
@@ -853,8 +854,25 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			line three or four clauses long, which reads like a monologue.	*/
 		"长度：大多数时候只说一两句，10~25 字就够；"
 		"只有讲世界知识、劝他做某件事、或情绪上来时才用长一点，最多三四句。"
-		"每句都要说完整，不要用省略号断在半截。"
-		"不要解释、不要旁白。"
+		"每句都要说完整，不要用省略号断在半截。" );
+	/*	r312: not every line is speech.  Days alone with the player make a
+		constant narrator read like a visual novel; sometimes she just moves,
+		or says one syllable.  The shape is picked here rather than left to
+		the model, because "feel free" was ignored in practice.				*/
+	if ( question == NULL ) {
+		int shape = ( ai_seq + ai_hist_n * 3 + (int)( ai_now() / 9.0 ) ) % 10;
+
+		shape_v = shape;
+		if ( shape < 6 )
+			AI_CAT( "这一句正常说台词。" );
+		else if ( shape < 9 )
+			AI_CAT( "这一句只写一个括号动作，不要任何台词，"
+				"例如「（摸了摸扁下去的肚子）」。动作要短，只写一个。" );
+		else
+			AI_CAT( "这一句只写极短的反应，六个字以内，"
+				"例如「……」「嗯。」「啧。」，不要完整句子。" );
+	}
+	AI_CAT( "不要解释、不要旁白。"
 		/*	r307: the game is flat 2D pixels, so a written gesture is the only
 			body language the player can see.  Kept sparse - one in every few
 			lines - and limited to things that do not move the scene.		*/
@@ -900,8 +918,9 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	}
 	/*	r311: only block an action when the last three lines already used two
 		- a strict one-in-three rotation felt mechanical.  Otherwise the model
-		decides, and the wording stays a suggestion rather than an order.	*/
-	{
+		decides, and the wording stays a suggestion rather than an order.
+		r312: skipped when this turn was already told to be an action only.	*/
+	if ( shape_v < 6 ) {
 		int cnt = 0, i;
 
 		pthread_mutex_lock( &ai_lock );
@@ -1289,13 +1308,18 @@ static void ai_request( char *body, int mode, const char *question )
 				or from a name outside the whitelist.						*/
 			ai_log_line( "raw", result );
 			ai_take_emotion( result );
-			ai_push_line_locked( result );
-			/*	r283: keep the pair so the next question can build on it.
-				Scene remarks have no question and are not stored.		*/
-			ai_turn_add( question, result );
+			/*	r312: an answer that was only a tag (or only brackets) leaves
+				nothing to say.  Push it as an action line instead of an empty
+				row: the panel paints a fully bracketed line green.			*/
+			if ( result[ 0 ] != '\0' ) {
+				ai_push_line_locked( result );
+				/*	r283: keep the pair so the next question can build on it.
+					Scene remarks have no question and are not stored.		*/
+				ai_turn_add( question, result );
+				ai_log_line( "say", result );
+			}
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
-			ai_log_line( "say", result );
 		}
 	} else {
 		char note[ 192 ];
