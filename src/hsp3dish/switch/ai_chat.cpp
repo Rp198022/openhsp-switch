@@ -453,6 +453,22 @@ static void ai_take_emotion( char *text )
 		memmove( a, e + cl, strlen( e + cl ) + 1 );
 		ai_trim( text );
 	}
+	/*	r311: a stray closing bracket survives when the model writes
+		"[emo:平静]]" or drops one on its own; strip whatever is left.		*/
+	for ( ;; ) {
+		size_t tl = strlen( text );
+		char *q = text + tl;
+
+		while ( q > text && ( q[ -1 ] == ' ' || q[ -1 ] == '\t' ) ) q--;
+		if ( q > text && q[ -1 ] == ']' ) { q[ -1 ] = '\0'; ai_trim( text ); continue; }
+		if ( q - text >= 3 && (unsigned char)q[ -3 ] == 0xEF &&
+				(unsigned char)q[ -2 ] == 0xBC && (unsigned char)q[ -1 ] == 0xBD ) {
+			q[ -3 ] = '\0';
+			ai_trim( text );
+			continue;
+		}
+		break;
+	}
 }
 
 const char *ai_chat_emotion( void )
@@ -832,8 +848,12 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 			AI_CAT( "世界设定（下面这些是你本来就知道的事。主人问到时就按它回答，"
 				"用你自己的口气说，别照读原文，别说不知道）：\n%s\n", world );
 	}
-	AI_CAT( "只输出中文台词，第一人称；长度跟着内容走，该短就短、该长就长，"
-		"一般不超过100字；每句都要说完整，不要用省略号断在半截。"
+	AI_CAT( "只输出中文台词，第一人称。"
+		/*	r311: short by default.  "as long as the content needs" made every
+			line three or four clauses long, which reads like a monologue.	*/
+		"长度：大多数时候只说一两句，10~25 字就够；"
+		"只有讲世界知识、劝他做某件事、或情绪上来时才用长一点，最多三四句。"
+		"每句都要说完整，不要用省略号断在半截。"
 		"不要解释、不要旁白。"
 		/*	r307: the game is flat 2D pixels, so a written gesture is the only
 			body language the player can see.  Kept sparse - one in every few
@@ -878,21 +898,21 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 				if ( said[ i ][ 0 ] ) AI_CAT( "- 「%s」\n", said[ i ] );
 		}
 	}
-	/*	r310: an action in every line reads as a stage play instead of a
-		companion talking.  If either of the last two lines carried one, this
-		one must be plain speech; that settles the ratio near one in three.	*/
+	/*	r311: only block an action when the last three lines already used two
+		- a strict one-in-three rotation felt mechanical.  Otherwise the model
+		decides, and the wording stays a suggestion rather than an order.	*/
 	{
-		int had = 0, i;
+		int cnt = 0, i;
 
 		pthread_mutex_lock( &ai_lock );
-		for ( i = 0; i < 2 && i < ai_hist_n; i++ )
+		for ( i = 0; i < 3 && i < ai_hist_n; i++ )
 			if ( strstr( ai_hist[ i ], "（" ) != NULL || strchr( ai_hist[ i ], '(' ) != NULL )
-				had = 1;
+				cnt++;
 		pthread_mutex_unlock( &ai_lock );
-		if ( had )
-			AI_CAT( "最近两句已经写过括号动作了。这一句直接说台词，不要加动作。\n" );
+		if ( cnt >= 2 )
+			AI_CAT( "最近几句动作写得太多了。这一句直接说台词，不要加动作。\n" );
 		else
-			AI_CAT( "这一句可以带一处很短的括号动作，也可以不带——多数句子不带更自然。\n" );
+			AI_CAT( "动作可有可无，不必每句都带。\n" );
 	}
 	/*	r303: expression tag.  Chooses the portrait the panel draws.
 		r309: the exact shape is spelled out - the model kept writing a single
@@ -1263,7 +1283,11 @@ static void ai_request( char *body, int mode, const char *question )
 			ai_state = AI_STATE_READY;
 			ai_status_set( "AI 就绪" );
 		} else {
-			/*	r303: the expression tag is metadata, not part of the line.	*/
+			/*	r303: the expression tag is metadata, not part of the line.
+				r311: the raw answer is logged first - without it there is no
+				way to tell whether a missing expression came from the parser
+				or from a name outside the whitelist.						*/
+			ai_log_line( "raw", result );
 			ai_take_emotion( result );
 			ai_push_line_locked( result );
 			/*	r283: keep the pair so the next question can build on it.
