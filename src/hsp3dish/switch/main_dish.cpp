@@ -24,6 +24,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <signal.h>
 
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
@@ -53,6 +55,42 @@ char *dpm_readalloc( char *fname );
 #define HSP3SWITCH_NROPATH	HSP3SWITCH_APPDIR "/hsp3dish.nro"
 
 static FILE *sw_log = NULL;
+
+/*	r315: a crash on the card used to leave nothing behind at all - the boot
+	log is opt-in and the fault killed the process before anything flushed.
+	Keep one descriptor open and write a single line from the handler, using
+	only async-signal-safe calls.  Switch titles abort on a fatal fault, so
+	this file is what tells a real crash from the console simply quitting.	*/
+static int sw_crash_fd = -1;
+
+static void sw_crash_signal( int sig )
+{
+	const char *m = "hsp3switch: crash signal ?\n";
+
+	switch ( sig ) {
+	case SIGSEGV: m = "hsp3switch: crash SIGSEGV\n"; break;
+	case SIGABRT: m = "hsp3switch: crash SIGABRT\n"; break;
+	case SIGBUS:  m = "hsp3switch: crash SIGBUS\n";  break;
+	case SIGFPE:  m = "hsp3switch: crash SIGFPE\n";  break;
+	case SIGILL:  m = "hsp3switch: crash SIGILL\n";  break;
+	default: break;
+	}
+	if ( sw_crash_fd >= 0 ) {
+		write( sw_crash_fd, m, strlen( m ) );
+		fsync( sw_crash_fd );
+	}
+	_exit( 128 + sig );
+}
+
+static void sw_crash_init( void )
+{
+	int i;
+	static const int sigs[ 5 ] = { SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL };
+
+	sw_crash_fd = open( HSP3SWITCH_APPDIR "/hsp3dish_crash.log",
+		O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+	for ( i = 0; i < 5; i++ ) signal( sigs[ i ], sw_crash_signal );
+}
 
 /*  Point stdout at the boot log rather than holding a second handle to
     it.  There is no console in this build (see the header comment) and
@@ -153,6 +191,8 @@ int main( int argc, char *argv[] )
 		printf( "hsp3dish: cannot enter %s\n", HSP3SWITCH_APPDIR );
 		fflush( stdout );
 	}
+	/*	r315: install the fatal-fault recorder before anything else can die. */
+	sw_crash_init();
 
 	/*	Switch/libnx gives the process no environment block, so getenv("HOME")
 		returns NULL and hsp3ext_linux.cpp:63 hands that to sbStrCopy(), whose

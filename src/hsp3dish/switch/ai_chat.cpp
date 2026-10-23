@@ -1392,10 +1392,33 @@ static void *ai_thread( void *arg )
 	return NULL;
 }
 
+/*	r315: the console's default pthread stack is far too small for a TLS
+	handshake - libcurl plus mbedtls wants well over a hundred kilobytes and
+	a miss shows up as a hard crash in the middle of play, not as a failed
+	request.  512 KB is affordable because ai_busy keeps exactly one request
+	thread alive at any time.											*/
+#define AI_THREAD_STACK		( 512 * 1024 )
+
+static int ai_spawn( struct AI_JOB *job )
+{
+	pthread_attr_t at;
+	pthread_t th;
+	int rc;
+
+	if ( pthread_attr_init( &at ) != 0 ) return -1;
+	if ( pthread_attr_setstacksize( &at, AI_THREAD_STACK ) != 0 ) {
+		pthread_attr_destroy( &at );
+		return -1;
+	}
+	rc = pthread_create( &th, &at, ai_thread, job );
+	pthread_attr_destroy( &at );
+	if ( rc == 0 ) pthread_detach( th );
+	return rc;
+}
+
 static void ai_start( const char *question, const char *event )
 {
 	struct AI_JOB *job;
-	pthread_t th;
 	/*	These used to be plain locals, which put ~11 KB on the render thread's
 		stack every time the player asked something.  On the Switch that stack
 		is small: the question arrived at the model as "???jo??&oAl??P?" - the
@@ -1432,7 +1455,7 @@ static void ai_start( const char *question, const char *event )
 	snprintf( job->question, sizeof( job->question ), "%s",
 		question != NULL ? question : "" );
 	ai_build_body( job->body, sizeof( job->body ), scene, persona, tone, example, memory, question );
-	if ( pthread_create( &th, NULL, ai_thread, job ) != 0 ) {
+	if ( ai_spawn( job ) != 0 ) {
 		free( job );
 		ai_busy = 0;
 		pthread_mutex_lock( &ai_lock );
@@ -1441,7 +1464,6 @@ static void ai_start( const char *question, const char *event )
 		pthread_mutex_unlock( &ai_lock );
 		return;
 	}
-	pthread_detach( th );
 }
 
 /*	Compact the memory list once it has grown past a couple of dozen facts.
@@ -1451,7 +1473,6 @@ static void ai_start( const char *question, const char *event )
 static void ai_start_compress( void )
 {
 	struct AI_JOB *job;
-	pthread_t th;
 	static char sys[ 1024 ], sys_esc[ 4096 ];
 	static char usr[ AI_MAX_MEMORY + 256 ], usr_esc[ ( AI_MAX_MEMORY + 256 ) * 3 ];
 	static char list[ AI_MAX_MEMORY ];
@@ -1487,12 +1508,11 @@ static void ai_start_compress( void )
 		"{\"role\":\"user\",\"content\":\"%s\"}],"
 		"\"temperature\":0.3,\"max_tokens\":400}",
 		ai_model, sys_esc, usr_esc );
-	if ( pthread_create( &th, NULL, ai_thread, job ) != 0 ) {
+	if ( ai_spawn( job ) != 0 ) {
 		free( job );
 		ai_busy = 0;
 		return;
 	}
-	pthread_detach( th );
 }
 
 void ai_chat_init( void )
