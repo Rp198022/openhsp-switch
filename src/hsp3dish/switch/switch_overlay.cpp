@@ -1295,9 +1295,31 @@ static void sw_ovl_battle_update( void )
 		d = ( dx > dy ) ? dx : dy;
 		if ( best < 0 || d < bestd ) { best = s; bestd = d; }
 	}
-	if ( best < 0 ) return;
-	sw_ovl_battle_on = 1;
-	sw_ovl_battle_slot = best;
+	/*	r328: the battle sheet has to stay up for at least three turns even
+		when the enemy dies on the first one - a fight that ends instantly
+		otherwise flipped the panel back between two frames.  Every turn that
+		still shows an engaged enemy restarts the three-turn window, so a long
+		fight simply keeps it open.												*/
+	{
+		static int hold_until = 0;
+		static int hold_slot = -1;
+		int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
+
+		if ( best >= 0 ) {
+			hold_until = turn + 3;
+			hold_slot = best;
+			sw_ovl_battle_on = 1;
+			sw_ovl_battle_slot = best;
+		} else if ( turn < hold_until ) {
+			sw_ovl_battle_on = 1;
+			sw_ovl_battle_slot = ( hold_slot >= 0 &&
+				sw_ovl_cdata( SW_OVL_PARTY_CD_EXIST, hold_slot ) == 1 ) ? hold_slot : -1;
+		} else {
+			sw_ovl_battle_on = 0;
+			sw_ovl_battle_slot = -1;
+			hold_slot = -1;
+		}
+	}
 }
 
 /*	r203: charid of the last custom-talk speaker, or -1 when the name
@@ -1415,7 +1437,7 @@ static void sw_ovl_follower_boost( void )
 		lv = v / 1000000;
 		exp = ( v / 1000 ) % 1000;
 		sw_ovl_sdata_set( i + SW_OVL_SPACT_OFF, slot,
-			lv * 1000000 + exp * 1000 + 300 );
+			lv * 1000000 + exp * 1000 + 400 );
 	}
 	for ( i = 50; i <= 60; i++ )
 		sw_ovl_sdata_set( i, slot, ( i == 54 || i == 58 ) ? 5 : 3 );
@@ -2353,27 +2375,34 @@ static void sw_ovl_chat_lines( SDL_Surface *panel, const char *msg, int x, int y
 			if ( strchr( rows[ row ], '"' ) != NULL ) { cr = 44; cg = 72; cb = 34; }
 			sw_ovl_blit_chat_mixed( panel, rows[ row ], x, y + rrow * 18,
 				cr, cg, cb, 46, 118, 58, &act );
+			/*	r329: a rule under every answer, not only the newest one -
+				the block reads as one line per message.					*/
+			if ( row + 1 >= nr || seg_of[ row + 1 ] != seg_of[ row ] ) {
+				SDL_Rect ul;
+				ul.x = x;
+				ul.y = y + rrow * 18 + 17;
+				ul.w = panel->w - x - 10;
+				ul.h = 1;
+				SDL_FillRect( panel, &ul,
+					SDL_MapRGB( panel->format, 150, 118, 78 ) );
+			}
 		}
-		/*	r314: rules above and below the newest answer, so the fresh
-			sentence reads as one block instead of a single trailing mark.
-			The top rule is skipped when the answer starts at the first
-			visible row - there is no room above it.						*/
+		/*	r314: the newest answer also gets a rule above its first row, so
+			the fresh sentence reads as one block.  Skipped when it starts at
+			the first visible row - there is no room above it.				*/
 		if ( nr > start ) {
 			SDL_Rect ul;
 			int first = nr - 1;
 			int tail = seg_of[ nr - 1 ];
-			Uint32 rule = SDL_MapRGB( panel->format, 150, 118, 78 );
 
 			while ( first > 0 && seg_of[ first - 1 ] == tail ) first--;
-
-			ul.x = x;
-			ul.w = panel->w - x - 10;
-			ul.h = 1;
-			ul.y = y + ( nr - start - 1 ) * 18 + 17;
-			SDL_FillRect( panel, &ul, rule );
 			if ( first > start ) {
+				ul.x = x;
 				ul.y = y + ( first - start ) * 18 - 3;
-				SDL_FillRect( panel, &ul, rule );
+				ul.w = panel->w - x - 10;
+				ul.h = 1;
+				SDL_FillRect( panel, &ul,
+					SDL_MapRGB( panel->format, 150, 118, 78 ) );
 			}
 		}
 	}
@@ -2949,11 +2978,14 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 	y = SW_OVL_PARTY_NAME_Y;
 	sw_ovl_blit_text( panel, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), 255, 8, y );
 	if ( ix == 1 ) {
-		int nmw; char lv[ 48 ];
-		static const char gbk_lv[] = { 0xBA, 0xC3, 0xB8, 0xD0, 0 };
+		int nmw; char lv[ 96 ];
 		if ( TTF_SizeUTF8( sw_ovl_font, sw_ovl_utf8( sw_ovl_party_name[ ix ] ), &nmw, NULL ) == 0 ) {
-			snprintf( lv, sizeof( lv ), "%s %d", gbk_lv, sw_ovl_party_rel[ ix ] );
-			sw_ovl_blit_small( panel, sw_ovl_utf8( lv ), 225, 8 + nmw + 8, y + 3 );
+			/*	r328: affection, with its word, next to the name.  The old
+				line printed sw_ovl_party_rel - a different number - under the
+				label "好感", which is what made it read wrong.				*/
+			snprintf( lv, sizeof( lv ), "好感 %d %s", sw_ovl_party_imp[ ix ],
+				sw_ovl_imp_name( sw_ovl_party_imp[ ix ] ) );
+			sw_ovl_blit_small( panel, lv, 225, 8 + nmw + 8, y + 3 );
 		}
 	}
 	sw_ovl_party_draw_box( panel, strip_w );
@@ -3067,13 +3099,8 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			int first = 1, c;
 
 			y += 4;
-			snprintf( v, sizeof( v ), "%d %s", sw_ovl_party_imp[ ix ],
-				sw_ovl_imp_name( sw_ovl_party_imp[ ix ] ) );
-			y += sw_ovl_ply_line( panel, "好感", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
-
-			snprintf( v, sizeof( v ), "%d %s", sw_ovl_party_ms[ ix ],
-				sw_ovl_ms_name( sw_ovl_party_ms[ ix ] ) );
-			y += sw_ovl_ply_line( panel, "顺从", v, y, strip_w, 0 ) * SW_OVL_PLY_LINE_H;
+			/*	r328: affection and obedience moved up beside the name, so the
+				strip no longer repeats them here.							*/
 
 			v[ 0 ] = '\0';
 			for ( c = 0; c < SW_OVL_BAT_COND_N; c++ ) {
@@ -3314,7 +3341,11 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 					many rows fit.										*/
 				/*	r307: use all of that room.  The old cap of fifteen rows
 					left a bare band under the answers on a tall strip.	*/
-				int maxl = ( panel->h - y - 12 ) / 18;
+				/*	r328: the two relation rows left this strip, so the block
+					above sits two rows higher.  Keeping the answer box at its
+					old height (hence the -2) moves it up with it instead of
+					letting it grow into the space.							*/
+				int maxl = ( panel->h - y - 12 ) / 18 - 2;
 				if ( maxl < 1 ) maxl = 1;
 				if ( maxl > SW_OVL_AI_ROWS_MAX ) maxl = SW_OVL_AI_ROWS_MAX;
 				sw_ovl_chat_lines( panel, box, 8, y + 6, maxl, 0 );
