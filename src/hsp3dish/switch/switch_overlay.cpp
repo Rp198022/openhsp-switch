@@ -3166,6 +3166,9 @@ static int sw_ovl_party_build( int ix, int strip_w, int sheet_h )
 			}
 			if ( f->slot < 0 ) {
 				sw_ovl_blit_small( panel, "无", 200, 8, y + 2 );
+				/*	r329: this row still takes a line - without the advance the
+					answers under it were drawn on top of the "无" row.		*/
+				y += 18;
 			} else {
 				snprintf( v, sizeof( v ), "%s", sw_ovl_utf8( f->name ) );
 				sw_ovl_blit_text( panel, v, 255, 8, y ); y += SW_OVL_LINE_H;
