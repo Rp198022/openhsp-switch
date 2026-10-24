@@ -1400,11 +1400,12 @@ static void sw_ovl_follower_boost( void )
 	fp = fopen( path, "rb" );
 	if ( fp != NULL ) { fclose( fp ); done = 1; return; }
 
-	/*	only real skills and attributes carry that three-digit growth;
-		resistances (50..60) and damage-resistance words are plain levels.	*/
+	/*	only real skills carry that three-digit growth.  Attributes (10..19)
+		store their plain value - action.hsp reads sdata(SKILL_ATTR_STR)
+		directly as a stat - and resistances (50..60) are plain levels, so
+		both are left alone here.											*/
 	for ( i = 0; i <= 301; i++ ) {
-		if ( !( ( i >= 10 && i <= 19 ) || ( i >= 100 && i <= 199 ) ||
-				( i >= 300 && i <= 301 ) ) ) continue;
+		if ( !( ( i >= 100 && i <= 199 ) || ( i >= 300 && i <= 301 ) ) ) continue;
 		v = sw_ovl_sdata( i, slot );
 		if ( v < 0 ) continue;
 		lv = v / 1000000;
