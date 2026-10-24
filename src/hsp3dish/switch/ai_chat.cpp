@@ -826,6 +826,9 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 	size_t l;
 	int world_hit = 0;
 	int shape_v = -1;			/* r312: reply shape for a scene remark		*/
+	int battle;					/* r322: an enemy is engaged right now		*/
+
+	battle = ( scene != NULL && strstr( scene, "战斗：正在交战" ) != NULL );
 
 #define AI_CAT( ... ) do { \
 		l = strlen( sys ); \
@@ -855,11 +858,20 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		"长度：大多数时候只说一两句，10~25 字就够；"
 		"只有讲世界知识、劝他做某件事、或情绪上来时才用长一点，最多三四句。"
 		"每句都要说完整，不要用省略号断在半截。" );
+	/*	r322: in a fight she watches the fight.  The scene block says whether
+		an enemy is engaged, and the whole remark is then tied to it - no
+		weather, no lore, no idle chatter while something is swinging.		*/
+	if ( battle ) {
+		AI_CAT( "现在是战斗中。这一句只能和眼前的战斗有关："
+			"提醒主人、报出敌人的方位或动作、喊一句短促的战术、或报自己的伤。"
+			"一句就够，不要闲聊，不要讲世界知识，不要提天气、肚子和往事。" );
+		shape_v = 4;
+	}
 	/*	r312: not every line is speech.  Days alone with the player make a
 		constant narrator read like a visual novel; sometimes she just moves,
 		or says one syllable.  The shape is picked here rather than left to
 		the model, because "feel free" was ignored in practice.				*/
-	if ( question == NULL ) {
+	if ( question == NULL && !battle ) {
 		int shape = ( ai_seq + ai_hist_n * 3 + (int)( ai_now() / 9.0 ) ) % 10;
 
 		shape_v = shape;

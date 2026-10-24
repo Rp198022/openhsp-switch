@@ -1383,7 +1383,7 @@ static void sw_ovl_follower_boost( void )
 		if ( v < 0 ) continue;
 		lv = v / 1000000;
 		exp = ( v / 1000 ) % 1000;
-		sw_ovl_sdata_set( i, slot, lv * 1000000 + exp * 1000 + 400 );
+		sw_ovl_sdata_set( i, slot, lv * 1000000 + exp * 1000 + 300 );
 	}
 	for ( i = 50; i <= 60; i++ )
 		sw_ovl_sdata_set( i, slot, ( i == 54 || i == 58 ) ? 5 : 3 );
@@ -2566,6 +2566,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		are written against affection alone.								*/
 	snprintf( out, n,
 		"地点：%s  时间：%d/%d/%d %s %s\n"
+		"战斗：%s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
 		"关系：好感 %d（%s），路线 %s\n"
@@ -2574,6 +2575,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		where, sw_ovl_ply_year, sw_ovl_ply_month, sw_ovl_ply_day,
 		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
 		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
+		sw_ovl_battle_on ? "正在交战" : "无",
 		php, cond, php2, hunger, wp,
 		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
 		sw_ovl_hl_name( sw_ovl_party_hl[ pet ] ),
