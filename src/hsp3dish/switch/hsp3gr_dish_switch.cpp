@@ -1244,16 +1244,10 @@ static int cmdfunc_extcmd( int cmd )
 		/*	r318: HSPWnd::Picload() throws on its own when the file is not
 			there, so a missing picture has to be skipped here or the whole
 			run ends - a save load asks for pcc_*_0.bmp layers the card does
-			not ship.  The layer simply stays blank.						*/
-		{
-			static int dbg = 0;
-			if ( dbg < 40 ) {
-				dbg++;
-				printf( "hsp3switch: picload[%d] '%s' p1=%d len=%d\n", dbg, fname, p1, flen );
-				fflush( stdout );
-			}
-		}
-		if ( flen < 0 ) {
+			not ship.  A file smaller than a BMP header is debris left by an
+			earlier write (a 51-byte log line saved as pcc_hair_0.bmp did
+			exactly that), so it is treated as missing too.				*/
+		if ( flen < 0 || ( flen < 64 && strstr( fname, ".bmp" ) != NULL ) ) {
 			sw_pic_note_missing( fname );
 			bmscr = wnd->GetBmscr( wid );
 			cur_window = wid;
