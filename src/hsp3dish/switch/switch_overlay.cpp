@@ -1319,6 +1319,86 @@ static int sw_ovl_sdata( int ability, int slot )
 	return ((int*)sw_ovl_pv_sdata->pt)[ ability + slot * sw_ovl_pv_sdata->len[1] ];
 }
 
+static void sw_ovl_sdata_set( int ability, int slot, int value )
+{
+	if ( sw_ovl_pv_sdata == NULL ) return;
+	if ( ability < 0 || ability >= sw_ovl_pv_sdata->len[1] ) return;
+	if ( slot < 0 || slot >= sw_ovl_pv_sdata->len[2] ) return;
+	((int*)sw_ovl_pv_sdata->pt)[ ability + slot * sw_ovl_pv_sdata->len[1] ] = value;
+}
+
+static void sw_ovl_cdata_set( int field, int slot, int value )
+{
+	if ( sw_ovl_pv_cdata == NULL ) return;
+	if ( field < 0 || field >= sw_ovl_pv_cdata->len[1] ) return;
+	if ( slot < 0 || slot >= sw_ovl_pv_cdata->len[2] ) return;
+	((int*)sw_ovl_pv_cdata->pt)[ field + slot * sw_ovl_pv_cdata->len[1] ] = value;
+}
+
+/*	r320: one-time follower setup.  Elona keeps a skill's growth (its
+	"potential", 1..400) in the low three digits of the sdata word:
+	lv*1000000 + exp*1000 + growth.  Raising only that digit leaves every
+	displayed level alone while the follower, who earns four times the
+	player's skill experience, catches up on her own.
+
+	The control bits live in cdata(STARTING_CDATA_CHARA_BIT + bit/32):
+	8 confuse, 9 blind, 10 fear, 11 sleep, 12 paralyze, 13 poison,
+	15 steal, 24 curse, 26 elemental.  Confuse is what charm and
+	brainwashing roll against, so those plus the mind/nerve resistances
+	are what keeps her from being taken over.
+
+	Everything here runs once and is remembered by a ".boost" file next to
+	her npc folder, so later training (which spends potential) is kept.	*/
+static const char *sw_ovl_utf8( const char *in );	/* defined further down */
+
+#define SW_OVL_BOOST_PORTRAIT	(-15)		/* -> user/graphic/face14.bmp	*/
+#define SW_OVL_CD_CHARA_BIT		450
+#define SW_OVL_CD_PORTRAIT		13
+
+static void sw_ovl_follower_boost( void )
+{
+	static int done = 0;
+	char path[ 256 ];
+	const char *nm;
+	FILE *fp;
+	int slot, i, v, lv, exp, bits;
+
+	if ( done ) return;
+	if ( sw_ovl_party_slot[ 1 ] < 0 ) return;
+	if ( sw_ovl_party_name[ 1 ][ 0 ] == '\0' ) return;
+	slot = sw_ovl_party_slot[ 1 ];
+	nm = sw_ovl_utf8( sw_ovl_party_name[ 1 ] );
+	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s.boost", nm );
+	fp = fopen( path, "rb" );
+	if ( fp != NULL ) { fclose( fp ); done = 1; return; }
+
+	/*	only real skills and attributes carry that three-digit growth;
+		resistances (50..60) and damage-resistance words are plain levels.	*/
+	for ( i = 0; i <= 301; i++ ) {
+		if ( !( ( i >= 10 && i <= 19 ) || ( i >= 100 && i <= 199 ) ||
+				( i >= 300 && i <= 301 ) ) ) continue;
+		v = sw_ovl_sdata( i, slot );
+		if ( v < 0 ) continue;
+		lv = v / 1000000;
+		exp = ( v / 1000 ) % 1000;
+		sw_ovl_sdata_set( i, slot, lv * 1000000 + exp * 1000 + 400 );
+	}
+	for ( i = 50; i <= 60; i++ )
+		sw_ovl_sdata_set( i, slot, ( i == 54 || i == 58 ) ? 5 : 3 );
+
+	bits = sw_ovl_cdata( SW_OVL_CD_CHARA_BIT, slot );
+	bits |= ( 1 << 8 ) | ( 1 << 9 ) | ( 1 << 10 ) | ( 1 << 11 ) |
+		( 1 << 12 ) | ( 1 << 13 ) | ( 1 << 15 ) | ( 1 << 24 ) | ( 1 << 26 );
+	sw_ovl_cdata_set( SW_OVL_CD_CHARA_BIT, slot, bits );
+	sw_ovl_cdata_set( SW_OVL_CD_PORTRAIT, slot, SW_OVL_BOOST_PORTRAIT );
+
+	fp = fopen( path, "wb" );
+	if ( fp != NULL ) { fputs( "boosted\n", fp ); fclose( fp ); }
+	done = 1;
+	printf( "hsp3switch: follower boosted '%s' slot=%d\n", nm, slot );
+	fflush( stdout );
+}
+
 static const char *sw_ovl_cdatan( int field, int slot )
 {
 	if ( sw_ovl_pv_cdatan == NULL ) return "";
@@ -3581,6 +3661,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			else
 				snprintf( where, sizeof( where ), "地表" );
 		}
+		sw_ovl_follower_boost();
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
 
