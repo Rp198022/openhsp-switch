@@ -1335,6 +1335,24 @@ static void sw_ovl_cdata_set( int field, int slot, int value )
 	((int*)sw_ovl_pv_cdata->pt)[ field + slot * sw_ovl_pv_cdata->len[1] ] = value;
 }
 
+/*	cdatan is sdim 40,10,245 - the game stores these strings in GBK, so a
+	literal written here has to be GBK bytes, not UTF-8.						*/
+static void sw_ovl_cdatan_set( int field, int slot, const char *s )
+{
+	char *p;
+	int idx, len;
+
+	if ( sw_ovl_pv_cdatan == NULL || s == NULL ) return;
+	if ( field < 0 || field >= sw_ovl_pv_cdatan->len[1] ) return;
+	if ( slot < 0 || slot >= sw_ovl_pv_cdatan->len[2] ) return;
+	idx = field + slot * sw_ovl_pv_cdatan->len[1];
+	p = (char*)HspVarCorePtrAPTR( sw_ovl_pv_cdatan, idx );
+	if ( p == NULL ) return;
+	len = sw_ovl_pv_cdatan->len[0] > 0 ? sw_ovl_pv_cdatan->len[0] : 40;
+	strncpy( p, s, len - 1 );
+	p[ len - 1 ] = '\0';
+}
+
 /*	r320: one-time follower setup.  Elona keeps a skill's growth (its
 	"potential", 1..400) in the low three digits of the sdata word:
 	lv*1000000 + exp*1000 + growth.  Raising only that digit leaves every
@@ -1360,7 +1378,7 @@ static const char *sw_ovl_utf8( const char *in );	/* defined further down */
 static void sw_ovl_follower_boost( void )
 {
 	static int done = 0;
-	char path[ 256 ];
+	char path[ 256 ], oldname[ 96 ];
 	const char *nm;
 	FILE *fp;
 	int slot, i, v, lv, exp, bits;
@@ -1370,7 +1388,8 @@ static void sw_ovl_follower_boost( void )
 	if ( sw_ovl_party_name[ 1 ][ 0 ] == '\0' ) return;
 	slot = sw_ovl_party_slot[ 1 ];
 	nm = sw_ovl_utf8( sw_ovl_party_name[ 1 ] );
-	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s.boost", nm );
+	snprintf( oldname, sizeof( oldname ), "%s", nm );
+	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s.boost", oldname );
 	fp = fopen( path, "rb" );
 	if ( fp != NULL ) { fclose( fp ); done = 1; return; }
 
@@ -1396,11 +1415,25 @@ static void sw_ovl_follower_boost( void )
 	/*	a 32x48 rider was pasted into the one empty 48x48 cell of
 		graphic/character.bmp (row 24, column 0); 33 cells per row.		*/
 	sw_ovl_cdata_set( SW_OVL_CD_PIC, slot, SW_OVL_BOOST_PIC );
+	/*	r323: name her at the moment the follower appears, so the AI looks up
+		data/npc/岚.md from the first line on.  cdatan holds GBK, and 岚 is
+		E1 B0 there.														*/
+	sw_ovl_cdatan_set( 0, slot, "\xE1\xB0" );
 
-	fp = fopen( path, "wb" );
-	if ( fp != NULL ) { fputs( "boosted\n", fp ); fclose( fp ); }
+	{
+		const char *marks[ 2 ];
+		int mi;
+		marks[ 0 ] = oldname;
+		marks[ 1 ] = "\xE5\xB2\x9A";		/* 岚 in UTF-8, for the file name */
+		for ( mi = 0; mi < 2; mi++ ) {
+			snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc/%s.boost",
+				marks[ mi ] );
+			fp = fopen( path, "wb" );
+			if ( fp != NULL ) { fputs( "boosted\n", fp ); fclose( fp ); }
+		}
+	}
 	done = 1;
-	printf( "hsp3switch: follower boosted '%s' slot=%d\n", nm, slot );
+	printf( "hsp3switch: follower boosted '%s' slot=%d, renamed to 岚\n", oldname, slot );
 	fflush( stdout );
 }
 
