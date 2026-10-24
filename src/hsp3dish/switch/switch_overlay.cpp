@@ -1380,6 +1380,7 @@ static const char *sw_ovl_utf8( const char *in );	/* defined further down */
 #define SW_OVL_CD_CHARA_BIT		450
 #define SW_OVL_CD_PORTRAIT		13
 #define SW_OVL_CD_PIC			7
+#define SW_OVL_SPACT_OFF		600		/* STARTING_SKILL_SPACT */
 #define SW_OVL_BOOST_PIC		( 24 * 33 + 0 )
 
 static void sw_ovl_follower_boost( void )
@@ -1400,17 +1401,21 @@ static void sw_ovl_follower_boost( void )
 	fp = fopen( path, "rb" );
 	if ( fp != NULL ) { fclose( fp ); done = 1; return; }
 
-	/*	only real skills carry that three-digit growth.  Attributes (10..19)
-		store their plain value - action.hsp reads sdata(SKILL_ATTR_STR)
-		directly as a stat - and resistances (50..60) are plain levels, so
-		both are left alone here.											*/
+	/*	The plain sdata(skill) words hold the stat itself; the level / exp /
+	growth triple lives at sdata(skill + STARTING_SKILL_SPACT), and that is
+	600 in this build (sorg/sexp/sgrowth/moddgrowth in module.hsp all add
+	it).  Growth is the low three digits, capped at 400.  Attributes use the
+	very same layout for their potential, which is why they show as
+	Superb/Good rather than a number.									*/
 	for ( i = 0; i <= 301; i++ ) {
-		if ( !( ( i >= 100 && i <= 199 ) || ( i >= 300 && i <= 301 ) ) ) continue;
-		v = sw_ovl_sdata( i, slot );
+		if ( !( ( i >= 10 && i <= 19 ) || ( i >= 100 && i <= 199 ) ||
+				( i >= 300 && i <= 301 ) ) ) continue;
+		v = sw_ovl_sdata( i + SW_OVL_SPACT_OFF, slot );
 		if ( v < 0 ) continue;
 		lv = v / 1000000;
 		exp = ( v / 1000 ) % 1000;
-		sw_ovl_sdata_set( i, slot, lv * 1000000 + exp * 1000 + 300 );
+		sw_ovl_sdata_set( i + SW_OVL_SPACT_OFF, slot,
+			lv * 1000000 + exp * 1000 + 300 );
 	}
 	for ( i = 50; i <= 60; i++ )
 		sw_ovl_sdata_set( i, slot, ( i == 54 || i == 58 ) ? 5 : 3 );
