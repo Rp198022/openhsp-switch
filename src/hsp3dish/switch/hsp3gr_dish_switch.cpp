@@ -935,28 +935,20 @@ static void sw_stall_probe( void )
 	fflush( stdout );
 }
 
-/*	r316: a few cosmetic layers are loaded without an exist() guard.  Elona
-	2.33 asks for pcc_glove_0.bmp and pcc_mantlebk_0.bmp (slot 0 = "nothing
-	worn") and the shipped PCCs folder has no *_0 art.  The throw itself
-	happens inside HSPWnd::Picload() (src/hsp3dish/hspwnd_dish.cpp:395), so an
-	error return from the call cannot be intercepted here - the file has to be
-	checked *before* the load.  Anything outside graphic/PCCs keeps the strict
-	behaviour, so a genuinely missing game asset still shows up.			*/
-static int sw_pic_is_cosmetic( const char *fname )
-{
-	if ( fname == NULL ) return 0;
-	if ( strstr( fname, "PCC" ) == NULL && strstr( fname, "pcc" ) == NULL ) return 0;
-	if ( strstr( fname, "graphic" ) == NULL ) return 0;
-	return 1;
-}
-
+/*	r318: the file check has to happen before the call.  HSPWnd::Picload()
+	(src/hsp3dish/hspwnd_dish.cpp:395) throws HSPERR_PICTURE_MISSING itself,
+	so neither the return value nor an error path in this switch can catch it
+	- the earlier attempt filtered by the path and never ran.  Elona asks for
+	roughly 314 pcc_*_0.bmp layers that simply are not in the shipped PCCs
+	folder; a save load then ends the whole run.  Check every picload target
+	and leave the picture out when the card has no file for it.			*/
 static void sw_pic_note_missing( const char *fname )
 {
 	static int noted = 0;
 
-	if ( noted ) return;
-	noted = 1;
-	printf( "hsp3switch: picload: missing cosmetic layer '%s' - left blank\n", fname );
+	if ( noted >= 24 ) return;
+	noted++;
+	printf( "hsp3switch: picload: '%s' missing - left blank\n", fname );
 	fflush( stdout );
 }
 
@@ -1241,16 +1233,27 @@ static int cmdfunc_extcmd( int cmd )
 		int wid;
 		char fname[64];
 		int i;
+		int flen;
 		extern int hgio_picload_overwrite( BMSCR *bm, char *fname );
 		extern int hsp3_flength( char *name );
 		strncpy( fname, code_gets(), 63 );
 		fname[63] = '\0';
 		p1 = code_getdi( 0 );
 		wid = bmscr->wid;
-		/*	r316: HSPWnd::Picload() throws on its own when the file is not
-			there, so a cosmetic layer that the card simply does not ship has
-			to be skipped here - otherwise loading a save ends the run.		*/
-		if ( sw_pic_is_cosmetic( fname ) && hsp3_flength( fname ) < 0 ) {
+		flen = hsp3_flength( fname );
+		/*	r318: HSPWnd::Picload() throws on its own when the file is not
+			there, so a missing picture has to be skipped here or the whole
+			run ends - a save load asks for pcc_*_0.bmp layers the card does
+			not ship.  The layer simply stays blank.						*/
+		{
+			static int dbg = 0;
+			if ( dbg < 40 ) {
+				dbg++;
+				printf( "hsp3switch: picload[%d] '%s' p1=%d len=%d\n", dbg, fname, p1, flen );
+				fflush( stdout );
+			}
+		}
+		if ( flen < 0 ) {
 			sw_pic_note_missing( fname );
 			bmscr = wnd->GetBmscr( wid );
 			cur_window = wid;
