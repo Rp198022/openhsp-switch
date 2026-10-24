@@ -937,24 +937,27 @@ static void sw_stall_probe( void )
 
 /*	r316: a few cosmetic layers are loaded without an exist() guard.  Elona
 	2.33 asks for pcc_glove_0.bmp and pcc_mantlebk_0.bmp (slot 0 = "nothing
-	worn") and the shipped PCCs folder has no *_0 art, so picload threw
-	HSPERR_PICTURE_MISSING (13) and the whole run ended the moment a save was
-	loaded.  A missing accessory is not worth stopping the game for: note it
-	once and let the layer stay blank.  Anything outside graphic/PCCs keeps
-	the strict behaviour, so a genuinely missing game asset still shows up.	*/
-static int sw_pic_missing_tolerated( const char *fname )
+	worn") and the shipped PCCs folder has no *_0 art.  The throw itself
+	happens inside HSPWnd::Picload() (src/hsp3dish/hspwnd_dish.cpp:395), so an
+	error return from the call cannot be intercepted here - the file has to be
+	checked *before* the load.  Anything outside graphic/PCCs keeps the strict
+	behaviour, so a genuinely missing game asset still shows up.			*/
+static int sw_pic_is_cosmetic( const char *fname )
 {
-	static int warned = 0;
-
 	if ( fname == NULL ) return 0;
 	if ( strstr( fname, "PCC" ) == NULL && strstr( fname, "pcc" ) == NULL ) return 0;
 	if ( strstr( fname, "graphic" ) == NULL ) return 0;
-	if ( !warned ) {
-		warned = 1;
-		printf( "hsp3switch: picload: missing cosmetic layer '%s' - left blank\n", fname );
-		fflush( stdout );
-	}
 	return 1;
+}
+
+static void sw_pic_note_missing( const char *fname )
+{
+	static int noted = 0;
+
+	if ( noted ) return;
+	noted = 1;
+	printf( "hsp3switch: picload: missing cosmetic layer '%s' - left blank\n", fname );
+	fflush( stdout );
 }
 
 static int cmdfunc_extcmd( int cmd )
@@ -1239,10 +1242,20 @@ static int cmdfunc_extcmd( int cmd )
 		char fname[64];
 		int i;
 		extern int hgio_picload_overwrite( BMSCR *bm, char *fname );
+		extern int hsp3_flength( char *name );
 		strncpy( fname, code_gets(), 63 );
 		fname[63] = '\0';
 		p1 = code_getdi( 0 );
 		wid = bmscr->wid;
+		/*	r316: HSPWnd::Picload() throws on its own when the file is not
+			there, so a cosmetic layer that the card simply does not ship has
+			to be skipped here - otherwise loading a save ends the run.		*/
+		if ( sw_pic_is_cosmetic( fname ) && hsp3_flength( fname ) < 0 ) {
+			sw_pic_note_missing( fname );
+			bmscr = wnd->GetBmscr( wid );
+			cur_window = wid;
+			break;
+		}
 		/*	fork: `picload file, 1` means *overwrite* in the classic runtime -
 			the picture goes into the screen as it is and the screen keeps its
 			size.  The dish path re-builds the screen from the picture instead,
@@ -1253,11 +1266,11 @@ static int cmdfunc_extcmd( int cmd )
 			i = hgio_picload_overwrite( (BMSCR *)bmscr, fname );
 			if ( i != 0 ) {
 				i = wnd->Picload( wid, fname, p1 );
-				if ( i && !sw_pic_missing_tolerated( fname ) ) throw HSPERR_PICTURE_MISSING;
+				if ( i ) throw HSPERR_PICTURE_MISSING;
 			}
 		} else {
 			i = wnd->Picload( wid, fname, p1 );
-			if ( i && !sw_pic_missing_tolerated( fname ) ) throw HSPERR_PICTURE_MISSING;
+			if ( i ) throw HSPERR_PICTURE_MISSING;
 		}
 		bmscr = wnd->GetBmscr( wid );
 		cur_window = wid;
