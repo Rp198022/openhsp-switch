@@ -1354,6 +1354,8 @@ static const char *sw_ovl_utf8( const char *in );	/* defined further down */
 #define SW_OVL_BOOST_PORTRAIT	(-15)		/* -> user/graphic/face14.bmp	*/
 #define SW_OVL_CD_CHARA_BIT		450
 #define SW_OVL_CD_PORTRAIT		13
+#define SW_OVL_CD_PIC			7
+#define SW_OVL_BOOST_PIC		( 24 * 33 + 0 )
 
 static void sw_ovl_follower_boost( void )
 {
@@ -1391,6 +1393,9 @@ static void sw_ovl_follower_boost( void )
 		( 1 << 12 ) | ( 1 << 13 ) | ( 1 << 15 ) | ( 1 << 24 ) | ( 1 << 26 );
 	sw_ovl_cdata_set( SW_OVL_CD_CHARA_BIT, slot, bits );
 	sw_ovl_cdata_set( SW_OVL_CD_PORTRAIT, slot, SW_OVL_BOOST_PORTRAIT );
+	/*	a 32x48 rider was pasted into the one empty 48x48 cell of
+		graphic/character.bmp (row 24, column 0); 33 cells per row.		*/
+	sw_ovl_cdata_set( SW_OVL_CD_PIC, slot, SW_OVL_BOOST_PIC );
 
 	fp = fopen( path, "wb" );
 	if ( fp != NULL ) { fputs( "boosted\n", fp ); fclose( fp ); }
