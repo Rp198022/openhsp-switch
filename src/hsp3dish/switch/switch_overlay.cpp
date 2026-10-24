@@ -1336,21 +1336,28 @@ static void sw_ovl_cdata_set( int field, int slot, int value )
 }
 
 /*	cdatan is sdim 40,10,245 - the game stores these strings in GBK, so a
-	literal written here has to be GBK bytes, not UTF-8.						*/
+	literal written here has to be GBK bytes, not UTF-8.
+
+	Each element is a separately allocated buffer (PVal keeps a char* table,
+	not a fixed-stride block), so a plain strcpy into the existing pointer can
+	overrun it - a fresh name is often longer than the random name it
+	replaces.  AllocBlock is the resize the runtime itself uses, and
+	GetBlockSize hands back the block afterwards.							*/
 static void sw_ovl_cdatan_set( int field, int slot, const char *s )
 {
-	char *p;
-	int idx, len;
+	PVal *pv = sw_ovl_pv_cdatan;
+	char *buf;
+	int idx, size, need;
 
-	if ( sw_ovl_pv_cdatan == NULL || s == NULL ) return;
-	if ( field < 0 || field >= sw_ovl_pv_cdatan->len[1] ) return;
-	if ( slot < 0 || slot >= sw_ovl_pv_cdatan->len[2] ) return;
-	idx = field + slot * sw_ovl_pv_cdatan->len[1];
-	p = (char*)HspVarCorePtrAPTR( sw_ovl_pv_cdatan, idx );
-	if ( p == NULL ) return;
-	len = sw_ovl_pv_cdatan->len[0] > 0 ? sw_ovl_pv_cdatan->len[0] : 40;
-	strncpy( p, s, len - 1 );
-	p[ len - 1 ] = '\0';
+	if ( pv == NULL || s == NULL ) return;
+	if ( field < 0 || field >= pv->len[1] ) return;
+	if ( slot < 0 || slot >= pv->len[2] ) return;
+	idx = field + slot * pv->len[1];
+	need = (int)strlen( s ) + 1;
+	HspVarCoreAllocBlock( pv, HspVarCorePtrAPTR( pv, idx ), need );
+	buf = (char*)HspVarCoreGetBlockSize( pv, HspVarCorePtrAPTR( pv, idx ), &size );
+	if ( buf == NULL || size < need ) return;
+	memcpy( buf, s, need );
 }
 
 /*	r320: one-time follower setup.  Elona keeps a skill's growth (its
