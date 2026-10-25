@@ -2802,9 +2802,27 @@ static void sw_ovl_ai_watch( void )
 			if ( strcmp( un, sw_ovl_ai_w_msg ) != 0 ) {
 				char nm[ 96 ], prev[ 300 ];
 				int back;
+				/*	r338: give/take live in the message window, not in her
+					own line - "军粮递了过去。" carries the item name and
+					no character name at all.							*/
+				int give = ( strstr( un, "递了过去" ) != NULL ||
+					strstr( un, "交给了" ) != NULL );
+				int take = ( strstr( un, "接收了" ) != NULL );
 				snprintf( prev, sizeof( prev ), "%s", sw_ovl_ai_w_msg );
 				snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
 				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
+				if ( give || take ) {
+					snprintf( note, sizeof( note ), give
+						? "主人刚刚把东西递给了你：%.*s"
+						: "主人刚刚从你那里拿了东西：%.*s", 120, un );
+					{
+						size_t c;
+						for ( c = 0; note[ c ]; c++ )
+							if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+					}
+					ai_chat_notify_event( note, 4 );
+					transfer = 1;
+				}
 				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
 					char raw[ 300 ], u[ 400 ], self[ 400 ];
 					int mine, speech;
@@ -3827,6 +3845,17 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			static int w_turn = -1;
 			int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
 
+			{
+				/*	r338: a reload that does not rewind the turn counter
+					never fired; log the move so it can be diagnosed.	*/
+				static unsigned int diag = 0;
+				unsigned int tnow = SDL_GetTicks();
+				if ( w_turn >= 0 && turn != w_turn && tnow - diag > 3000 ) {
+					diag = tnow;
+					printf( "hsp3switch: watch turn %d -> %d\n", w_turn, turn );
+					fflush( stdout );
+				}
+			}
 			if ( w_turn >= 0 && turn < w_turn )
 				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
 			w_turn = turn;
