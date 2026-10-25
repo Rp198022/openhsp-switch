@@ -1197,16 +1197,15 @@ static int sw_ovl_party_resolve( void )
 		is unique to inv among Elona's integer arrays, hence the fallback. */
 	if ( sw_ovl_pv_inv == NULL ) {
 		int vi;
-		sw_ovl_pv_inv = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 70, -1, -1 );
+		/*	r358: neither 70x5480 nor a 70-wide array exists at 2.33, so
+			print every 2-D integer shape once - inv is the only one in the
+			thousands - and take the widest match afterwards.				*/
 		for ( vi = 0; vi < (int)ctx->hsphed->max_val; vi++ ) {
 			PVal *pv = &ctx->mem_var[ vi ];
 			if ( (int)pv->flag != HSPVAR_FLAG_INT ) continue;
-			if ( pv->len[1] != 70 ) continue;
-			printf( "ovldiag: int 70 x %d x %d #%d\n", pv->len[2], pv->len[3], vi );
+			if ( pv->len[1] < 2 || pv->len[2] < 2 ) continue;
+			printf( "ovldiag: int %d x %d x %d\n", pv->len[1], pv->len[2], pv->len[3] );
 		}
-		printf( "ovldiag: inv %p len %d x %d\n", (void *)sw_ovl_pv_inv,
-			sw_ovl_pv_inv ? sw_ovl_pv_inv->len[1] : -1,
-			sw_ovl_pv_inv ? sw_ovl_pv_inv->len[2] : -1 );
 		fflush( stdout );
 	}
 	if ( sw_ovl_pv_msg == NULL ) {
