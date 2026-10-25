@@ -2628,7 +2628,7 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 
 	if ( out == NULL || n < 2 ) return;
 	out[ 0 ] = 0;
-	if ( sw_ovl_pv_inref == NULL ) { snprintf( out, n, "无" ); return; }
+	if ( slot < 0 || sw_ovl_pv_inref == NULL ) { snprintf( out, n, "无" ); return; }
 	for ( i = 0; i < 30 && cnt < 5; i++ ) {
 		int ci = sw_ovl_cdata( 100 + i, slot );
 		int id;
@@ -2696,7 +2696,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		over.  The master-servant axis stays in the panel: two numbers made
 		the model mix "obedient" into "affectionate", and the persona tiers
 		are written against affection alone.								*/
-	sw_ovl_ai_gear( gear, sizeof( gear ), pet );
+	sw_ovl_ai_gear( gear, sizeof( gear ), sw_ovl_party_slot[ 1 ] );
 	snprintf( out, n,
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"战斗：%s\n"
