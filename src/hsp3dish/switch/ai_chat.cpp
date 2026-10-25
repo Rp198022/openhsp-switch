@@ -997,32 +997,12 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		/*	Only the first scene line (where and when) goes with a question:
 			the full snapshot carries the newest log row, and the model kept
 			answering that instead of what the player actually typed.		*/
-		char where[ 160 ], kit[ 512 ];
-		size_t wl = 0;
-		const char *lp;
-		while ( scene[ wl ] && scene[ wl ] != '\n' && wl < sizeof( where ) - 1 ) wl++;
-		memcpy( where, scene, wl );
-		where[ wl ] = '\0';
-		/*	r364: the two gear lines are facts the player asks about, and they
-			were the one thing a question turn never carried - asked what the
-			master wears, she could only answer "I cannot see that".			*/
-		kit[ 0 ] = '\0';
-		for ( lp = scene; lp != NULL && *lp != '\0'; ) {
-			const char *nl = strchr( lp, '\n' );
-			size_t ln = nl ? (size_t)( nl - lp ) : strlen( lp );
-			if ( strncmp( lp, "你的装备", strlen( "你的装备" ) ) == 0 ||
-				 strncmp( lp, "主人的装备", strlen( "主人的装备" ) ) == 0 ) {
-				if ( strlen( kit ) + ln + 2 < sizeof( kit ) ) {
-					if ( kit[ 0 ] ) strncat( kit, "\n", 1 );
-					strncat( kit, lp, ln );
-				}
-			}
-			if ( nl == NULL ) break;
-			lp = nl + 1;
-		}
+		/*	r365: one rule for both channels - a question turn now carries the
+			same scene block a scene remark does, gear lines included.  The
+			trailing sentence still keeps the answer on the question.		*/
 		snprintf( usr, sizeof( usr ),
-			"%s\n%s\n主人对你说：「%s」\n只回答这句话，一句话，不要描述四周、不要提日志。",
-			where, kit, question );
+			"%s\n主人对你说：「%s」\n只回答这句话，一句话，不要描述四周、不要提日志。",
+			scene, question );
 	} else {
 		snprintf( usr, sizeof( usr ), "%s", scene );
 	}
