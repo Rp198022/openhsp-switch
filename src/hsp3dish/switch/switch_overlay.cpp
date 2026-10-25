@@ -2642,20 +2642,25 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 			printf( "hsp3switch: gear owner slot=%d name=%s\n", slot,
 				slot >= 0 ? sw_ovl_cdatan( 0, slot ) : "-" );
 			for ( i = 0; i < 12; i++ ) {
-				int ci0 = sw_ovl_cdata( 100 + i, slot );
-				printf( "hsp3switch: gear slot %d ci=%d num=%d id=%d\n", i, ci0,
-					sw_ovl_inv( 0, ci0 ), sw_ovl_inv( 3, ci0 ) );
+				int raw0 = sw_ovl_cdata( 100 + i, slot );
+				int ci0 = raw0 % 10000 - 1;
+				int id0 = ci0 >= 0 ? sw_ovl_inv( 0, ci0 ) : 0;
+				printf( "hsp3switch: gear slot %d raw=%d ci=%d id=%d\n", i, raw0, ci0, id0 );
 			}
 			fflush( stdout );
 		}
 	}
 	for ( i = 0; i < 30 && cnt < 5; i++ ) {
-		/*	r354: the slot holds id*10000 + extra, not a backpack index. */
+		/*	r356: command.hsp *act_equip packs the slot as
+			body part * 10000 + (backpack index + 1); r354 read the high
+			half as an item id, which just named the body part.		*/
 		int raw = sw_ovl_cdata( 100 + i, slot );
-		int id;
+		int ci, id;
 		const char *nm, *u;
 		if ( raw <= 0 ) continue;
-		id = raw / 10000;
+		ci = raw % 10000 - 1;
+		if ( ci < 0 ) continue;
+		id = sw_ovl_inv( 0, ci );
 		if ( id < 0 || id >= sw_ovl_pv_inref->len[ 1 ] ) continue;
 		nm = (const char *)HspVarCorePtrAPTR( sw_ovl_pv_inref, id );
 		if ( nm == NULL || nm[ 0 ] == 0 ) continue;
