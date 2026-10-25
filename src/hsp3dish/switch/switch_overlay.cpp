@@ -352,8 +352,6 @@ static PVal		*sw_ovl_pv_sdata = NULL;
 static PVal		*sw_ovl_pv_inv = NULL;	/* item data: dim 70,5480 INT	*/
 static PVal		*sw_ovl_pv_msg = NULL;
 static PVal		*sw_ovl_pv_msgline = NULL;
-static PVal		*sw_ovl_pv_inv = NULL;
-static PVal		*sw_ovl_pv_inref = NULL;
 static PVal		*sw_ovl_pv_inf_maxlog = NULL;
 /*	r277: the game's own buff table (sdim buffname,20,72) and its type
 	column (dim bdataref,7,72; field 0 is BUFF_TYPE_BUFF/HEX/FOOD).  Reading
@@ -1164,10 +1162,6 @@ static int sw_ovl_party_resolve( void )
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msg = &ctx->mem_var[ id ];	printf( "ovldiag: seek msg id=%d max=%d\n", id, (int)ctx->hsphed->max_val ); fflush( stdout );
 	id = code_getdebug_seekvar( "msgline" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_msgline = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "inv" );
-	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_inv = &ctx->mem_var[ id ];
-	id = code_getdebug_seekvar( "ioriginalnameref" );
-	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_inref = &ctx->mem_var[ id ];
 	id = code_getdebug_seekvar( "inf_maxlog" );
 	if ( id >= 0 && id < ctx->hsphed->max_val ) sw_ovl_pv_inf_maxlog = &ctx->mem_var[ id ];
 
@@ -2466,7 +2460,6 @@ static const char *sw_ovl_ply_weather_name( int w )
 static void sw_ovl_ply_wfmt( int v, char *out, size_t n )
 {
 	int a = v < 0 ? -v : v;
-	sw_ovl_ai_gear( gear, sizeof( gear ), pet );
 	snprintf( out, n, "%s%d.%d", v < 0 ? "-" : "", a / 1000, ( a % 1000 ) / 100 );
 }
 
@@ -2621,47 +2614,9 @@ static void sw_ovl_ai_diff( char *out, size_t n )
 /*	r261: the block the model is told about the current moment.  Everything
 	here is already human-readable - no raw field numbers, no ids - because
 	the model would only guess at what "gdata 20 = 12" means.				*/
-/*	r347: the follower's worn gear, by name, so the model never puts a sword
-	in the hands of someone holding a wand.  The game keeps each worn item
-	in cdata 100..129 as a backpack slot; the slot holds the item id, and
-	ioriginalnameref is the name table the game itself prints.			*/
-static void sw_ovl_ai_gear( char *out, size_t n, int slot )
-{
-	int i, cnt = 0;
-	size_t o = 0;
-
-	if ( out == NULL || n < 2 ) return;
-	out[ 0 ] = 0;
-	if ( sw_ovl_pv_inv == NULL || sw_ovl_pv_inref == NULL ) { snprintf( out, n, "无" ); return; }
-	for ( i = 0; i < 30 && cnt < 5; i++ ) {
-		int ci = sw_ovl_cdata( 100 + i, slot );
-		int id;
-		const char *nm, *u;
-		if ( ci < 0 || ci >= sw_ovl_pv_inv->len[ 2 ] ) continue;
-		if ( ( (int *)sw_ovl_pv_inv->pt )[ ci * sw_ovl_pv_inv->len[ 1 ] ] <= 0 ) continue;
-		id = ( (int *)sw_ovl_pv_inv->pt )[ 3 + ci * sw_ovl_pv_inv->len[ 1 ] ];
-		if ( id < 0 || id >= sw_ovl_pv_inref->len[ 1 ] ) continue;
-		nm = (const char *)HspVarCorePtrAPTR( sw_ovl_pv_inref, id );
-		if ( nm == NULL || nm[ 0 ] == 0 ) continue;
-		u = sw_ovl_utf8( (char *)nm );
-		if ( u == NULL || u[ 0 ] == 0 ) continue;
-		o += (size_t)snprintf( out + o, n - o, "%s%s", cnt ? "、" : "", u );
-		cnt++;
-	}
-	if ( o == 0 ) snprintf( out, n, "无" );
-	{
-		static int dbg = 0;
-		if ( dbg < 3 ) {
-			dbg++;
-			printf( "hsp3switch: gear [%s]\n", out );
-			fflush( stdout );
-		}
-	}
-}
-
 static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 {
-	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ], diff[ 256 ], gear[ 256 ];
+	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ], diff[ 256 ];
 	int first = 1, c, php, php2, hunger, weight, carry;
 	size_t rl, i;
 
@@ -2709,7 +2664,6 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		"战斗：%s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
-		"装备：%s\n"
 		"关系：好感 %d（%s），路线 %s\n"
 		"变化（自你上次开口）：%s\n"
 		"最近：%s",
@@ -2717,7 +2671,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
 		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
 		sw_ovl_battle_on ? "正在交战" : "无",
-		php, cond, php2, hunger, wp, gear,
+		php, cond, php2, hunger, wp,
 		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
 		sw_ovl_hl_name( sw_ovl_party_hl[ pet ] ),
 		diff,
