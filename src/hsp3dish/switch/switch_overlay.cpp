@@ -1190,22 +1190,27 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_cdata == NULL )  sw_ovl_pv_cdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 500, 245, -1 );
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
-	if ( sw_ovl_pv_inv == NULL )    sw_ovl_pv_inv    = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 70, 5480, -1 );
 	/*	r357: the 2.33 build sizes inv as 70 x 1320 - the save file's
 		inv.s1 unpacks to 92400 ints - so the 2.32 probe above came back
 		empty and every read through sw_ovl_inv() returned 0.  Width 70
 		is unique to inv among Elona's integer arrays, hence the fallback. */
+	/*	r359: inv and inv2 share the 70 x 5480 shape (init.hsp / system.hsp),
+		and sw_ovl_find_dim returned the empty copy - every read came back 0.
+		Pick the candidate that actually holds items instead of the first one. */
 	if ( sw_ovl_pv_inv == NULL ) {
-		int vi;
-		/*	r358: neither 70x5480 nor a 70-wide array exists at 2.33, so
-			print every 2-D integer shape once - inv is the only one in the
-			thousands - and take the widest match afterwards.				*/
+		int vi, best = -1, bestn = -1;
 		for ( vi = 0; vi < (int)ctx->hsphed->max_val; vi++ ) {
 			PVal *pv = &ctx->mem_var[ vi ];
+			int *d, k, n = 0;
 			if ( (int)pv->flag != HSPVAR_FLAG_INT ) continue;
-			if ( pv->len[1] < 2 || pv->len[2] < 2 ) continue;
-			printf( "ovldiag: int %d x %d x %d\n", pv->len[1], pv->len[2], pv->len[3] );
+			if ( pv->len[1] != 70 || pv->len[2] < 1000 || pv->pt == NULL ) continue;
+			d = (int *)pv->pt;
+			for ( k = 0; k < 1320; k++ ) if ( d[ 3 + k * 70 ] > 0 ) n++;
+			printf( "ovldiag: inv cand #%d %d x %d items=%d\n", vi, pv->len[1], pv->len[2], n );
+			if ( n > bestn ) { bestn = n; best = vi; }
 		}
+		if ( best >= 0 ) sw_ovl_pv_inv = &ctx->mem_var[ best ];
+		printf( "ovldiag: inv picked #%d items=%d\n", best, bestn );
 		fflush( stdout );
 	}
 	if ( sw_ovl_pv_msg == NULL ) {
