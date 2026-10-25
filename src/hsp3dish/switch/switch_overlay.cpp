@@ -2648,12 +2648,12 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 		}
 	}
 	for ( i = 0; i < 30 && cnt < 5; i++ ) {
-		int ci = sw_ovl_cdata( 100 + i, slot );
+		/*	r354: the slot holds id*10000 + extra, not a backpack index. */
+		int raw = sw_ovl_cdata( 100 + i, slot );
 		int id;
 		const char *nm, *u;
-		if ( ci < 0 ) continue;
-		if ( sw_ovl_inv( 0, ci ) <= 0 ) continue;
-		id = sw_ovl_inv( 3, ci );
+		if ( raw <= 0 ) continue;
+		id = raw / 10000;
 		if ( id < 0 || id >= sw_ovl_pv_inref->len[ 1 ] ) continue;
 		nm = (const char *)HspVarCorePtrAPTR( sw_ovl_pv_inref, id );
 		if ( nm == NULL || nm[ 0 ] == 0 ) continue;
