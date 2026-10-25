@@ -2649,6 +2649,14 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 		cnt++;
 	}
 	if ( o == 0 ) snprintf( out, n, "无" );
+	{
+		static int dbg = 0;
+		if ( dbg < 3 ) {
+			dbg++;
+			printf( "hsp3switch: gear [%s]\n", out );
+			fflush( stdout );
+		}
+	}
 }
 
 static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
