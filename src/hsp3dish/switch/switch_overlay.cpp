@@ -2786,6 +2786,7 @@ static void sw_ovl_ai_watch( void )
 			sw_ovl_ai_w_log_tick = now;
 		}
 	}
+	}
 
 	/*	r292: rows that talk ABOUT the follower.  Section 1 drops them on
 		purpose - a row carrying her name is usually her own speech, and
