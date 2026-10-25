@@ -169,8 +169,10 @@ static int		sw_ovl_tex_win_h = -1;	/* window height they were built for	*/
 #define SW_OVL_MODE_PARTY	1		/* portraits, bars, pet talk	*/
 #define SW_OVL_MODE_DETAIL	2		/* portraits, abilities, gear	*/
 #define SW_OVL_MODE_BATTLE	3		/* hidden until a fight is on	*/
-static int		sw_ovl_manual = SW_OVL_MODE_KEY;	/* the player's pick	*/
-static int		sw_ovl_mode = SW_OVL_MODE_KEY;		/* what gets drawn	*/
+/*	r336: the party sheet (portraits, bars, AI chatter) is the default
+	view; the key-hint sheet is one toggle away.					*/
+static int		sw_ovl_manual = SW_OVL_MODE_PARTY;	/* the player's pick	*/
+static int		sw_ovl_mode = SW_OVL_MODE_PARTY;		/* what gets drawn	*/
 static int		sw_ovl_battle_on = 0;				/* an enemy engaged	*/
 static int		sw_ovl_battle_slot = -1;			/* that enemy's slot */
 static int		sw_ovl_party_built_mode = -1;		/* mode the sheets hold */
@@ -2734,7 +2736,7 @@ static void sw_ovl_ai_watch( void )
 	char line[ 240 ], note[ 384 ], logbuf[ 240 ];
 	const char *p;
 	size_t n;
-	int hp_pct, i;
+	int hp_pct, i, transfer = 0;
 
 	if ( now - sw_ovl_ai_w_tick < 500 ) return;		/* twice a second is plenty */
 	sw_ovl_ai_w_tick = now;
@@ -2748,20 +2750,35 @@ static void sw_ovl_ai_watch( void )
 			overwrite the string being searched.							*/
 		snprintf( logbuf, sizeof( logbuf ), "%s", sw_ovl_utf8( sw_ovl_party_chat[1] ) );
 		p = logbuf;
-		if ( strcmp( p, sw_ovl_ai_w_log ) != 0 && now - sw_ovl_ai_w_log_tick >= 4000 &&
-				strstr( p, sw_ovl_utf8( sw_ovl_party_name[1] ) ) == NULL ) {
-			n = strlen( p );
-			i = 0;
-			while ( i < (int)n && i < 120 ) i++;
-			while ( i > 0 && i < (int)n && ( (unsigned char)p[ i ] & 0xC0 ) == 0x80 ) i--;
-			snprintf( note, sizeof( note ), "游戏里刚刚发生：%.*s", i, p );
-			for ( n = 0; note[ n ]; n++ )
-				if ( note[ n ] == '\n' || note[ n ] == '\r' ) note[ n ] = ' ';
-			/*	r333: ordinary log rows stay out.  Footsteps and failed
-				searches were sent at priority 1 and crowded the idle
-				chatter out; only the keywords count now.					*/
-			if ( sw_ovl_ai_log_hot( logbuf ) )
-				ai_chat_notify_event( note, 2 );
+		/*	r336: give and take carry the item name in the game's own row -
+			"军粮递了过去。" / "革的箭（1d5）(2)接收了。".  Neither row names
+			her, so the parrot guard below would pass them; they are flagged
+			so the same wording may fire twice in a row, which the old
+			text-equality test would have swallowed.						*/
+		{
+			int give = ( strstr( logbuf, "递了过去" ) != NULL ||
+				strstr( logbuf, "交给了" ) != NULL );
+			int take = ( strstr( logbuf, "接收了" ) != NULL );
+			if ( ( strcmp( p, sw_ovl_ai_w_log ) != 0 || give || take ) &&
+					now - sw_ovl_ai_w_log_tick >= 4000 &&
+					strstr( p, sw_ovl_utf8( sw_ovl_party_name[1] ) ) == NULL ) {
+				n = strlen( p );
+				i = 0;
+				while ( i < (int)n && i < 120 ) i++;
+				while ( i > 0 && i < (int)n && ( (unsigned char)p[ i ] & 0xC0 ) == 0x80 ) i--;
+				if ( give )
+					snprintf( note, sizeof( note ), "主人刚刚把东西递给了你：%.*s", i, p );
+				else if ( take )
+					snprintf( note, sizeof( note ), "主人刚刚从你那里拿了东西：%.*s", i, p );
+				else
+					snprintf( note, sizeof( note ), "游戏里刚刚发生：%.*s", i, p );
+				for ( n = 0; note[ n ]; n++ )
+					if ( note[ n ] == '\n' || note[ n ] == '\r' ) note[ n ] = ' ';
+				if ( give || take ) {
+					ai_chat_notify_event( note, 4 );
+					transfer = 1;
+				} else if ( sw_ovl_ai_log_hot( logbuf ) )
+					ai_chat_notify_event( note, 2 );
 			/*	Only remember the line once it has been sent, so a burst of
 				log rows inside the cooldown still produces one report of the
 				latest one instead of being swallowed here.				*/
@@ -2891,10 +2908,12 @@ static void sw_ovl_ai_watch( void )
 		int w0 = sw_ovl_ply_weight[0], w1 = sw_ovl_ply_weight[1];
 		if ( pw[0] >= 0 && pw[1] >= 0 && w0 >= 0 && w1 >= 0 ) {
 			int d0 = w0 - pw[0], d1 = w1 - pw[1];
-			if ( d0 < 0 && d1 > 0 )
-				ai_chat_notify_event( "主人刚刚把东西交给了你", 4 );
-			else if ( d0 > 0 && d1 < 0 )
-				ai_chat_notify_event( "主人刚刚从你那里拿走了东西", 4 );
+			if ( !transfer ) {
+				if ( d0 < 0 && d1 > 0 )
+					ai_chat_notify_event( "主人刚刚把东西交给了你", 4 );
+				else if ( d0 > 0 && d1 < 0 )
+					ai_chat_notify_event( "主人刚刚从你那里拿走了东西", 4 );
+			}
 		}
 		pw[0] = w0; pw[1] = w1;
 	}
