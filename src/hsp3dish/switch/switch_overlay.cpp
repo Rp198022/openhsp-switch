@@ -2921,11 +2921,10 @@ static void sw_ovl_ai_watch( void )
 	}
 	sw_ovl_ai_w_weather = sw_ovl_ply_weather;
 
-	if ( sw_ovl_ai_w_part >= 0 && sw_ovl_ply_hour / 4 != sw_ovl_ai_w_part ) {
-		snprintf( line, sizeof( line ), "天色变了，现在是%s",
-			sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ) );
-		ai_chat_notify_event( line, 1 );
-	}
+	/*	r334: the clock no longer announces itself.  Every quarter of a day
+		produced a line, which was the loudest remaining source once the
+		hunger ping and ordinary log rows were gone; weather still gets one
+		because it changes what you can safely do outside.				*/
 	sw_ovl_ai_w_part = sw_ovl_ply_hour / 4;
 
 	/*	The start of a fight is reported once; drawing the sheet already keeps
@@ -3788,7 +3787,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			static int w_turn = -1;
 			int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
 
-			if ( w_turn >= 0 && turn + 5 < w_turn )
+			if ( w_turn >= 0 && turn < w_turn )
 				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
 			w_turn = turn;
 		}
