@@ -1191,6 +1191,24 @@ static int sw_ovl_party_resolve( void )
 	if ( sw_ovl_pv_sdata == NULL )  sw_ovl_pv_sdata  = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 1200, 245, -1 );
 	if ( sw_ovl_pv_cdatan == NULL ) sw_ovl_pv_cdatan = sw_ovl_find_dim( ctx, HSPVAR_FLAG_STR, 10, 245, -1 );
 	if ( sw_ovl_pv_inv == NULL )    sw_ovl_pv_inv    = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 70, 5480, -1 );
+	/*	r357: the 2.33 build sizes inv as 70 x 1320 - the save file's
+		inv.s1 unpacks to 92400 ints - so the 2.32 probe above came back
+		empty and every read through sw_ovl_inv() returned 0.  Width 70
+		is unique to inv among Elona's integer arrays, hence the fallback. */
+	if ( sw_ovl_pv_inv == NULL ) {
+		int vi;
+		sw_ovl_pv_inv = sw_ovl_find_dim( ctx, HSPVAR_FLAG_INT, 70, -1, -1 );
+		for ( vi = 0; vi < (int)ctx->hsphed->max_val; vi++ ) {
+			PVal *pv = &ctx->mem_var[ vi ];
+			if ( (int)pv->flag != HSPVAR_FLAG_INT ) continue;
+			if ( pv->len[1] != 70 ) continue;
+			printf( "ovldiag: int 70 x %d x %d #%d\n", pv->len[2], pv->len[3], vi );
+		}
+		printf( "ovldiag: inv %p len %d x %d\n", (void *)sw_ovl_pv_inv,
+			sw_ovl_pv_inv ? sw_ovl_pv_inv->len[1] : -1,
+			sw_ovl_pv_inv ? sw_ovl_pv_inv->len[2] : -1 );
+		fflush( stdout );
+	}
 	if ( sw_ovl_pv_msg == NULL ) {
 		/* msg = sdim msg,120,inf_maxlog : a one-dim STR array.  len[1] holds
 		   the runtime inf_maxlog and len[0] is always 1 in openhsp, so
@@ -2640,11 +2658,11 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 		if ( d2 < 2 ) {
 			d2++;
 			printf( "hsp3switch: gear owner slot=%d name=%s\n", slot,
-				slot >= 0 ? sw_ovl_cdatan( 0, slot ) : "-" );
+				slot >= 0 ? sw_ovl_utf8( sw_ovl_cdatan( 0, slot ) ) : "-" );
 			for ( i = 0; i < 12; i++ ) {
 				int raw0 = sw_ovl_cdata( 100 + i, slot );
 				int ci0 = raw0 % 10000 - 1;
-				int id0 = ci0 >= 0 ? sw_ovl_inv( 0, ci0 ) : 0;
+				int id0 = ci0 >= 0 ? sw_ovl_inv( 3, ci0 ) : 0;
 				printf( "hsp3switch: gear slot %d raw=%d ci=%d id=%d\n", i, raw0, ci0, id0 );
 			}
 			fflush( stdout );
@@ -2660,7 +2678,7 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 		if ( raw <= 0 ) continue;
 		ci = raw % 10000 - 1;
 		if ( ci < 0 ) continue;
-		id = sw_ovl_inv( 0, ci );
+		id = sw_ovl_inv( 3, ci );	/* INV_ITEM_ID; field 0 is the count */
 		if ( id < 0 || id >= sw_ovl_pv_inref->len[ 1 ] ) continue;
 		nm = (const char *)HspVarCorePtrAPTR( sw_ovl_pv_inref, id );
 		if ( nm == NULL || nm[ 0 ] == 0 ) continue;
