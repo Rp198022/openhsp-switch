@@ -2628,7 +2628,25 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 
 	if ( out == NULL || n < 2 ) return;
 	out[ 0 ] = 0;
-	if ( slot < 0 || sw_ovl_pv_inref == NULL ) { snprintf( out, n, "无" ); return; }
+	if ( slot < 0 || sw_ovl_pv_inref == NULL ) {
+		static int d1 = 0;
+		if ( d1 < 2 ) { d1++; printf( "hsp3switch: gear dbg ref=%p slot=%d\n",
+			(void *)sw_ovl_pv_inref, slot ); fflush( stdout ); }
+		snprintf( out, n, "无" );
+		return;
+	}
+	{
+		static int d2 = 0;
+		if ( d2 < 2 ) {
+			d2++;
+			for ( i = 0; i < 12; i++ ) {
+				int ci0 = sw_ovl_cdata( 100 + i, slot );
+				printf( "hsp3switch: gear slot %d ci=%d num=%d id=%d\n", i, ci0,
+					sw_ovl_inv( 0, ci0 ), sw_ovl_inv( 3, ci0 ) );
+			}
+			fflush( stdout );
+		}
+	}
 	for ( i = 0; i < 30 && cnt < 5; i++ ) {
 		int ci = sw_ovl_cdata( 100 + i, slot );
 		int id;
