@@ -1166,8 +1166,15 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 			if ( u8[i] == '\\' ) u8[i] = '/';
 		}
 		gz = gzopen( u8, ( mode != 0 ) ? "wb" : "rb" );
-		if ( gz != NULL && mode == 0 && strstr( u8, "/save/" ) != NULL )
+		if ( gz != NULL && mode == 0 && strstr( u8, "/save/" ) != NULL ) {
+			static int dbg = 0;
 			glue_save_reads++;
+			if ( dbg < 20 ) {
+				dbg++;
+				printf( "hsp3switch: save read %d '%s'\n", glue_save_reads, u8 );
+				fflush( stdout );
+			}
+		}
 	}
 	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;
