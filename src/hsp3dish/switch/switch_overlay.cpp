@@ -3876,9 +3876,11 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 			be used.													*/
 		{
 			extern int glue_save_reads;
-			static int seen = -1;
-			if ( seen < 0 ) seen = glue_save_reads;
-			else if ( glue_save_reads != seen ) {
+			/*	r343: start from zero, not from whatever the counter
+				already holds.  The first pass runs after the save was
+				loaded, so seeding with its value swallowed that greeting. */
+			static int seen = 0;
+			if ( glue_save_reads != seen ) {
 				seen = glue_save_reads;
 				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
 			}
