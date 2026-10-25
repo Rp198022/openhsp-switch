@@ -1122,6 +1122,10 @@ static gzFile zlib_port_get( int handle )
 	return zlib_port[handle - 1];
 }
 
+/*	r341: a load opens the save files through z.hpi, not through fopen,
+	so the reload counter is bumped here.  The overlay watches it. */
+int glue_save_reads = 0;
+
 static int impl_zlib_zopen( const DllArgValue *args, int argc )
 {
 	char norm[512];
@@ -1162,6 +1166,8 @@ static int impl_zlib_zopen( const DllArgValue *args, int argc )
 			if ( u8[i] == '\\' ) u8[i] = '/';
 		}
 		gz = gzopen( u8, ( mode != 0 ) ? "wb" : "rb" );
+		if ( gz != NULL && mode == 0 && strstr( u8, "/save/" ) != NULL )
+			glue_save_reads++;
 	}
 	if ( gz == NULL ) {
 		*(int *)args[0].ptr = 0;

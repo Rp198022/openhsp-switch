@@ -587,10 +587,6 @@ extern "C" void glue_fs_mutated( void )
 	glue_miss_epoch++;
 }
 
-/*	r340: how many times a file under /save/ has been opened for
-	reading.  A load is the one action that always reads that folder,
-	while resuming a session leaves every script variable untouched. */
-int glue_save_reads = 0;
 
 static int glue_miss_index( const char *path )
 {
@@ -789,10 +785,6 @@ extern "C" FILE *__wrap_fopen( const char *path, const char *mode )
 		glue_miss_drop( use );
 		glue_fs_mutated();
 	}
-	/*	r340: a successful read open under /save/ is a load. */
-	if ( fp != NULL && !glue_fopen_writes( mode ) &&
-			strstr( use, "/save/" ) != NULL )
-		glue_save_reads++;
 	if ( fp == NULL ) {
 		if ( !glue_fopen_writes( mode ) ) {
 			printf( "hsp3file: note '%s'\n", use );
