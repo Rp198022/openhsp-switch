@@ -2701,7 +2701,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"战斗：%s\n"
 		"主人：HP %d%%，状态 %s\n"
-		"你：HP %d%%，饱腹 %d%%，负重 %s\n"
+		"你（随从）：HP %d%%，饱腹 %d%%，负重 %s\n"
 		"装备：%s\n"
 		"关系：好感 %d（%s），路线 %s\n"
 		"变化（自你上次开口）：%s\n"
