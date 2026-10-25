@@ -2863,6 +2863,38 @@ static void sw_ovl_ai_watch( void )
 		}
 	}
 
+	/*	r339: give and take.  The row lives in the message window and often
+		sits one or two rows behind the menu prompt ("要赠送什么？"), so a few
+		rows are walked back.  The text carries the item name itself.		*/
+	{
+		static char last_give[ 300 ] = "";
+		static unsigned int last_give_at = 0;
+		int b;
+		for ( b = 0; b < 4; b++ ) {
+			char raw2[ 300 ], u2[ 400 ];
+			if ( !sw_ovl_msg_row( b, raw2, sizeof( raw2 ) ) ) break;
+			snprintf( u2, sizeof( u2 ), "%s", sw_ovl_utf8( raw2 ) );
+			if ( strstr( u2, "递了过去" ) == NULL &&
+					strstr( u2, "交给了" ) == NULL &&
+					strstr( u2, "接收了" ) == NULL ) continue;
+			if ( strcmp( u2, last_give ) == 0 && now - last_give_at < 5000 ) break;
+			snprintf( last_give, sizeof( last_give ), "%s", u2 );
+			last_give_at = now;
+			snprintf( note, sizeof( note ),
+				strstr( u2, "接收了" ) != NULL
+					? "主人刚刚从你那里拿了东西：%.*s"
+					: "主人刚刚把东西递给了你：%.*s", 120, u2 );
+			{
+				size_t c;
+				for ( c = 0; note[ c ]; c++ )
+					if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+			}
+			ai_chat_notify_event( note, 4 );
+			transfer = 1;
+			break;
+		}
+	}
+
 	/*	r292: death and waking up.  The first read only records what the save
 		was loaded with, so a load never announces a corpse.  Priority 5 puts
 		both above every other event in the queue.							*/
@@ -3838,27 +3870,17 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
 
-		/*	r313: loading a save rewinds the global turn counter, and that is
-			the one signal which always marks it.  The party was greeted only
-			when the process started, so a reload used to pass in silence.	*/
+		/*	r339: the calendar marks a reload, not the turn counter.  r338's
+			diagnostic showed gdata(4) still climbing while a save was loaded
+			back in, so the turn test could never fire.					*/
 		{
-			static int w_turn = -1;
-			int turn = sw_ovl_gdata( SW_OVL_GD_TURN );
-
-			{
-				/*	r338: a reload that does not rewind the turn counter
-					never fired; log the move so it can be diagnosed.	*/
-				static unsigned int diag = 0;
-				unsigned int tnow = SDL_GetTicks();
-				if ( w_turn >= 0 && turn != w_turn && tnow - diag > 3000 ) {
-					diag = tnow;
-					printf( "hsp3switch: watch turn %d -> %d\n", w_turn, turn );
-					fflush( stdout );
-				}
-			}
-			if ( w_turn >= 0 && turn < w_turn )
+			static long last_hours = -1;
+			long hrs = ( (long)sw_ovl_gdata( SW_OVL_GD_MONTH ) * 30 +
+				sw_ovl_gdata( SW_OVL_GD_DAY ) ) * 24 +
+				sw_ovl_gdata( SW_OVL_GD_HOUR );
+			if ( last_hours >= 0 && hrs + 2 < last_hours )
 				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
-			w_turn = turn;
+			last_hours = hrs;
 		}
 
 		/*	r305: a smile is not permanent.  Elona only advances time when a
