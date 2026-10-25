@@ -2730,6 +2730,42 @@ static int sw_ovl_ai_log_hot( const char *s )
 	filled, so the watcher costs a few comparisons per frame and nothing at
 	all when the game is idle.  Thresholds are deliberately coarse: the
 	model only needs "something happened", not a telemetry feed.			*/
+/*	r346: the last thing she said before this session, read back from the
+	chat log.  Used by the reload greeting so the first line after a load
+	can pick up where the previous session stopped.					*/
+static void sw_ovl_last_ai_line( char *out, size_t n )
+{
+	FILE *fp;
+	long sz;
+	char buf[ 4096 ];
+	size_t got, l = 0;
+	char *best = NULL, *q;
+
+	if ( out == NULL || n < 2 ) return;
+	out[ 0 ] = 0;
+	fp = fopen( "sdmc:/switch/openhsp/data/npc_log.txt", "rb" );
+	if ( fp == NULL ) return;
+	fseek( fp, 0, SEEK_END );
+	sz = ftell( fp );
+	if ( sz > (long)sizeof( buf ) - 1 ) sz = (long)sizeof( buf ) - 1;
+	if ( sz <= 0 ) { fclose( fp ); return; }
+	fseek( fp, -(long)sz, SEEK_END );
+	got = fread( buf, 1, (size_t)sz, fp );
+	fclose( fp );
+	buf[ got ] = 0;
+	for ( q = buf; ( q = strstr( q, "|say|" ) ) != NULL; q += 5 ) best = q + 5;
+	if ( best == NULL ) return;
+	while ( best[ l ] && best[ l ] != '\n' && best[ l ] != '\r' && l + 1 < n ) {
+		out[ l ] = best[ l ];
+		l++;
+	}
+	/*	cut any trailing emo tag so the sentence reads clean			*/
+	while ( l > 0 && out[ l - 1 ] == ' ' ) l--;
+	out[ l ] = 0;
+	q = strstr( out, "[[emo:" );
+	if ( q != NULL ) { *q = 0; }
+}
+
 static void sw_ovl_ai_watch( void )
 {
 	unsigned int now = SDL_GetTicks();
@@ -3884,7 +3920,17 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				seen = glue_save_reads;
 				printf( "hsp3switch: reload greeting, counts=%d\n", glue_save_reads );
 				fflush( stdout );
-				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候，就这件事说一句", 5 );
+				{
+					char said[ 240 ], note2[ 384 ];
+					sw_ovl_last_ai_line( said, sizeof( said ) );
+					if ( said[ 0 ] )
+						snprintf( note2, sizeof( note2 ),
+							"主人刚刚读档开始了游戏，欢迎回来。上次你们最后说到：%.*s",
+							180, said );
+					else
+						snprintf( note2, sizeof( note2 ), "主人刚刚读档开始了游戏，欢迎回来" );
+					ai_chat_notify_event( note2, 5 );
+				}
 			}
 		}
 
