@@ -2688,7 +2688,7 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 			fflush( stdout );
 		}
 	}
-	for ( i = 0; i < 30 && cnt < 5; i++ ) {
+	for ( i = 0; i < 30 && cnt < 8; i++ ) {
 		/*	r356: command.hsp *act_equip packs the slot as
 			body part * 10000 + (backpack index + 1); r354 read the high
 			half as an item id, which just named the body part.		*/
@@ -2716,7 +2716,7 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 
 static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 {
-	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ], diff[ 256 ], gear[ 256 ];
+	char cond[ 128 ], wp[ 64 ], a[ 32 ], b[ 32 ], recent[ 384 ], diff[ 256 ], gear[ 256 ], gear_ply[ 256 ];
 	int first = 1, c, php, php2, hunger, weight, carry;
 	size_t rl, i;
 
@@ -2760,12 +2760,16 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		the model mix "obedient" into "affectionate", and the persona tiers
 		are written against affection alone.								*/
 	sw_ovl_ai_gear( gear, sizeof( gear ), sw_ovl_party_slot[ 1 ] );
+	/*	r363: the master's own slots too - asked "what is the master wearing"
+		she used to guess, because the scene only carried her gear.			*/
+	sw_ovl_ai_gear( gear_ply, sizeof( gear_ply ), 0 );
 	snprintf( out, n,
 		"地点：%s  时间：%d/%d/%d %s %s\n"
 		"战斗：%s\n"
 		"主人：HP %d%%，状态 %s\n"
 		"你（随从）：HP %d%%，饱腹 %d%%，负重 %s\n"
-		"装备：%s\n"
+		"你的装备（真实穿着；这一行没写到的就是没穿，禁止凭印象编造武器或护甲）：%s\n"
+		"主人的装备（真实穿着）：%s\n"
 		"关系：好感 %d（%s），路线 %s\n"
 		"变化（自你上次开口）：%s\n"
 		"最近：%s",
@@ -2773,7 +2777,7 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		sw_ovl_ply_time_name( sw_ovl_ply_hour / 4 ),
 		sw_ovl_ply_weather_name( sw_ovl_ply_weather ),
 		sw_ovl_battle_on ? "正在交战" : "无",
-		php, cond, php2, hunger, wp, gear,
+		php, cond, php2, hunger, wp, gear, gear_ply,
 		sw_ovl_party_imp[ pet ], sw_ovl_imp_name( sw_ovl_party_imp[ pet ] ),
 		sw_ovl_hl_name( sw_ovl_party_hl[ pet ] ),
 		diff,
