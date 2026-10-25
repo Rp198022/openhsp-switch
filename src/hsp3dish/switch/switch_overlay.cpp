@@ -2639,6 +2639,8 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 		static int d2 = 0;
 		if ( d2 < 2 ) {
 			d2++;
+			printf( "hsp3switch: gear owner slot=%d name=%s\n", slot,
+				slot >= 0 ? sw_ovl_cdatan( 0, slot ) : "-" );
 			for ( i = 0; i < 12; i++ ) {
 				int ci0 = sw_ovl_cdata( 100 + i, slot );
 				printf( "hsp3switch: gear slot %d ci=%d num=%d id=%d\n", i, ci0,
