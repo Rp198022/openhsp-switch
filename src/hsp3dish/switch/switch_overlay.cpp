@@ -3870,17 +3870,18 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 		sw_ovl_ai_scene( scene, sizeof( scene ), slot[1] >= 0 ? 1 : 0, where );
 		ai_chat_set_context( npc, scene );
 
-		/*	r339: the calendar marks a reload, not the turn counter.  r338's
-			diagnostic showed gdata(4) still climbing while a save was loaded
-			back in, so the turn test could never fire.					*/
+		/*	r340: a load is marked by the game reading its save folder.
+			Every other signal - turn counter, calendar, party state -
+			stays put when a session simply resumes, so none of them can
+			be used.													*/
 		{
-			static long last_hours = -1;
-			long hrs = ( (long)sw_ovl_gdata( SW_OVL_GD_MONTH ) * 30 +
-				sw_ovl_gdata( SW_OVL_GD_DAY ) ) * 24 +
-				sw_ovl_gdata( SW_OVL_GD_HOUR );
-			if ( last_hours >= 0 && hrs + 2 < last_hours )
+			extern int glue_save_reads;
+			static int seen = -1;
+			if ( seen < 0 ) seen = glue_save_reads;
+			else if ( glue_save_reads != seen ) {
+				seen = glue_save_reads;
 				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
-			last_hours = hrs;
+			}
 		}
 
 		/*	r305: a smile is not permanent.  Elona only advances time when a
