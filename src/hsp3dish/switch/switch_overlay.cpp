@@ -1194,32 +1194,6 @@ static int sw_ovl_party_resolve( void )
 		inv.s1 unpacks to 92400 ints - so the 2.32 probe above came back
 		empty and every read through sw_ovl_inv() returned 0.  Width 70
 		is unique to inv among Elona's integer arrays, hence the fallback. */
-	/*	r360: the 2.33 build does not size inv the way 2.32 does, so stop
-		guessing shapes.  Every large integer array is offered here, and the
-		one whose rows at the follower's equip slots hold real item ids wins.
-		Shape and outcome are printed once for the record.					*/
-	if ( sw_ovl_pv_inv == NULL ) {
-		int vi, best = -1, bestn = 0;
-		for ( vi = 0; vi < (int)ctx->hsphed->max_val; vi++ ) {
-			PVal *pv = &ctx->mem_var[ vi ];
-			int *d, k, n = 0, w;
-			if ( (int)pv->flag != HSPVAR_FLAG_INT ) continue;
-			w = pv->len[1];
-			if ( w < 2 || pv->len[2] < 64 || pv->pt == NULL ) continue;
-			d = (int *)pv->pt;
-			for ( k = 0; k < 30; k++ ) {
-				int raw = sw_ovl_cdata( 100 + k, 1 );
-				int ci = raw % 10000 - 1;
-				if ( ci < 0 || ci >= pv->len[2] ) continue;
-				if ( d[ 3 + ci * w ] > 0 && d[ 0 + ci * w ] > 0 ) n++;
-			}
-			if ( n > 0 ) printf( "ovldiag: cand #%d %d x %d hits=%d\n", vi, w, pv->len[2], n );
-			if ( n > bestn ) { bestn = n; best = vi; }
-		}
-		if ( best >= 0 ) sw_ovl_pv_inv = &ctx->mem_var[ best ];
-		printf( "ovldiag: inv picked #%d hits=%d\n", best, bestn );
-		fflush( stdout );
-	}
 	if ( sw_ovl_pv_msg == NULL ) {
 		/* msg = sdim msg,120,inf_maxlog : a one-dim STR array.  len[1] holds
 		   the runtime inf_maxlog and len[0] is always 1 in openhsp, so
