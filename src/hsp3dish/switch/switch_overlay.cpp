@@ -2807,7 +2807,11 @@ static void sw_ovl_ai_watch( void )
 						fflush( stdout );
 					}
 					/*	r300: the coloured notices, plus eating and drinking.	*/
-					if ( speech || !mine || !sw_ovl_ai_feed_line( u ) ) continue;
+					/*	r335: outside battle a row that names her is worth a line
+						by itself - the whitelist stays for battle, where every
+						other row is noise.									*/
+					if ( speech || !mine ) continue;
+					if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( u ) ) continue;
 					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
 					snprintf( note, sizeof( note ),
 						"游戏日志里出现了关于你的消息：%.*s", 120, self );
@@ -2878,6 +2882,22 @@ static void sw_ovl_ai_watch( void )
 			sw_ovl_ply_cargo > sw_ovl_ply_cargol && sw_ovl_ai_w_cargo <= sw_ovl_ply_cargol )
 		ai_chat_notify_event( "行李已经超重了", 2 );
 	sw_ovl_ai_w_cargo = sw_ovl_ply_cargo;
+
+	/*	r335: give and take.  The interact menu does not always leave a log
+		row, but a transfer always moves both weights at once: the master
+		gets lighter exactly as she gets heavier, or the other way round.	*/
+	{
+		static int pw[2] = { -1, -1 };
+		int w0 = sw_ovl_ply_weight[0], w1 = sw_ovl_ply_weight[1];
+		if ( pw[0] >= 0 && pw[1] >= 0 && w0 >= 0 && w1 >= 0 ) {
+			int d0 = w0 - pw[0], d1 = w1 - pw[1];
+			if ( d0 < 0 && d1 > 0 )
+				ai_chat_notify_event( "主人刚刚把东西交给了你", 4 );
+			else if ( d0 > 0 && d1 < 0 )
+				ai_chat_notify_event( "主人刚刚从你那里拿走了东西", 4 );
+		}
+		pw[0] = w0; pw[1] = w1;
+	}
 
 	if ( sw_ovl_ai_w_ether >= 0 && sw_ovl_ply_ether > sw_ovl_ai_w_ether )
 		ai_chat_notify_event( "主人又染上了一种以太病", 2 );
