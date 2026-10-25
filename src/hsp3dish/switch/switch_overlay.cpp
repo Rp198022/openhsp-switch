@@ -1624,6 +1624,40 @@ static unsigned int sw_ovl_foe_hash( void )
 	return h;
 }
 
+/*	r361: sw_ovl_party_resolve runs the first time the side panel is drawn,
+	which is the title screen - inv does not exist yet, every probe missed,
+	and the cached context then kept the empty answer for the whole run.
+	So look for it again whenever gear is actually read, by content: the
+	array whose rows at the follower's equip slots carry real item ids. */
+static void sw_ovl_find_inv( void )
+{
+	HSPCTX *ctx = sw_ovl_ctx;
+	int vi, best = -1, bestn = 0;
+
+	if ( ctx == NULL || sw_ovl_pv_inv != NULL ) return;
+	for ( vi = 0; vi < (int)ctx->hsphed->max_val; vi++ ) {
+		PVal *pv = &ctx->mem_var[ vi ];
+		int *d, k, n = 0, w;
+		if ( (int)pv->flag != HSPVAR_FLAG_INT ) continue;
+		w = pv->len[1];
+		if ( w < 2 || pv->len[2] < 64 || pv->pt == NULL ) continue;
+		d = (int *)pv->pt;
+		for ( k = 0; k < 30; k++ ) {
+			int raw = sw_ovl_cdata( 100 + k, 1 );
+			int ci = raw % 10000 - 1;
+			if ( ci < 0 || ci >= pv->len[2] ) continue;
+			if ( d[ 3 + ci * w ] > 0 && d[ 0 + ci * w ] > 0 ) n++;
+		}
+		if ( n > bestn ) { bestn = n; best = vi; }
+	}
+	if ( best >= 0 ) {
+		sw_ovl_pv_inv = &ctx->mem_var[ best ];
+		printf( "ovldiag: inv picked #%d %dx%d hits=%d\n", best,
+			sw_ovl_pv_inv->len[1], sw_ovl_pv_inv->len[2], bestn );
+		fflush( stdout );
+	}
+}
+
 static int sw_ovl_inv( int field, int idx )
 {
 	if ( sw_ovl_pv_inv == NULL ) return 0;
@@ -2656,6 +2690,7 @@ static void sw_ovl_ai_gear( char *out, size_t n, int slot )
 	size_t o = 0;
 
 	if ( out == NULL || n < 2 ) return;
+	if ( sw_ovl_pv_inv == NULL ) sw_ovl_find_inv();
 	out[ 0 ] = 0;
 	if ( slot < 0 || sw_ovl_pv_inref == NULL ) {
 		static int d1 = 0;
