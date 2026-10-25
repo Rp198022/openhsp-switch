@@ -2757,7 +2757,11 @@ static void sw_ovl_ai_watch( void )
 			snprintf( note, sizeof( note ), "游戏里刚刚发生：%.*s", i, p );
 			for ( n = 0; note[ n ]; n++ )
 				if ( note[ n ] == '\n' || note[ n ] == '\r' ) note[ n ] = ' ';
-			ai_chat_notify_event( note, sw_ovl_ai_log_hot( logbuf ) ? 2 : 1 );
+			/*	r333: ordinary log rows stay out.  Footsteps and failed
+				searches were sent at priority 1 and crowded the idle
+				chatter out; only the keywords count now.					*/
+			if ( sw_ovl_ai_log_hot( logbuf ) )
+				ai_chat_notify_event( note, 2 );
 			/*	Only remember the line once it has been sent, so a burst of
 				log rows inside the cooldown still produces one report of the
 				latest one instead of being swallowed here.				*/
@@ -2862,9 +2866,10 @@ static void sw_ovl_ai_watch( void )
 		quarter is what a person would actually mention.					*/
 	{
 		int hunger = sw_ovl_lim( sw_ovl_ply_hunger[0] / 100, 0, 100 );
+		/*	Only the dangerous step.  "主人饿了" fired on every quarter and was
+			one of the two loudest sources of event chatter (r333).			*/
 		if ( sw_ovl_ai_w_hunger >= 0 && hunger / 25 < sw_ovl_ai_w_hunger / 25 ) {
 			if ( hunger < 25 ) ai_chat_notify_event( "主人快饿死了", 3 );
-			else if ( hunger < 50 ) ai_chat_notify_event( "主人饿了", 1 );
 		}
 		sw_ovl_ai_w_hunger = hunger;
 	}

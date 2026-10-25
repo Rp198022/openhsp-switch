@@ -1841,12 +1841,12 @@ void ai_chat_tick( void )
 	}
 
 	/*	Events no longer expire: whatever happened while a request was in
-		flight is still worth a line.  r309: the gap is raised to 8 s and a
+		flight is still worth a line.  r333: the gap is raised to 12 s and a
 		fresh line is never followed within 5 s, because a battle plus a
 		floor change plus a level-up used to arrive as three sentences in a
 		row and read as nagging.										*/
 	pthread_mutex_lock( &ai_lock );
-	if ( ai_event_prio >= 0 && now - ai_last_request >= 8.0 &&
+	if ( ai_event_prio >= 0 && now - ai_last_request >= 12.0 &&
 			now - ai_last_line_at >= 5.0 ) {
 		char event[ 512 ];
 		snprintf( event, sizeof( event ), "%s", ai_event );
