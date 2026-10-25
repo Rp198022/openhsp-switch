@@ -2046,10 +2046,9 @@ static void sw_ovl_face_u_load( int ix, int n )
 	}
 	sw_ovl_face_u_id[ ix ] = 0;
 	if ( n <= 0 ) return;
-	/*	The strip prefers its own high-resolution copy: the game itself still
-		draws the 80x112 faceN.bmp in dialogs and the character sheet, and
-		replacing that file would stretch it there.  sidebar_face/ holds a
-		128x192 version of the same portrait, used only by this overlay.	*/
+	/*	The strip prefers its own high-resolution copy: the game still draws
+		the 80x112 faceN.bmp in dialogs and the character sheet.  sidebar_face/
+		holds a 128x192 version used only by this overlay.					*/
 	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/user/graphic/sidebar_face/face%d.bmp", n );
 	bmp = SDL_LoadBMP( path );
 	if ( bmp == NULL ) {
@@ -2231,12 +2230,9 @@ static GLuint sw_ovl_ai_face_img( void )
 		IMG_Init( IMG_INIT_PNG );
 		sw_ovl_ai_img_inited = 1;
 	}
-	/*	Same split as the u-series portraits: data/npc_sidebar/<name>/ holds
-		the high-resolution copies used only by this strip, while the game
-		keeps drawing its own 80x112 data/npc/<name>/ files.  folder order:
-		the current expression, then a fixed default.png (so the strip can
-		show one clean default face without an expression set), then the
-		game's own file as the last resort.								*/
+	/*	Sidebar split: data/npc_sidebar/<name>/ holds the 128x192 copies used
+		only here, while the game keeps drawing its own data/npc/<name>/ files.
+		Order: current expression, fixed default.png, then the game file.	*/
 	snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/npc_sidebar/%s/%s.png", name, emo );
 	s = IMG_Load( path );
 	if ( s == NULL ) {
