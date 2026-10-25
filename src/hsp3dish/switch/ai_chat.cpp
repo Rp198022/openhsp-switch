@@ -1853,6 +1853,14 @@ void ai_chat_tick( void )
 		ai_event_prio = -1;
 		ai_event[ 0 ] = '\0';
 		pthread_mutex_unlock( &ai_lock );
+		{
+			static int dbg = 0;
+			if ( dbg < 50 ) {
+				dbg++;
+				printf( "aichat: send event [%s]\n", event );
+				fflush( stdout );
+			}
+		}
 		ai_start( NULL, event );
 		return;
 	}

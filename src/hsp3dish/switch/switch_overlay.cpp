@@ -3884,7 +3884,7 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				seen = glue_save_reads;
 				printf( "hsp3switch: reload greeting, counts=%d\n", glue_save_reads );
 				fflush( stdout );
-				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候", 5 );
+				ai_chat_notify_event( "主人刚刚读了存档，你们又回到了这个时候，就这件事说一句", 5 );
 			}
 		}
 
