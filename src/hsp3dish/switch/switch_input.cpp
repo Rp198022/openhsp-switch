@@ -507,14 +507,21 @@ void switch_input_poll( void )
 	{
 		static int sw_ovl_combo = 0;
 		static int sw_ovl_combo_alt = 0;
+		static int sw_ovl_combo_zl = 0;
+		/*	ZL on its own (Y on Eden) flips the panels, so the keyboard has a
+			single-key route.  While ZR is held the pair belongs to the AI
+			keyboard, so this stays quiet then.									*/
+		int zl = sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) && !sw_zr_held();
 		int now = ( sw_layer() == 2 )
 			&& SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_RIGHTX ) < -SW_STICK_DEADZONE;
 		int alt = ( sw_layer() == 1 )
 			&& SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
 		if ( now && !sw_ovl_combo ) switch_overlay_toggle();
+		if ( zl && !sw_ovl_combo_zl ) switch_overlay_toggle();
 		if ( alt && !sw_ovl_combo_alt ) switch_overlay_toggle();
 		sw_ovl_combo = now;
 		sw_ovl_combo_alt = alt;
+		sw_ovl_combo_zl = zl;
 	}
 }
 
