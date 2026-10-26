@@ -746,27 +746,34 @@ void switch_input_poll( void )
 {
 
 	int i;
-	/*	r402: field diagnostics.  Eden keeps the game's stdout, so the only
-		way to see whether this frame hook runs and what it can read is a
-		file on the SD card.  Ten-second heartbeat.						*/
+	/*	r405: pad diagnostics.  Eden has no visible stdout, so the only way to
+		learn what the frame hook actually sees is a file on the SD card.	*/
 	{
-		static unsigned int dcalls = 0, dlast = 0;
+		static Uint32 ph_last = 0;
+		Uint32 ph_now = SDL_GetTicks();
 
-		dcalls++;
-		if ( dcalls - dlast >= 600 ) {
+		if ( ph_now - ph_last >= 2000 ) {
 			FILE *df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
 
 			if ( df != NULL ) {
-				const Uint8 *kk = SDL_GetKeyboardState( NULL );
-				fprintf( df, "poll %u pad=%p b=%d up=%d down=%d f9=%d\n", dcalls,
-					(void *)sw_pad,
-					kk ? (int)kk[ SDL_SCANCODE_B ] : -1,
-					kk ? (int)kk[ SDL_SCANCODE_UP ] : -1,
-					kk ? (int)kk[ SDL_SCANCODE_DOWN ] : -1,
-					kk ? (int)kk[ SDL_SCANCODE_F9 ] : -1 );
+				if ( sw_pad != NULL ) {
+					SDL_Joystick *js = SDL_GameControllerGetJoystick( sw_pad );
+					unsigned int bits = 0;
+					int b;
+
+					for ( b = 0; b < 32; b++ )
+						if ( js != NULL && SDL_JoystickGetButton( js, b ) ) bits |= 1u << b;
+					fprintf( df, "poll att=%d lt=%d rt=%d raw=%d/%d bits=%08x\n",
+						SDL_GameControllerGetAttached( sw_pad ),
+						SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT ),
+						SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ),
+						sw_zl_raw, sw_zr_raw, bits );
+				} else {
+					fprintf( df, "poll pad null\n" );
+				}
 				fclose( df );
 			}
-			dlast = dcalls;
+			ph_last = ph_now;
 		}
 	}
 
@@ -1598,6 +1605,23 @@ int switch_input_take_keys( char *out, int max )
 
 {
 
+	/*	r405: the second probe - take_keys is called from the script loop
+		itself, so its heartbeat proves the shell runs even when no frame is
+		being drawn.															*/
+	{
+		static Uint32 tk_last = 0;
+		Uint32 tk_now = SDL_GetTicks();
+
+		if ( tk_now - tk_last >= 2000 ) {
+			FILE *df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
+
+			if ( df != NULL ) {
+				fprintf( df, "take pad=%p\n", (void *)sw_pad );
+				fclose( df );
+			}
+			tk_last = tk_now;
+		}
+	}
 	int n = 0;
 	int i, layer;
 	char c;
