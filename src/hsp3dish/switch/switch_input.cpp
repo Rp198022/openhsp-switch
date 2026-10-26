@@ -742,10 +742,32 @@ const char *switch_input_phrase_text( int i )
 
 
 void switch_input_poll( void )
-
 {
-
 	int i;
+
+	/*	r402: field diagnostics.  Eden keeps the game's stdout, so the only
+		way to see whether this frame hook runs and what it can read is a
+		file on the SD card.  Ten-second heartbeat.							*/
+	{
+		static unsigned int dcalls = 0, dlast = 0;
+
+		dcalls++;
+		if ( dcalls - dlast >= 600 ) {
+			FILE *df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
+
+			if ( df != NULL ) {
+				const Uint8 *kk = SDL_GetKeyboardState( NULL );
+				fprintf( df, "poll %u pad=%p b=%d up=%d down=%d f9=%d\n", dcalls,
+					(void *)sw_pad,
+					kk ? (int)kk[ SDL_SCANCODE_B ] : -1,
+					kk ? (int)kk[ SDL_SCANCODE_UP ] : -1,
+					kk ? (int)kk[ SDL_SCANCODE_DOWN ] : -1,
+					kk ? (int)kk[ SDL_SCANCODE_F9 ] : -1 );
+				fclose( df );
+			}
+			dlast = dcalls;
+		}
+	}
 
 
 
