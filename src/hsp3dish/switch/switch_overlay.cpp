@@ -1012,6 +1012,7 @@ static void sw_ovl_quad( GLuint tex, float x0, float y0, float w, float h )
 static void sw_ovl_cg_tick( void );
 static void sw_ovl_cg_draw( int win_w, int win_h );
 static void sw_ovl_ev_tick( void );	/* r392: data-driven events */
+static void sw_ovl_phrase_draw( int win_w, int win_h );	/* r397 */
 
 void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 {
@@ -1088,6 +1089,7 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 
 cg_pass:
 	sw_ovl_cg_draw( win_w, win_h );
+	sw_ovl_phrase_draw( win_w, win_h );
 }
 /*	==================================================================
 	Party HUD (r185f)
@@ -2436,6 +2438,101 @@ static unsigned int	sw_ovl_ev_tick_at = 0;
 static int			sw_ovl_ev_save_seen = -1;
 static int			sw_ovl_ev_area_seen = -2;
 static char			sw_ovl_ev_manual[ 40 ] = "";
+
+/*	r397: the quick-phrase panel.  A dark card in the middle of the screen
+	with the prepared lines, the chosen one highlighted.  It is drawn above
+	everything, including an event picture, because the player is using it.	*/
+static GLuint	sw_ovl_ph_tex = 0;
+static int		sw_ovl_ph_w = 0, sw_ovl_ph_h = 0;
+static int		sw_ovl_ph_sig = -1;
+
+static void sw_ovl_ph_text( SDL_Surface *dst, const char *s, int x, int y,
+		Uint8 r, Uint8 g, Uint8 b )
+{
+	SDL_Color col;
+	SDL_Surface *t;
+	SDL_Rect d;
+
+	if ( sw_ovl_font == NULL || dst == NULL || s == NULL ) return;
+	col.r = r; col.g = g; col.b = b; col.a = 255;
+	t = TTF_RenderUTF8_Blended( sw_ovl_font, s, col );
+	if ( t == NULL ) return;
+	d.x = x; d.y = y; d.w = 0; d.h = 0;
+	SDL_BlitSurface( t, NULL, dst, &d );
+	SDL_FreeSurface( t );
+}
+
+static void sw_ovl_ph_build( int cur, int cnt )
+{
+	SDL_Surface *s, *conv;
+	int i, top = 34, lh = 28, h;
+
+	h = top + cnt * lh + 14;
+	s = SDL_CreateRGBSurfaceWithFormat( 0, 700, h, 32, SDL_PIXELFORMAT_ABGR8888 );
+	if ( s == NULL ) return;
+	SDL_FillRect( s, NULL, SDL_MapRGBA( s->format, 18, 14, 10, 238 ) );
+	sw_ovl_ph_text( s, "快捷对话    ↑↓ 选择    A 发送    B 关闭", 16, 8, 210, 198, 166 );
+	for ( i = 0; i < cnt; i++ ) {
+		char line[ 200 ];
+
+		if ( i == cur ) {
+			snprintf( line, sizeof( line ), "▶ %s", switch_input_phrase_text( i ) );
+			sw_ovl_ph_text( s, line, 16, top + i * lh, 255, 216, 96 );
+		} else {
+			snprintf( line, sizeof( line ), "   %s", switch_input_phrase_text( i ) );
+			sw_ovl_ph_text( s, line, 16, top + i * lh, 232, 226, 204 );
+		}
+	}
+	conv = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( s );
+	if ( conv == NULL ) return;
+	if ( sw_ovl_ph_tex != 0 ) { glDeleteTextures( 1, &sw_ovl_ph_tex ); sw_ovl_ph_tex = 0; }
+	sw_ovl_ph_tex = sw_ovl_upload_rgba( conv, &sw_ovl_ph_w, &sw_ovl_ph_h );
+	SDL_FreeSurface( conv );
+}
+
+static void sw_ovl_phrase_draw( int win_w, int win_h )
+{
+	int cur, cnt, sig, tex2d_was;
+	float x, y, w, h;
+
+	if ( !switch_input_phrase_active() ) {
+		if ( sw_ovl_ph_tex != 0 ) { glDeleteTextures( 1, &sw_ovl_ph_tex ); sw_ovl_ph_tex = 0; }
+		sw_ovl_ph_sig = -1;
+		return;
+	}
+	cnt = switch_input_phrase_count();
+	cur = switch_input_phrase_cursor();
+	if ( cnt <= 0 || win_w <= 0 || win_h <= 0 ) return;
+	sig = cur * 64 + cnt;
+	if ( sig != sw_ovl_ph_sig || sw_ovl_ph_tex == 0 ) {
+		sw_ovl_ph_build( cur, cnt );
+		sw_ovl_ph_sig = sig;
+	}
+	if ( sw_ovl_ph_tex == 0 ) return;
+
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+	glOrtho( 0, (GLdouble)win_w, -(GLdouble)win_h, 0, -100, 100 );
+	glViewport( 0, 0, win_w, win_h );
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+
+	glDisableClientState( GL_COLOR_ARRAY );
+	sw_glColorKey( 0, 0 );
+	tex2d_was = sw_texture2d_on();
+	glEnable( GL_TEXTURE_2D );
+	glEnable( GL_BLEND );
+	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	x = ( (float)win_w - (float)sw_ovl_ph_w ) * 0.5f;
+	y = -( ( (float)win_h - (float)sw_ovl_ph_h ) * 0.5f );
+	w = (float)sw_ovl_ph_w;
+	h = (float)sw_ovl_ph_h;
+	sw_ovl_quad( sw_ovl_ph_tex, x, y, w, h );
+	glBindTexture( GL_TEXTURE_2D, 0 );
+	glDisable( GL_BLEND );
+	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
+}
 
 static void sw_ovl_ev_trim( char *s )
 {

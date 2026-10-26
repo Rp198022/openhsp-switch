@@ -33,6 +33,15 @@ int switch_input_take_keys( char *out, int max );
 void switch_input_inject_scancode( int sc );
 
 int switch_input_key_state( int scancode );
+/*	r397: quick-phrase panel for the companion chat.  ZR+ZL opens it when
+	data/chat_phrases.txt exists; the system keyboard stays the fallback.
+	While it is open every game key is held off.							*/
+int  switch_input_phrase_start( void );
+int  switch_input_phrase_active( void );
+int  switch_input_phrase_cursor( void );
+int  switch_input_phrase_count( void );
+const char *switch_input_phrase_text( int i );
+
 
 /*	DirectInput-shaped pad state for Elona's own gamepad path: bits 0-3 are
 	the hat (up, down, left, right) and bits 4..15 the twelve buttons, which its

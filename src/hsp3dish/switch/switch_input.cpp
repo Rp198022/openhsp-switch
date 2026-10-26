@@ -395,6 +395,35 @@ void switch_input_poll( void )
 		if ( !ok ) sw_cg_swallow = 0;
 		last_ok = ok;
 	}
+	/*	r397: the phrase panel owns the pad while it is open.  The game keys
+		are zeroed and the poll returns, so choosing a line never also walks
+		or opens a menu.													*/
+	if ( sw_ph_open ) {
+		SDL_PumpEvents();
+		if ( sw_pad != NULL ) {
+			Uint8 u, d, a, b;
+
+			SDL_JoystickUpdate();
+			u = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP );
+			d = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN );
+			a = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );	/* confirm */
+			b = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A );	/* cancel  */
+			if ( u && !sw_ph_u && sw_ph_cur > 0 ) sw_ph_cur--;
+			if ( d && !sw_ph_d && sw_ph_cur + 1 < sw_ph_n ) sw_ph_cur++;
+			if ( b && !sw_ph_b ) sw_ph_open = 0;
+			if ( a && !sw_ph_a && sw_ph_open ) {
+				char text[ SW_PH_LEN ];
+
+				snprintf( text, sizeof( text ), "%s", sw_ph[ sw_ph_cur ] );
+				sw_ph_open = 0;
+				ai_chat_ask( text );
+			}
+			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+		}
+		memset( sw_keys, 0, sizeof( sw_keys ) );
+		memset( sw_char_state, 0, sizeof( sw_char_state ) );
+		return;
+	}
 	if ( sw_pad == NULL ) return;
 
 	/*	SDL refreshes the joystick/controller state from inside the event
@@ -688,6 +717,63 @@ static char sw_stick_key( SDL_GameControllerAxis axis, int *last, char neg, char
 	return c;
 }
 
+/*	r397: the quick-phrase panel.  The player picks a prepared line with the
+	d-pad and sends it with A, so the system keyboard is only needed for free
+	text.  Lines live in data/chat_phrases.txt, one per line, '#' comments.	*/
+#define SW_PH_MAX	8
+#define SW_PH_LEN	120
+
+static char		sw_ph[ SW_PH_MAX ][ SW_PH_LEN ];
+static int		sw_ph_n = 0, sw_ph_open = 0, sw_ph_cur = 0, sw_ph_loaded = 0;
+static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
+
+static void sw_ph_trim( char *s )
+{
+	size_t l;
+
+	while ( *s == ' ' || *s == '\t' ) memmove( s, s + 1, strlen( s ) );
+	l = strlen( s );
+	while ( l > 0 && ( s[ l - 1 ] == ' ' || s[ l - 1 ] == '\t' ||
+			s[ l - 1 ] == '\r' || s[ l - 1 ] == '\n' ) )
+		s[ --l ] = '\0';
+}
+
+static void sw_ph_load( void )
+{
+	FILE *f;
+
+	if ( sw_ph_loaded ) return;
+	sw_ph_loaded = 1;
+	f = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt", "rb" );
+	if ( f == NULL ) return;
+	while ( sw_ph_n < SW_PH_MAX && fgets( sw_ph[ sw_ph_n ], SW_PH_LEN, f ) != NULL ) {
+		sw_ph_trim( sw_ph[ sw_ph_n ] );
+		if ( sw_ph[ sw_ph_n ][ 0 ] == '\0' || sw_ph[ sw_ph_n ][ 0 ] == '#' ) continue;
+		sw_ph_n++;
+	}
+	fclose( f );
+}
+
+int switch_input_phrase_start( void )
+{
+	sw_ph_load();
+	if ( sw_ph_n <= 0 ) return 0;
+	sw_ph_open = 1;
+	sw_ph_cur = 0;
+	sw_ph_a = sw_ph_b = sw_ph_u = sw_ph_d = 0;
+	return 1;
+}
+
+int switch_input_phrase_active( void ) { return sw_ph_open; }
+int switch_input_phrase_cursor( void ) { return sw_ph_cur; }
+int switch_input_phrase_count( void ) { return sw_ph_n; }
+
+const char *switch_input_phrase_text( int i )
+{
+	if ( i < 0 || i >= sw_ph_n ) return "";
+	return sw_ph[ i ];
+}
+
 int switch_input_take_keys( char *out, int max )
 {
 	int n = 0;
@@ -705,17 +791,20 @@ int switch_input_take_keys( char *out, int max )
 		keyboard there crashes, which is why the marker exists.				*/
 	if ( layer == 2 && sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) &&
 			!sw_ai_key_held ) {
-		FILE *f;
 		sw_ai_key_held = 1;
-		f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
-		if ( f != NULL ) fclose( f );
-		else {
-			char text[ 512 ];
-			if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
-				if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
-					ai_chat_remember( text + strlen( "/设定" ) );
-				else
-					ai_chat_ask( text );
+		/*	r397: the prepared phrases cover the everyday lines; the system
+			keyboard is opened only when no phrase file is present.			*/
+		if ( !switch_input_phrase_start() ) {
+			FILE *f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
+			if ( f != NULL ) fclose( f );
+			else {
+				char text[ 512 ];
+				if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
+					if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
+						ai_chat_remember( text + strlen( "/设定" ) );
+					else
+						ai_chat_ask( text );
+				}
 			}
 		}
 	} else if ( !sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) ) {
