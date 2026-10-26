@@ -2046,6 +2046,41 @@ static int sw_ovl_msg_row( int back, char *out, size_t n )
 	return 0;
 }
 
+/*	r384: every row newer than `mark`, oldest first, already UTF-8.  The old
+	watcher compared only the newest row and then walked four rows back, so a
+	burst that left five or more rows between two ticks lost everything past
+	the fourth.  This walks the whole visible log (about 30 rows) and stops at
+	the row handled last time.  An empty mark means "first run": only the
+	newest row is taken, so a fresh save load does not replay old news.		*/
+#define SW_OVL_AI_LOG_MAX	24
+static int sw_ovl_ai_log_new( const char *mark, char rows[][ 400 ], int max )
+{
+	int i, seen = 0, n = 0;
+	const char *s;
+	char u[ 400 ];
+
+	if ( sw_ovl_pv_msg == NULL || rows == NULL || max < 1 ) return 0;
+	if ( mark == NULL || mark[ 0 ] == '\0' ) max = 1;
+	for ( i = (int)sw_ovl_pv_msg->len[1] - 1; i >= 0 && seen < SW_OVL_AI_LOG_MAX; i-- ) {
+		s = (const char*)HspVarCorePtrAPTR( sw_ovl_pv_msg, i );
+		if ( s == NULL || s[ 0 ] == '\0' ) continue;
+		seen++;
+		snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( s ) );
+		if ( mark != NULL && mark[ 0 ] != '\0' && strcmp( u, mark ) == 0 )
+			break;						/* rows before this were handled	*/
+		if ( n >= max ) break;
+		snprintf( rows[ n ], 400, "%s", u );
+		n++;
+	}
+	for ( i = 0; i < n / 2; i++ ) {
+		char tmp[ 400 ];
+		memcpy( tmp, rows[ i ], sizeof( tmp ) );
+		memcpy( rows[ i ], rows[ n - 1 - i ], sizeof( tmp ) );
+		memcpy( rows[ n - 1 - i ], tmp, sizeof( tmp ) );
+	}
+	return n;
+}
+
 static const char *sw_ovl_attr_name( int i )
 {
 	static const char *nm[8] = {
@@ -3043,7 +3078,9 @@ static void sw_ovl_ai_watch( void )
 	size_t n;
 	int hp_pct, i, transfer = 0;
 
-	if ( now - sw_ovl_ai_w_tick < 500 ) return;		/* twice a second is plenty */
+	/*	r384: four times a second.  Two ticks per second plus a four-row walk
+		left bursts unread; the scan itself is cheap, so read more often.	*/
+	if ( now - sw_ovl_ai_w_tick < 250 ) return;
 	sw_ovl_ai_w_tick = now;
 
 	/*	1. The game's own log.  One line per change, at most one every four
@@ -3093,110 +3130,65 @@ static void sw_ovl_ai_watch( void )
 	}
 	}
 
-	/*	r292: rows that talk ABOUT the follower.  Section 1 drops them on
-		purpose - a row carrying her name is usually her own speech, and
-		echoing that back makes her parrot herself - but skill practice,
-		eating and drinking are the game narrating her, so they get a forced
-		line even while the log is otherwise busy.  One action can leave
-		several rows, hence the short walk back.							*/
+	/*	r292/r384: rows that talk ABOUT the follower.  The scan covers the whole
+	visible log and stops at the row handled last time, so a burst between two
+	ticks is no longer cut at the fourth row.  Her own spoken line still does
+	not count - that is the panel's chatter already.  Give and take are read
+	off the same rows and no longer need their own four-row walk.			*/
 	{
-		char newest[ 300 ];
-		if ( sw_ovl_msg_row( 0, newest, sizeof( newest ) ) ) {
-			char un[ 400 ];
-			snprintf( un, sizeof( un ), "%s", sw_ovl_utf8( newest ) );
-			if ( strcmp( un, sw_ovl_ai_w_msg ) != 0 ) {
-				char nm[ 96 ], prev[ 300 ];
-				int back;
-				/*	r338: give/take live in the message window, not in her
-					own line - "军粮递了过去。" carries the item name and
-					no character name at all.							*/
-				int give = ( strstr( un, "递了过去" ) != NULL ||
-					strstr( un, "交给了" ) != NULL );
-				int take = ( strstr( un, "接收了" ) != NULL );
-				snprintf( prev, sizeof( prev ), "%s", sw_ovl_ai_w_msg );
+		static char rows[ SW_OVL_AI_LOG_MAX ][ 400 ];
+		int nrows, r;
+
+		nrows = sw_ovl_ai_log_new( sw_ovl_ai_w_msg, rows, SW_OVL_AI_LOG_MAX );
+		if ( nrows > 0 ) {
+			static int dbg_burst = 0;
+			if ( nrows > 1 && dbg_burst < 30 ) {
+				dbg_burst++;
+				printf( "hsp3switch: ai log burst %d rows\n", nrows );
+				fflush( stdout );
+			}
+			for ( r = nrows - 1; r >= 0 && !transfer; r-- ) {
+				int give = ( strstr( rows[ r ], "递了过去" ) != NULL ||
+					strstr( rows[ r ], "交给了" ) != NULL );
+				int take = ( strstr( rows[ r ], "接收了" ) != NULL );
+				if ( !give && !take ) continue;
+				snprintf( note, sizeof( note ), give
+					? "主人刚刚把东西递给了你：%.*s"
+					: "主人刚刚从你那里拿了东西：%.*s", 120, rows[ r ] );
+				{
+					size_t c;
+					for ( c = 0; note[ c ]; c++ )
+						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
+				}
+				ai_chat_notify_event( note, 4 );
+				transfer = 1;
+			}
+			for ( r = nrows - 1; r >= 0; r-- ) {
+				char nm[ 96 ], self[ 400 ];
+				int mine, speech;
+
 				snprintf( nm, sizeof( nm ), "%s", sw_ovl_utf8( sw_ovl_party_name[1] ) );
-				snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s", un );
-				if ( give || take ) {
-					snprintf( note, sizeof( note ), give
-						? "主人刚刚把东西递给了你：%.*s"
-						: "主人刚刚从你那里拿了东西：%.*s", 120, un );
-					{
-						size_t c;
-						for ( c = 0; note[ c ]; c++ )
-							if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
-					}
-					ai_chat_notify_event( note, 4 );
-					transfer = 1;
+				speech = ( r == nrows - 1 && sw_ovl_speaker() == sw_ovl_party_slot[1] &&
+					strchr( rows[ r ], '"' ) != NULL );
+				mine = ( sw_ovl_ai_name_hit( rows[ r ], nm ) || strstr( rows[ r ], "随从" ) != NULL );
+				if ( speech || !mine ) continue;
+				if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( rows[ r ] ) ) continue;
+				sw_ovl_ai_self_phrase( rows[ r ], nm, self, sizeof( self ) );
+				snprintf( note, sizeof( note ),
+					"游戏日志里出现了关于你的消息：%.*s", 120, self );
+				{
+					size_t c;
+					for ( c = 0; note[ c ]; c++ )
+						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
 				}
-				for ( back = 0; back < 4 && nm[ 0 ]; back++ ) {
-					char raw[ 300 ], u[ 400 ], self[ 400 ];
-					int mine, speech;
-
-					if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
-					snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
-					/*	The previous newest row was already handled with the
-						last poll; stop before walking into it again.		*/
-					if ( prev[ 0 ] && strcmp( u, prev ) == 0 ) break;
-					/*	Her own spoken line is already the panel's chatter.	*/
-					speech = ( back == 0 && sw_ovl_speaker() == sw_ovl_party_slot[1] &&
-						strchr( u, '"' ) != NULL );
-					mine = ( sw_ovl_ai_name_hit( u, nm ) || strstr( u, "随从" ) != NULL );
-					/*	r314: the skill rows never carry quotes and often carry
-						only part of her name, which used to drop them here.	*/
-					if ( strstr( u, "技能" ) != NULL ) {
-						printf( "hsp3switch: ai log skill -> %s (mine=%d)\n", u, mine );
-						fflush( stdout );
-					}
-					/*	r300: the coloured notices, plus eating and drinking.	*/
-					/*	r335: outside battle a row that names her is worth a line
-						by itself - the whitelist stays for battle, where every
-						other row is noise.									*/
-					if ( speech || !mine ) continue;
-					if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( u ) ) continue;
-					sw_ovl_ai_self_phrase( u, nm, self, sizeof( self ) );
-					snprintf( note, sizeof( note ),
-						"游戏日志里出现了关于你的消息：%.*s", 120, self );
-					{
-						size_t c;
-						for ( c = 0; note[ c ]; c++ )
-							if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
-					}
-					ai_chat_notify_event( note, 4 );
-					break;
-				}
+				ai_chat_notify_event( note, 4 );
+				break;
 			}
-		}
-	}
-
-	/*	r339: give and take.  The row lives in the message window and often
-		sits one or two rows behind the menu prompt ("要赠送什么？"), so a few
-		rows are walked back.  The text carries the item name itself.		*/
-	{
-		static char last_give[ 300 ] = "";
-		static unsigned int last_give_at = 0;
-		int b;
-		for ( b = 0; b < 4; b++ ) {
-			char raw2[ 300 ], u2[ 400 ];
-			if ( !sw_ovl_msg_row( b, raw2, sizeof( raw2 ) ) ) break;
-			snprintf( u2, sizeof( u2 ), "%s", sw_ovl_utf8( raw2 ) );
-			if ( strstr( u2, "递了过去" ) == NULL &&
-					strstr( u2, "交给了" ) == NULL &&
-					strstr( u2, "接收了" ) == NULL ) continue;
-			if ( strcmp( u2, last_give ) == 0 && now - last_give_at < 5000 ) break;
-			snprintf( last_give, sizeof( last_give ), "%s", u2 );
-			last_give_at = now;
-			snprintf( note, sizeof( note ),
-				strstr( u2, "接收了" ) != NULL
-					? "主人刚刚从你那里拿了东西：%.*s"
-					: "主人刚刚把东西递给了你：%.*s", 120, u2 );
-			{
-				size_t c;
-				for ( c = 0; note[ c ]; c++ )
-					if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
-			}
-			ai_chat_notify_event( note, 4 );
-			transfer = 1;
-			break;
+			/*	The mark moves only after the rows are dealt with, and it is
+				the newest row, so the next tick starts exactly where this one
+				stopped.													*/
+			snprintf( sw_ovl_ai_w_msg, sizeof( sw_ovl_ai_w_msg ), "%s",
+				rows[ nrows - 1 ] );
 		}
 	}
 
