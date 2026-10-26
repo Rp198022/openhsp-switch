@@ -478,7 +478,6 @@ void switch_input_poll( void )
 			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
 		}
 		memset( sw_keys, 0, sizeof( sw_keys ) );
-		memset( sw_char_state, 0, sizeof( sw_char_state ) );
 		return;
 	}
 	if ( sw_pad == NULL ) return;
