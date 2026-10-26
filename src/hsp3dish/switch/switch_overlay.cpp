@@ -2512,7 +2512,7 @@ static void sw_ovl_ev_fire( SW_OVL_EV *e )
 	if ( e == NULL || e->done ) return;
 	if ( e->cg[ 0 ] ) switch_overlay_cg_request( e->cg );
 	if ( e->text[ 0 ] ) ai_chat_notify_event( e->text, 4 );
-	printf( "hsp3switch: event %s fired\n", e->id );
+	printf( "hsp3switch: event %s fired cg=[%s] text=[%s]\n", e->id, e->cg, e->text );
 	fflush( stdout );
 	if ( e->once ) {
 		e->done = 1;

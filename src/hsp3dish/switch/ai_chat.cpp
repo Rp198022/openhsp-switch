@@ -1715,7 +1715,11 @@ void ai_chat_notify_event( const char *event, int priority )
 	double now = ai_now();
 	int i, slot = 0;
 
-	if ( !ai_enabled || event == NULL || event[ 0 ] == '\0' ) return;
+	if ( !ai_enabled || event == NULL || event[ 0 ] == '\0' ) {
+		printf( "aichat: notify drop (enabled=%d null=%d)\n", ai_enabled, event == NULL );
+		fflush( stdout );
+		return;
+	}
 	pthread_mutex_lock( &ai_lock );
 	/*	Same sentence inside 8 seconds is the same event seen twice: ignore.
 		Kept short on request - the follower should feel present, and one
@@ -1723,6 +1727,8 @@ void ai_chat_notify_event( const char *event, int priority )
 	for ( i = 0; i < AI_EVENT_KINDS; i++ ) {
 		if ( strcmp( ai_event_kind[ i ], event ) == 0 && now - ai_event_seen[ i ] < 8 ) {
 			pthread_mutex_unlock( &ai_lock );
+			printf( "aichat: notify dedup [%s]\n", event );
+			fflush( stdout );
 			return;
 		}
 	}
@@ -1738,6 +1744,8 @@ void ai_chat_notify_event( const char *event, int priority )
 		ai_event_at = now;
 	}
 	pthread_mutex_unlock( &ai_lock );
+	printf( "aichat: notify queue prio=%d [%s]\n", priority, event );
+	fflush( stdout );
 }
 
 static int ai_ends_with( const char *s, const char *suf )
@@ -1946,7 +1954,7 @@ void ai_chat_tick( void )
 		pthread_mutex_unlock( &ai_lock );
 		{
 			static int dbg = 0;
-			if ( dbg < 50 ) {
+			if ( dbg < 500 ) {
 				dbg++;
 				printf( "aichat: send event [%s]\n", event );
 				fflush( stdout );
