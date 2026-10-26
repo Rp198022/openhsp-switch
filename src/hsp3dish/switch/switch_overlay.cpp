@@ -2158,7 +2158,7 @@ static int sw_ovl_face_load( void )
 	number ("63" -> graphic/anime63.bmp); the picture is drawn over the
 	game frame for 2.5 s with a short fade.  This file is the manual test
 	path - the AI [[cg:]] tag will feed the very same request.			*/
-#define SW_OVL_CG_MS	2500
+#define SW_OVL_CG_MS	10000
 static GLuint	sw_ovl_cg_tex = 0;
 static int		sw_ovl_cg_w = 0, sw_ovl_cg_h = 0;
 static unsigned int	sw_ovl_cg_at = 0;
@@ -2242,6 +2242,14 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 		whole quad outside the ortho box and nothing was visible.			*/
 	y = -( h + 4.0f );
 
+	/*	r377: prove the window pass can be written at all.  glClear honours
+		the viewport, so this fills the top-left corner with solid green
+		without a texture, a blend or a projection.  If it shows and the
+		picture does not, the pass reaches the window and the texture or the
+		timing is at fault; if it does not show, the pass never lands.		*/
+	glViewport( 0, win_h - 160, 160, 160 );
+	glClearColor( 0.0f, 1.0f, 0.0f, 1.0f );
+	glClear( GL_COLOR_BUFFER_BIT );
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 	glOrtho( 0, (GLdouble)win_w, -(GLdouble)win_h, 0, -100, 100 );
