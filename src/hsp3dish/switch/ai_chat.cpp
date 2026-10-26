@@ -46,6 +46,7 @@ static int			ai_event_prio = -1;
 static double		ai_event_at = 0;
 
 static char			ai_line[ AI_MAX_LINE ] = "";		/* newest answer			*/
+static volatile int	ai_want_welcome = 0;	/* r385: this answer must say 欢迎回来 */
 static char			ai_last_line[ AI_MAX_LINE ] = "";
 /*	r272: the panel keeps the last three lines on screen, so the module
 	remembers them instead of only the newest one.							*/
@@ -1408,6 +1409,20 @@ static void ai_request( char *body, int mode, const char *question )
 				way to tell whether a missing expression came from the parser
 				or from a name outside the whitelist.						*/
 			ai_log_line( "raw", result );
+			/*	r385: the reload greeting has to contain 欢迎回来.  The
+				prompt asks for it; this makes sure of it even when the
+				model answers with something else.						*/
+			if ( ai_want_welcome ) {
+				ai_want_welcome = 0;
+				if ( strstr( result, "欢迎回来" ) == NULL ) {
+					static const char pre[] = "欢迎回来。";
+					size_t pl = sizeof( pre ) - 1, rl = strlen( result );
+					if ( pl + rl < sizeof( result ) ) {
+						memmove( result + pl, result, rl + 1 );
+						memcpy( result, pre, pl );
+					}
+				}
+			}
 			/*	r383: the picture tag has to be read before the expression
 				parser runs - it removes a trailing "]]" as a stray bracket,
 				which used to break [[cg:...]] before this saw it.			*/
@@ -1519,6 +1534,7 @@ static void ai_start( const char *question, const char *event )
 	snprintf( memory, sizeof( memory ), "%s", ai_memory );
 	snprintf( tone, sizeof( tone ), "%s", ai_tone );
 	snprintf( example, sizeof( example ), "%s", ai_example );
+	ai_want_welcome = ( event != NULL && strstr( event, "欢迎回来" ) != NULL ) ? 1 : 0;
 	ai_busy = 1;
 	ai_busy_at = ai_now();
 	ai_state = AI_STATE_BUSY;

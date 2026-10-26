@@ -458,6 +458,7 @@ static int		sw_ovl_ai_w_ply_dead = 0;
 static int		sw_ovl_ai_w_pet_dead = 0;
 static int		sw_ovl_ai_w_pet_hp = -1;	/* pet hp percent, -1 = unread */
 static char		sw_ovl_ai_w_msg[ 300 ] = "";	/* newest log row, UTF-8	*/
+static unsigned int	sw_ovl_ai_swap_at = 0;	/* r385: 30 min cooldown for 换位 */
 
 /*	r269: unattended consoles.  A fingerprint of everything the panel tracks
 	changes on every turn the player takes and stays put while the game is
@@ -2081,6 +2082,33 @@ static int sw_ovl_ai_log_new( const char *mark, char rows[][ 400 ], int max )
 	return n;
 }
 
+/*	r385: the scene's "最近" row is taken from the message log - the three
+	newest rows, oldest first - instead of her own last line.  The player
+	asked for the chatter to follow what the log just said; a stretch of her
+	own words made her circle back to the same subject.						*/
+static void sw_ovl_ai_recent_log( char *out, size_t n )
+{
+	int back, got = 0, i;
+	char rows[ 3 ][ 300 ];
+
+	if ( out == NULL || n < 2 ) return;
+	out[ 0 ] = '\0';
+	for ( back = 0; back < 3; back++ ) {
+		char raw[ 300 ], u[ 400 ];
+
+		if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
+		snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
+		if ( got > 0 && strcmp( u, rows[ got - 1 ] ) == 0 ) continue;
+		snprintf( rows[ got ], sizeof( rows[ got ] ), "%s", u );
+		got++;
+	}
+	for ( i = got - 1; i >= 0; i-- ) {
+		size_t o = strlen( out );
+		if ( o > 0 && o + 3 < n ) strcat( out, " / " );
+		strncat( out, rows[ i ], n - 1 - strlen( out ) );
+	}
+}
+
 static const char *sw_ovl_attr_name( int i )
 {
 	static const char *nm[8] = {
@@ -2940,8 +2968,11 @@ static void sw_ovl_ai_scene( char *out, size_t n, int pet, const char *where )
 		break the "最近：" row into two unrelated sentences.  The game stores it
 		in GBK, so it is converted first - the request body is UTF-8 and a raw
 		GBK byte would make the API reject the whole JSON with a 400.		*/
-	snprintf( recent, sizeof( recent ), "%s",
-		sw_ovl_party_chat[1][ 0 ] ? sw_ovl_utf8( sw_ovl_party_chat[1] ) : "安静" );
+	/*	r385: the log, newest rows last, is what she is meant to talk about. */
+	sw_ovl_ai_recent_log( recent, sizeof( recent ) );
+	if ( recent[ 0 ] == '\0' )
+		snprintf( recent, sizeof( recent ), "%s",
+			sw_ovl_party_chat[1][ 0 ] ? sw_ovl_utf8( sw_ovl_party_chat[1] ) : "安静" );
 	rl = strlen( recent );
 	for ( i = 0; i < rl; i++ ) if ( recent[ i ] == '\n' || recent[ i ] == '\r' ) recent[ i ] = ' ';
 	if ( rl > 200 ) {
@@ -3137,7 +3168,7 @@ static void sw_ovl_ai_watch( void )
 	off the same rows and no longer need their own four-row walk.			*/
 	{
 		static char rows[ SW_OVL_AI_LOG_MAX ][ 400 ];
-		int nrows, r;
+		int nrows, r, swap_seen = -1;
 
 		nrows = sw_ovl_ai_log_new( sw_ovl_ai_w_msg, rows, SW_OVL_AI_LOG_MAX );
 		if ( nrows > 0 ) {
@@ -3163,6 +3194,21 @@ static void sw_ovl_ai_watch( void )
 				ai_chat_notify_event( note, 4 );
 				transfer = 1;
 			}
+			/*	r385: 换位 gets its own event, but at most once every thirty
+				minutes - the player asked for that gap explicitly.			*/
+			{
+				int swap_row = -1;
+				for ( r = nrows - 1; r >= 0; r-- ) {
+					if ( strstr( rows[ r ], "换位" ) == NULL ) continue;
+					swap_row = r;
+					if ( sw_ovl_ai_swap_at != 0 && now - sw_ovl_ai_swap_at < 1800000u )
+						break;
+					sw_ovl_ai_swap_at = now;
+					ai_chat_notify_event( "主人刚刚和你交换了位置", 3 );
+					break;
+				}
+				swap_seen = swap_row;
+			}
 			for ( r = nrows - 1; r >= 0; r-- ) {
 				char nm[ 96 ], self[ 400 ];
 				int mine, speech;
@@ -3171,6 +3217,7 @@ static void sw_ovl_ai_watch( void )
 				speech = ( r == nrows - 1 && sw_ovl_speaker() == sw_ovl_party_slot[1] &&
 					strchr( rows[ r ], '"' ) != NULL );
 				mine = ( sw_ovl_ai_name_hit( rows[ r ], nm ) || strstr( rows[ r ], "随从" ) != NULL );
+				if ( r == swap_seen ) continue;		/* already reported	*/
 				if ( speech || !mine ) continue;
 				if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( rows[ r ] ) ) continue;
 				sw_ovl_ai_self_phrase( rows[ r ], nm, self, sizeof( self ) );
@@ -4127,7 +4174,8 @@ void switch_overlay_draw_party( int win_w, int win_h, int origin_x, int game_w, 
 				int first = ( sw_ovl_ai_w_greet_name[ 0 ] == '\0' );
 				snprintf( sw_ovl_ai_w_greet_name, sizeof( sw_ovl_ai_w_greet_name ),
 					"%s", nm );
-				ai_chat_notify_event( first ? "主人刚刚回到游戏，你就跟在旁边"
+				ai_chat_notify_event( first ? "主人刚刚读档回到游戏。这句话里必须原样说出「欢迎回来」四个字，"
+					"再接一句贴着场景的话"
 					: "主人又把你叫回队伍里了", first ? 4 : 5 );
 			} else if ( !sw_ovl_ai_w_pet_seen ) {
 				ai_chat_notify_event( "主人又把你叫回队伍里了", 5 );
