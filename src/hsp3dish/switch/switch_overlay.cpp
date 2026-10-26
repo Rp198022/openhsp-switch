@@ -2236,6 +2236,15 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
 
+	{
+		static int dbg = 0;
+		if ( dbg < 4 ) {
+			dbg++;
+			printf( "hsp3switch: cg draw win=%dx%d pic=%dx%d at %.0f,%.0f box %.0fx%.0f\n",
+				win_w, win_h, sw_ovl_cg_w, sw_ovl_cg_h, x, y, w, h );
+			fflush( stdout );
+		}
+	}
 	glDisableClientState( GL_COLOR_ARRAY );
 	sw_glColorKey( 0, 0 );
 	tex2d_was = sw_texture2d_on();
@@ -2243,6 +2252,10 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
+	{
+		static int dg2 = 0;
+		if ( dg2 < 4 ) { dg2++; printf( "hsp3switch: cg glerr=0x%x\n", glGetError() ); fflush( stdout ); }
+	}
 
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
