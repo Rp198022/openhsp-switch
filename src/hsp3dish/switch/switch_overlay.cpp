@@ -1011,12 +1011,14 @@ static void sw_ovl_quad( GLuint tex, float x0, float y0, float w, float h )
 		below the side strips, and independent of the strip on/off flag.	*/
 static void sw_ovl_cg_tick( void );
 static void sw_ovl_cg_draw( int win_w, int win_h );
+static void sw_ovl_ev_tick( void );	/* r392: data-driven events */
 
 void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 {
 	int right_x, right_w, ly0, ry0, tex2d_was;
 
 	sw_ovl_cg_tick();
+	sw_ovl_ev_tick();
 
 	/*	r379: the event picture does not depend on the side strips.  It is
 		drawn even when they are switched off or the layout leaves no room
@@ -2399,6 +2401,184 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
 	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
+}
+
+/*	r392: a small event framework the player can drive from data/events/.
+	One file per event (event01.txt .. event16.txt), key=value lines, UTF-8:
+
+		id=rain_night
+		trigger=start            (start | area:<id> | manual)
+		cg=bg_night              (graphic/<名字>.bmp, 纯数字 = animeN.bmp)
+		text=雨夜里，远处传来钟声。   (作为事件交给随从，让她据此开口)
+		once=1                   (触发一次后写 eventNN.done)
+		act=                     (预留：数值效果)
+
+	manual 触发：把事件 id 写进 data/event_trigger.txt，读到后自动清空。	*/
+#define SW_OVL_EV_MAX	16
+#define SW_OVL_EV_LINE	320
+
+typedef struct {
+	int		used;
+	int		no;
+	int		once;
+	int		done;
+	char	id[ 40 ];
+	char	trigger[ 40 ];
+	char	cg[ 40 ];
+	char	text[ 256 ];
+	char	act[ 96 ];
+} SW_OVL_EV;
+
+static SW_OVL_EV	sw_ovl_ev[ SW_OVL_EV_MAX ];
+static int			sw_ovl_ev_n = 0;
+static int			sw_ovl_ev_loaded = 0;
+static unsigned int	sw_ovl_ev_tick_at = 0;
+static int			sw_ovl_ev_save_seen = -1;
+static int			sw_ovl_ev_area_seen = -2;
+static char			sw_ovl_ev_manual[ 40 ] = "";
+
+static void sw_ovl_ev_trim( char *s )
+{
+	size_t l;
+
+	while ( *s == ' ' || *s == '\t' ) memmove( s, s + 1, strlen( s ) );
+	l = strlen( s );
+	while ( l > 0 && ( s[ l - 1 ] == ' ' || s[ l - 1 ] == '\t' ||
+			s[ l - 1 ] == '\r' || s[ l - 1 ] == '\n' ) )
+		s[ --l ] = '\0';
+}
+
+static int sw_ovl_ev_exists( const char *path )
+{
+	FILE *f = fopen( path, "rb" );
+	if ( f == NULL ) return 0;
+	fclose( f );
+	return 1;
+}
+
+static void sw_ovl_ev_load( void )
+{
+	int i;
+	char path[ 160 ], line[ SW_OVL_EV_LINE ];
+
+	if ( sw_ovl_ev_loaded ) return;
+	sw_ovl_ev_loaded = 1;
+	for ( i = 0; i < SW_OVL_EV_MAX; i++ ) {
+		FILE *f;
+		SW_OVL_EV *e;
+
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/events/event%02d.txt", i + 1 );
+		f = fopen( path, "rb" );
+		if ( f == NULL ) continue;
+		e = &sw_ovl_ev[ sw_ovl_ev_n ];
+		memset( e, 0, sizeof( *e ) );
+		e->used = 1;
+		e->no = i + 1;
+		while ( fgets( line, sizeof( line ), f ) != NULL ) {
+			char *v, *k = line;
+
+			sw_ovl_ev_trim( k );
+			if ( k[ 0 ] == '#' || k[ 0 ] == '\0' ) continue;
+			v = strchr( k, '=' );
+			if ( v == NULL ) continue;
+			*v++ = '\0';
+			sw_ovl_ev_trim( k );
+			sw_ovl_ev_trim( v );
+			if ( strcmp( k, "id" ) == 0 ) snprintf( e->id, sizeof( e->id ), "%s", v );
+			else if ( strcmp( k, "trigger" ) == 0 ) snprintf( e->trigger, sizeof( e->trigger ), "%s", v );
+			else if ( strcmp( k, "cg" ) == 0 ) snprintf( e->cg, sizeof( e->cg ), "%s", v );
+			else if ( strcmp( k, "text" ) == 0 ) snprintf( e->text, sizeof( e->text ), "%s", v );
+			else if ( strcmp( k, "act" ) == 0 ) snprintf( e->act, sizeof( e->act ), "%s", v );
+			else if ( strcmp( k, "once" ) == 0 ) e->once = ( v[ 0 ] == '1' ) ? 1 : 0;
+		}
+		fclose( f );
+		if ( e->id[ 0 ] == '\0' )
+			snprintf( e->id, sizeof( e->id ), "event%02d", i + 1 );
+		if ( e->trigger[ 0 ] == '\0' )
+			snprintf( e->trigger, sizeof( e->trigger ), "manual" );
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/events/event%02d.done", i + 1 );
+		if ( sw_ovl_ev_exists( path ) ) e->done = 1;
+		printf( "hsp3switch: event %s trigger=%s cg=%s once=%d done=%d\n",
+			e->id, e->trigger, e->cg, e->once, e->done );
+		fflush( stdout );
+		sw_ovl_ev_n++;
+	}
+}
+
+static void sw_ovl_ev_fire( SW_OVL_EV *e )
+{
+	char path[ 160 ];
+
+	if ( e == NULL || e->done ) return;
+	if ( e->cg[ 0 ] ) switch_overlay_cg_request( e->cg );
+	if ( e->text[ 0 ] ) ai_chat_notify_event( e->text, 4 );
+	printf( "hsp3switch: event %s fired\n", e->id );
+	fflush( stdout );
+	if ( e->once ) {
+		e->done = 1;
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/data/events/event%02d.done", e->no );
+		{
+			FILE *f = fopen( path, "wb" );
+			if ( f != NULL ) { fputs( "done\n", f ); fclose( f ); }
+		}
+	}
+}
+
+static void sw_ovl_ev_tick( void )
+{
+	int i, area;
+	unsigned int now = SDL_GetTicks();
+
+	if ( now - sw_ovl_ev_tick_at < 500 ) return;
+	sw_ovl_ev_tick_at = now;
+	sw_ovl_ev_load();
+
+	/*	manual: data/event_trigger.txt holds the id; cleared after use.		*/
+	{
+		FILE *f = fopen( "sdmc:/switch/openhsp/data/event_trigger.txt", "rb" );
+		char want[ 64 ] = "";
+
+		if ( f != NULL ) {
+			char line[ 128 ];
+			if ( fgets( line, sizeof( line ), f ) != NULL ) {
+				snprintf( want, sizeof( want ), "%s", line );
+				sw_ovl_ev_trim( want );
+			}
+			fclose( f );
+			if ( want[ 0 ] && strcmp( want, sw_ovl_ev_manual ) != 0 ) {
+				snprintf( sw_ovl_ev_manual, sizeof( sw_ovl_ev_manual ), "%s", want );
+				for ( i = 0; i < sw_ovl_ev_n; i++ )
+					if ( strcmp( sw_ovl_ev[ i ].id, want ) == 0 ) { sw_ovl_ev_fire( &sw_ovl_ev[ i ] ); break; }
+				f = fopen( "sdmc:/switch/openhsp/data/event_trigger.txt", "wb" );
+				if ( f != NULL ) fclose( f );
+			}
+		}
+	}
+
+	/*	start: the save-read counter the reload greeting already uses.		*/
+	{
+		extern int glue_save_reads;
+
+		if ( sw_ovl_ev_save_seen < 0 ) sw_ovl_ev_save_seen = glue_save_reads;
+		else if ( glue_save_reads != sw_ovl_ev_save_seen ) {
+			sw_ovl_ev_save_seen = glue_save_reads;
+			for ( i = 0; i < sw_ovl_ev_n; i++ )
+				if ( strcmp( sw_ovl_ev[ i ].trigger, "start" ) == 0 ) sw_ovl_ev_fire( &sw_ovl_ev[ i ] );
+		}
+	}
+
+	/*	area:<id>															*/
+	area = sw_ovl_gdata( 20 );
+	if ( sw_ovl_ev_area_seen == -2 ) sw_ovl_ev_area_seen = area;
+	else if ( area != sw_ovl_ev_area_seen ) {
+		sw_ovl_ev_area_seen = area;
+		for ( i = 0; i < sw_ovl_ev_n; i++ ) {
+			int want = -1;
+			if ( sscanf( sw_ovl_ev[ i ].trigger, "area:%d", &want ) == 1 &&
+					want == area && !sw_ovl_ev[ i ].done )
+				sw_ovl_ev_fire( &sw_ovl_ev[ i ] );
+		}
+	}
 }
 
 static int sw_ovl_bar_upload( void )
