@@ -2257,8 +2257,9 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	sw_glColorKey( 0, 0 );
 	tex2d_was = sw_texture2d_on();
 	glEnable( GL_TEXTURE_2D );
-	glEnable( GL_BLEND );
-	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	/*	r372: draw it opaque first.  Blending here hides an alpha problem
+		behind a perfectly clean GL error code, so take it out of the way. */
+	glDisable( GL_BLEND );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
 	{
 		static int dg2 = 0;
