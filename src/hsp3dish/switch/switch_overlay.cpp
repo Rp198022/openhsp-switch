@@ -2158,7 +2158,7 @@ static int sw_ovl_face_load( void )
 	number ("63" -> graphic/anime63.bmp); the picture is drawn over the
 	game frame for 2.5 s with a short fade.  This file is the manual test
 	path - the AI [[cg:]] tag will feed the very same request.			*/
-#define SW_OVL_CG_MS	10000
+#define SW_OVL_CG_MS	4000
 static GLuint	sw_ovl_cg_tex = 0;
 static int		sw_ovl_cg_w = 0, sw_ovl_cg_h = 0;
 static unsigned int	sw_ovl_cg_at = 0;
@@ -2231,25 +2231,19 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	/*	r373: parked in the top-left corner for the test - that strip is known
 		to show overlay output, so a picture here separates "the draw path
 		works" from "the centre is being covered by the game frame".		*/
-	k = 300.0f / (float)sw_ovl_cg_w;
-	if ( (float)sw_ovl_cg_h * k > 200.0f )
-		k = 200.0f / (float)sw_ovl_cg_h;
+	/*	r378: an event picture covers the window, scaled up to fill it and
+		centred, the way the game frames its own event art.				*/
+	k = (float)win_w / (float)sw_ovl_cg_w;
+	if ( (float)sw_ovl_cg_h * k < (float)win_h )
+		k = (float)win_h / (float)sw_ovl_cg_h;
 	w = (float)sw_ovl_cg_w * k;
 	h = (float)sw_ovl_cg_h * k;
-	x = 4.0f;
+	x = ( (float)win_w - w ) * 0.5f;
 	/*	r371: the window-space pass runs y downward as 0 .. -win_h, so the
 		bottom edge of the picture has to be negative - a positive y put the
 		whole quad outside the ortho box and nothing was visible.			*/
-	y = -( h + 4.0f );
+	y = -( ( (float)win_h - h ) * 0.5f );
 
-	/*	r377: prove the window pass can be written at all.  glClear honours
-		the viewport, so this fills the top-left corner with solid green
-		without a texture, a blend or a projection.  If it shows and the
-		picture does not, the pass reaches the window and the texture or the
-		timing is at fault; if it does not show, the pass never lands.		*/
-	glViewport( 0, win_h - 160, 160, 160 );
-	glClearColor( 0.0f, 1.0f, 0.0f, 1.0f );
-	glClear( GL_COLOR_BUFFER_BIT );
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
 	glOrtho( 0, (GLdouble)win_w, -(GLdouble)win_h, 0, -100, 100 );
@@ -2274,15 +2268,6 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 		behind a perfectly clean GL error code, so take it out of the way. */
 	glDisable( GL_BLEND );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
-	/*	r375: a second copy and a white block, all in the same pass.  If none
-		of them shows, the pass is not reaching the window; if only the block
-		shows, the picture texture is the problem.							*/
-	sw_ovl_quad( sw_ovl_cg_tex, x + w + 8.0f, y, w, h );
-	/*	r376: a plain white block from the panel's own 1x1 texture.  This
-		shares every call with the side panel, so if it shows and the picture
-		does not, the picture's texture is at fault; if it does not show, the
-		pass itself is not reaching the window.							*/
-	sw_ovl_quad( sw_ovl_bar_tex[ 0 ], 4.0f, -4.0f, 120.0f, 120.0f );
 	{
 		static int dg2 = 0;
 		if ( dg2 < 4 ) {
