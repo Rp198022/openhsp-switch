@@ -2468,15 +2468,15 @@ static void sw_ovl_ph_build( int cur, int cnt )
 	int i, top = 34, lh = 28, h;
 
 	h = top + cnt * lh + 14;
-	s = SDL_CreateRGBSurfaceWithFormat( 0, 700, h, 32, SDL_PIXELFORMAT_ABGR8888 );
+	s = SDL_CreateRGBSurfaceWithFormat( 0, 540, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( s == NULL ) return;
 	SDL_FillRect( s, NULL, SDL_MapRGBA( s->format, 18, 14, 10, 238 ) );
-	sw_ovl_ph_text( s, "快捷对话    ↑↓ 选择    A 发送    B 关闭", 16, 8, 210, 198, 166 );
+	sw_ovl_ph_text( s, "快捷对话    上下选择    A 发送    B 关闭", 16, 8, 210, 198, 166 );
 	for ( i = 0; i < cnt; i++ ) {
 		char line[ 200 ];
 
 		if ( i == cur ) {
-			snprintf( line, sizeof( line ), "▶ %s", switch_input_phrase_text( i ) );
+			snprintf( line, sizeof( line ), "> %s", switch_input_phrase_text( i ) );
 			sw_ovl_ph_text( s, line, 16, top + i * lh, 255, 216, 96 );
 		} else {
 			snprintf( line, sizeof( line ), "   %s", switch_input_phrase_text( i ) );
