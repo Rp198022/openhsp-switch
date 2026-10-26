@@ -634,14 +634,15 @@ static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
 
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
-	controller there, so ZR+ZL cannot reach this port.  F9 is free in Elona's
-	key set and missing from the console's keyboard-less gamepad, so it opens
-	the panel on the desktop and stays inert on hardware.					*/
+	controller there, so ZR+ZL cannot reach this port.  F9/B are free in
+	Elona's key set, and no console pad has a keyboard, so this stays inert
+	on hardware.  B rides along because an emulator hotkey may eat F9 first.	*/
 static int sw_ph_kb_combo( void )
 {
 	const Uint8 *k = SDL_GetKeyboardState( NULL );
 
-	return k != NULL && k[ SDL_SCANCODE_F9 ];
+	if ( k == NULL ) return 0;
+	return k[ SDL_SCANCODE_F9 ] || k[ SDL_SCANCODE_B ];
 }
 
 
@@ -916,13 +917,25 @@ void switch_input_poll( void )
 		last_ok = ok;
 	}
 	/*	r400: the desktop door into the panel.  Eden exposes no controller to
-		SDL, so ZR+ZL (read in take_keys) never fires there; F9 does the job
-		and is inert on the console, which has no keyboard.					*/
+		SDL, so ZR+ZL (read in take_keys) never fires there; F9/B do the job
+		and are inert on the console, which has no keyboard.  The log line is
+		the only way to see inside a shipped emulator build - remove it with
+		the other diagnostics before the release.								*/
 	{
 		static int last_f9 = 0;
 		int f9 = sw_ph_kb_combo();
 
-		if ( f9 && !last_f9 && !sw_ph_open ) switch_input_phrase_start();
+		if ( f9 && !last_f9 ) {
+			int ok = 0;
+			FILE *df;
+
+			if ( !sw_ph_open ) ok = switch_input_phrase_start();
+			df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
+			if ( df != NULL ) {
+				fprintf( df, "combo open=%d n=%d pad=%p\n", ok, sw_ph_n, (void *)sw_pad );
+				fclose( df );
+			}
+		}
 		last_f9 = f9;
 	}
 
@@ -956,10 +969,16 @@ void switch_input_poll( void )
 		if ( b && !sw_ph_b ) sw_ph_open = 0;
 		if ( a && !sw_ph_a && sw_ph_open ) {
 			char text[ SW_PH_LEN ];
+			FILE *df;
 
 			snprintf( text, sizeof( text ), "%s", sw_ph[ sw_ph_cur ] );
 			sw_ph_open = 0;
 			ai_chat_ask( text );
+			df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
+			if ( df != NULL ) {
+				fprintf( df, "send [%s]\n", text );
+				fclose( df );
+			}
 		}
 		sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
 		memset( sw_keys, 0, sizeof( sw_keys ) );
