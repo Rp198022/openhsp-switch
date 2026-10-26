@@ -2208,6 +2208,8 @@ void switch_overlay_cg_request( const char *name )
 	if ( name == NULL || name[ 0 ] == 0 ) return;
 	snprintf( sw_ovl_cg_next, sizeof( sw_ovl_cg_next ), "%s", name );
 	sw_ovl_cg_pending = 1;
+	printf( "hsp3switch: cg request [%s]\n", name );
+	fflush( stdout );
 }
 
 int switch_overlay_cg_active( void )
@@ -2217,6 +2219,8 @@ int switch_overlay_cg_active( void )
 
 void switch_overlay_cg_dismiss( void )
 {
+	printf( "hsp3switch: cg dismiss (was %d)\n", sw_ovl_cg_hold );
+	fflush( stdout );
 	sw_ovl_cg_hold = 0;
 }
 
@@ -2240,6 +2244,8 @@ static void sw_ovl_cg_tick( void )
 
 		sw_ovl_cg_pending = 0;
 		snprintf( name, sizeof( name ), "%s", sw_ovl_cg_next );
+		printf( "hsp3switch: cg tick takes [%s]\n", name );
+		fflush( stdout );
 		sw_ovl_cg_show( name );
 		return;
 	}
