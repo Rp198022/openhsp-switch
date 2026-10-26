@@ -2532,6 +2532,11 @@ static void sw_ovl_ev_tick( void )
 	if ( now - sw_ovl_ev_tick_at < 500 ) return;
 	sw_ovl_ev_tick_at = now;
 	sw_ovl_ev_load();
+	/*	r394: an event can fire on the first frame after a load, before
+		the party panel has called ai_chat_init().  Without this the text
+		is dropped with "notify drop (enabled=0)".  The call is idempotent
+		and retries its config read every ten seconds.					*/
+	ai_chat_init();
 
 	/*	manual: data/event_trigger.txt holds the id; cleared after use.		*/
 	{
