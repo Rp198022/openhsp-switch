@@ -2254,7 +2254,7 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
 	{
 		static int dg2 = 0;
-		if ( dg2 < 4 ) { dg2++; printf( "hsp3switch: cg glerr=0x%x\n", glGetError() ); fflush( stdout ); }
+		if ( dg2 < 4 ) { dg2++; printf( "hsp3switch: cg glerr=0x%x\n", sw_glGetError() ); fflush( stdout ); }
 	}
 
 	glBindTexture( GL_TEXTURE_2D, 0 );
