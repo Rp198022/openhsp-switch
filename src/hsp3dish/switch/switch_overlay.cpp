@@ -459,6 +459,8 @@ static int		sw_ovl_ai_w_pet_dead = 0;
 static int		sw_ovl_ai_w_pet_hp = -1;	/* pet hp percent, -1 = unread */
 static char		sw_ovl_ai_w_msg[ 300 ] = "";	/* newest log row, UTF-8	*/
 static unsigned int	sw_ovl_ai_swap_at = 0;	/* r385: 30 min cooldown for 换位 */
+static char			sw_ovl_ai_last_aid[ 400 ] = "";	/* r390: last "about you" row */
+static unsigned int	sw_ovl_ai_last_aid_at = 0;
 
 /*	r269: unattended consoles.  A fingerprint of everything the panel tracks
 	changes on every turn the player takes and stays put while the game is
@@ -2119,6 +2121,26 @@ static void sw_ovl_ai_recent_log( char *out, size_t n )
 	}
 }
 
+/*	r390: every log row starts with its in-game clock ("[20:28] …").  The
+	clock changed on each repeat, so the same sentence looked new every tick
+	and the dedup never fired.  This hands back the text after the prefix.	*/
+static const char *sw_ovl_ai_strip_clock( const char *s )
+{
+	const char *p;
+	int digits = 0;
+
+	if ( s == NULL || s[ 0 ] != '[' ) return s;
+	p = s + 1;
+	while ( *p >= '0' && *p <= '9' ) { p++; digits++; }
+	if ( digits < 1 || digits > 3 || *p != ':' ) return s;
+	p++;
+	while ( *p >= '0' && *p <= '9' ) p++;
+	if ( *p != ']' ) return s;
+	p++;
+	while ( *p == ' ' ) p++;
+	return p;
+}
+
 static const char *sw_ovl_attr_name( int i )
 {
 	static const char *nm[8] = {
@@ -3236,7 +3258,17 @@ static void sw_ovl_ai_watch( void )
 				if ( r == swap_seen || r == give_row ) continue;	/* already reported */
 				if ( speech || !mine ) continue;
 				if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( rows[ r ] ) ) continue;
+				{
+					const char *cl = sw_ovl_ai_strip_clock( rows[ r ] );
+					if ( cl != rows[ r ] ) memmove( rows[ r ], cl, strlen( cl ) + 1 );
+				}
 				sw_ovl_ai_self_phrase( rows[ r ], nm, self, sizeof( self ) );
+				/*	r390: the same row is not worth a second line for three
+					minutes; different rows in the same burst still pass.	*/
+				if ( sw_ovl_ai_last_aid[ 0 ] &&
+						strcmp( self, sw_ovl_ai_last_aid ) == 0 &&
+						now - sw_ovl_ai_last_aid_at < 180000u )
+					continue;
 				snprintf( note, sizeof( note ),
 					"游戏日志里出现了关于你的消息：%.*s", 120, self );
 				{
@@ -3244,6 +3276,8 @@ static void sw_ovl_ai_watch( void )
 					for ( c = 0; note[ c ]; c++ )
 						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
 				}
+				snprintf( sw_ovl_ai_last_aid, sizeof( sw_ovl_ai_last_aid ), "%s", self );
+				sw_ovl_ai_last_aid_at = now;
 				ai_chat_notify_event( note, 4 );
 				break;
 			}
