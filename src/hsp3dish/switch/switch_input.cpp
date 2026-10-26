@@ -968,6 +968,22 @@ void switch_input_poll( void )
 		}
 		last_f9 = f9;
 	}
+	/*	r406: the emulator door.  Eden turns its keyboard into pad buttons
+		inside its own input layer, so SDL sees a pad but never a keyboard and
+		F9/B stay unreachable there.  A stick click is free - its scancode is
+		UNKNOWN - and exists on the console too, so it opens the panel on both.*/
+	{
+		static Uint8 last_r3 = 0;
+
+		if ( sw_pad != NULL ) {
+			Uint8 r3;
+
+			SDL_JoystickUpdate();
+			r3 = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_RIGHTSTICK );
+			if ( r3 && !last_r3 && !sw_ph_open ) switch_input_phrase_start();
+			last_r3 = r3;
+		}
+	}
 
 	/*	r397: the phrase panel owns the pad while it is open.  The game keys
 		are zeroed and the poll returns, so choosing a line never also walks
