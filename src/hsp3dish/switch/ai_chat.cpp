@@ -480,8 +480,6 @@ static void ai_take_emotion( char *text )
 	is not current.														*/
 static void ai_take_cg( char *text )
 {
-	printf( "aichat: cg scan in\n" );
-	fflush( stdout );
 	if ( text == NULL ) return;
 	for ( ;; ) {
 		char *p = text, *a, *e, *ns;
@@ -1410,8 +1408,11 @@ static void ai_request( char *body, int mode, const char *question )
 				way to tell whether a missing expression came from the parser
 				or from a name outside the whitelist.						*/
 			ai_log_line( "raw", result );
-			ai_take_emotion( result );
+			/*	r383: the picture tag has to be read before the expression
+				parser runs - it removes a trailing "]]" as a stray bracket,
+				which used to break [[cg:...]] before this saw it.			*/
 			ai_take_cg( result );
+			ai_take_emotion( result );
 			/*	r312: an answer that was only a tag (or only brackets) leaves
 				nothing to say.  Push it as an action line instead of an empty
 				row: the panel paints a fully bracketed line green.			*/
