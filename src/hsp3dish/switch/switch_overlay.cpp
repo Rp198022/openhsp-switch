@@ -2225,17 +2225,19 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	now = SDL_GetTicks();
 	if ( now - sw_ovl_cg_at > (unsigned int)SW_OVL_CG_MS ) return;
 
-	/*	Fit inside 90% of the panel, keeping the picture's aspect.		*/
-	k = (float)win_w * 0.9f / (float)sw_ovl_cg_w;
-	if ( (float)sw_ovl_cg_h * k > (float)win_h * 0.9f )
-		k = (float)win_h * 0.9f / (float)sw_ovl_cg_h;
+	/*	r373: parked in the top-left corner for the test - that strip is known
+		to show overlay output, so a picture here separates "the draw path
+		works" from "the centre is being covered by the game frame".		*/
+	k = 300.0f / (float)sw_ovl_cg_w;
+	if ( (float)sw_ovl_cg_h * k > 200.0f )
+		k = 200.0f / (float)sw_ovl_cg_h;
 	w = (float)sw_ovl_cg_w * k;
 	h = (float)sw_ovl_cg_h * k;
-	x = ( (float)win_w - w ) * 0.5f;
+	x = 4.0f;
 	/*	r371: the window-space pass runs y downward as 0 .. -win_h, so the
 		bottom edge of the picture has to be negative - a positive y put the
 		whole quad outside the ortho box and nothing was visible.			*/
-	y = -( ( (float)win_h - h ) * 0.5f + h );
+	y = -( h + 4.0f );
 
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
