@@ -1004,9 +1004,17 @@ static void sw_ovl_quad( GLuint tex, float x0, float y0, float w, float h )
 	glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 }
 
+	/*	r366: the full-screen event picture.  Drawn above the game frame but
+		below the side strips, and independent of the strip on/off flag.	*/
+static void sw_ovl_cg_tick( void );
+static void sw_ovl_cg_draw( int win_w, int win_h );
+
 void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 {
 	int right_x, right_w, ly0, ry0, tex2d_was;
+
+	sw_ovl_cg_tick();
+	if ( win_w > 0 && win_h > 0 ) sw_ovl_cg_draw( win_w, win_h );
 
 	if ( sw_ovl_off || sw_ovl_failed ) return;
 	if ( win_w <= 0 || win_h <= 0 ) return;
@@ -2141,6 +2149,113 @@ static int sw_ovl_face_load( void )
 	printf( "hsp3switch: overlay: no face atlas, portraits disabled\n" );
 	fflush( stdout );
 	return -1;
+}
+
+/*	r366: full-screen event picture.  data/ai_cg_test.txt holds an anime
+	number ("63" -> graphic/anime63.bmp); the picture is drawn over the
+	game frame for 2.5 s with a short fade.  This file is the manual test
+	path - the AI [[cg:]] tag will feed the very same request.			*/
+#define SW_OVL_CG_MS	2500
+static GLuint	sw_ovl_cg_tex = 0;
+static int		sw_ovl_cg_w = 0, sw_ovl_cg_h = 0;
+static unsigned int	sw_ovl_cg_at = 0;
+static char		sw_ovl_cg_req[ 32 ] = "";
+static int		sw_ovl_cg_probe = 0;
+
+static void sw_ovl_cg_tick( void )
+{
+	FILE *fp;
+	char buf[ 32 ];
+	int n, i;
+	unsigned int now;
+
+	now = SDL_GetTicks();
+	if ( sw_ovl_cg_probe > 0 ) { sw_ovl_cg_probe--; return; }
+	sw_ovl_cg_probe = 12;
+	fp = fopen( "sdmc:/switch/openhsp/data/ai_cg_test.txt", "rb" );
+	if ( fp == NULL ) return;
+	n = (int)fread( buf, 1, sizeof( buf ) - 1, fp );
+	fclose( fp );
+	if ( n <= 0 ) return;
+	buf[ n ] = '\0';
+	for ( i = 0; i < n; i++ )
+		if ( buf[ i ] == '\r' || buf[ i ] == '\n' || buf[ i ] == ' ' || buf[ i ] == '\t' ) {
+			buf[ i ] = '\0';
+			break;
+		}
+	if ( buf[ 0 ] == 0 ) return;
+	if ( strcmp( buf, sw_ovl_cg_req ) == 0 ) return;
+	snprintf( sw_ovl_cg_req, sizeof( sw_ovl_cg_req ), "%s", buf );
+	{
+		char path[ 256 ];
+		SDL_Surface *bmp, *conv;
+
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/anime%s.bmp", buf );
+		bmp = SDL_LoadBMP( path );
+		if ( bmp == NULL ) {
+			printf( "hsp3switch: cg miss %s\n", path );
+			fflush( stdout );
+			return;
+		}
+		conv = SDL_ConvertSurfaceFormat( bmp, SDL_PIXELFORMAT_ABGR8888, 0 );
+		SDL_FreeSurface( bmp );
+		if ( conv == NULL ) return;
+		if ( sw_ovl_cg_tex != 0 ) { glDeleteTextures( 1, &sw_ovl_cg_tex ); sw_ovl_cg_tex = 0; }
+		sw_ovl_cg_tex = sw_ovl_upload_rgba( conv, &sw_ovl_cg_w, &sw_ovl_cg_h );
+		SDL_FreeSurface( conv );
+		if ( sw_ovl_cg_tex == 0 ) return;
+		sw_ovl_cg_at = now;
+		printf( "hsp3switch: cg %s (%dx%d)\n", path, sw_ovl_cg_w, sw_ovl_cg_h );
+		fflush( stdout );
+	}
+}
+
+static void sw_ovl_cg_draw( int win_w, int win_h )
+{
+	unsigned int now;
+	float age, alpha, k, w, h, x, y;
+	int tex2d_was;
+
+	if ( sw_ovl_cg_tex == 0 || sw_ovl_cg_w <= 0 || sw_ovl_cg_h <= 0 ) return;
+	now = SDL_GetTicks();
+	age = (float)( now - sw_ovl_cg_at );
+	if ( age > (float)SW_OVL_CG_MS ) return;
+
+	alpha = 1.0f;
+	if ( age < 120.0f ) alpha = age / 120.0f;
+	else if ( age > (float)SW_OVL_CG_MS - 400.0f )
+		alpha = ( (float)SW_OVL_CG_MS - age ) / 400.0f;
+	if ( alpha < 0.0f ) alpha = 0.0f;
+
+	/*	Fit inside 90% of the panel, keeping the picture's aspect.		*/
+	k = (float)win_w * 0.9f / (float)sw_ovl_cg_w;
+	if ( (float)sw_ovl_cg_h * k > (float)win_h * 0.9f )
+		k = (float)win_h * 0.9f / (float)sw_ovl_cg_h;
+	w = (float)sw_ovl_cg_w * k;
+	h = (float)sw_ovl_cg_h * k;
+	x = ( (float)win_w - w ) * 0.5f;
+	y = ( (float)win_h - h ) * 0.5f + h;
+
+	glMatrixMode( GL_PROJECTION );
+	glLoadIdentity();
+	glOrtho( 0, (GLdouble)win_w, -(GLdouble)win_h, 0, -100, 100 );
+	glViewport( 0, 0, win_w, win_h );
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+
+	glDisableClientState( GL_COLOR_ARRAY );
+	sw_glColorKey( 0, 0 );
+	tex2d_was = sw_texture2d_on();
+	glEnable( GL_TEXTURE_2D );
+	glEnable( GL_BLEND );
+	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	glColor4f( 1.0f, 1.0f, 1.0f, alpha );
+	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
+	glColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+
+	glBindTexture( GL_TEXTURE_2D, 0 );
+	glDisable( GL_BLEND );
+	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
 }
 
 static int sw_ovl_bar_upload( void )
