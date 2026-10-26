@@ -913,9 +913,17 @@ void switch_input_poll( void )
 		}
 
 		if ( !ok ) sw_cg_swallow = 0;
-
 		last_ok = ok;
+	}
+	/*	r400: the desktop door into the panel.  Eden exposes no controller to
+		SDL, so ZR+ZL (read in take_keys) never fires there; F9 does the job
+		and is inert on the console, which has no keyboard.					*/
+	{
+		static int last_f9 = 0;
+		int f9 = sw_ph_kb_combo();
 
+		if ( f9 && !last_f9 && !sw_ph_open ) switch_input_phrase_start();
+		last_f9 = f9;
 	}
 
 	/*	r397: the phrase panel owns the pad while it is open.  The game keys
@@ -1550,23 +1558,23 @@ int switch_input_take_keys( char *out, int max )
 
 	int n = 0;
 	int i, layer;
-	int combo;
 	char c;
 
-	if ( out == NULL || max < 1 ) return 0;
+	if ( sw_pad == NULL || out == NULL || max < 1 ) return 0;
 
-	/*	r400: the panel's trigger is read before the pad check below, because
-		a desktop without a controller still needs the panel.  The console
-		opens it with ZR+ZL; Eden exposes no pad to SDL, so F9 stands in.	*/
-	combo = 0;
-	if ( sw_pad != NULL && sw_layer() == 2 &&
-			sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) ) combo = 1;
-	if ( !combo && sw_ph_kb_combo() ) combo = 1;
-	if ( combo && !sw_ai_key_held ) {
+	layer = sw_layer();
+
+	/*	r261: ZR+ZL opens the companion chat.  The keyboard blocks like any
+		other Elona prompt, so the caller simply sees a longer frame; the
+		typed line goes to the chatter module, prefixed /设定 for a persona
+		note.  Emulators without applet support are skipped - launching the
+		keyboard there crashes, which is why the marker exists.				*/
+	if ( layer == 2 && sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) &&
+			!sw_ai_key_held ) {
 		sw_ai_key_held = 1;
 		/*	r397: the prepared phrases cover the everyday lines; the system
 			keyboard is opened only when no phrase file is present.			*/
-		if ( !switch_input_phrase_start() && sw_pad != NULL ) {
+		if ( !switch_input_phrase_start() ) {
 			FILE *f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
 			if ( f != NULL ) fclose( f );
 			else {
@@ -1579,13 +1587,9 @@ int switch_input_take_keys( char *out, int max )
 				}
 			}
 		}
-	} else if ( !combo ) {
+	} else if ( !sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) ) {
 		sw_ai_key_held = 0;
 	}
-
-	if ( sw_pad == NULL ) return 0;
-
-	layer = sw_layer();
 
 
 
