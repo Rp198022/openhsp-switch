@@ -998,10 +998,16 @@ void switch_input_poll( void )
 			SDL_JoystickUpdate();
 			a = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );
 			b = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A );
+			if ( SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP ) ||
+					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN ) ||
+					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT ) ||
+					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT ) ) a = 1;
 		}
 		kb = SDL_GetKeyboardState( NULL );
 		if ( kb != NULL && ( kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ||
-				kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) ) a = 1;
+				kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ||
+				kb[ SDL_SCANCODE_UP ] || kb[ SDL_SCANCODE_DOWN ] ||
+				kb[ SDL_SCANCODE_LEFT ] || kb[ SDL_SCANCODE_RIGHT ] ) ) a = 1;
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 		if ( !a && !b ) sw_ph_swallow = 0;
 		return;
@@ -1601,7 +1607,15 @@ int switch_input_take_keys( char *out, int max )
 	int i, layer;
 	char c;
 
-	if ( sw_pad == NULL || out == NULL || max < 1 ) return 0;
+	if ( out == NULL || max < 1 ) return 0;
+
+	/*	r410: while the panel is up the game receives nothing at all -
+		no letters from the pad and no characters from the keyboard bridge,
+		so the confirm press cannot also open the game's own menu.  The
+		press that closed the panel stays blocked until it is released.	*/
+	if ( switch_input_phrase_active() || sw_ph_swallow ) return 0;
+
+	if ( sw_pad == NULL ) return 0;
 
 	layer = sw_layer();
 
