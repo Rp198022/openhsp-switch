@@ -2213,19 +2213,12 @@ static void sw_ovl_cg_tick( void )
 static void sw_ovl_cg_draw( int win_w, int win_h )
 {
 	unsigned int now;
-	float age, alpha, k, w, h, x, y;
+	float k, w, h, x, y;
 	int tex2d_was;
 
 	if ( sw_ovl_cg_tex == 0 || sw_ovl_cg_w <= 0 || sw_ovl_cg_h <= 0 ) return;
 	now = SDL_GetTicks();
-	age = (float)( now - sw_ovl_cg_at );
-	if ( age > (float)SW_OVL_CG_MS ) return;
-
-	alpha = 1.0f;
-	if ( age < 120.0f ) alpha = age / 120.0f;
-	else if ( age > (float)SW_OVL_CG_MS - 400.0f )
-		alpha = ( (float)SW_OVL_CG_MS - age ) / 400.0f;
-	if ( alpha < 0.0f ) alpha = 0.0f;
+	if ( now - sw_ovl_cg_at > (unsigned int)SW_OVL_CG_MS ) return;
 
 	/*	Fit inside 90% of the panel, keeping the picture's aspect.		*/
 	k = (float)win_w * 0.9f / (float)sw_ovl_cg_w;
@@ -2249,9 +2242,7 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	glEnable( GL_TEXTURE_2D );
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-	glColor4f( 1.0f, 1.0f, 1.0f, alpha );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
-	glColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
 
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
