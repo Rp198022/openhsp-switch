@@ -1409,9 +1409,9 @@ static void ai_request( char *body, int mode, const char *question )
 				way to tell whether a missing expression came from the parser
 				or from a name outside the whitelist.						*/
 			ai_log_line( "raw", result );
-			/*	r385: the reload greeting has to contain 欢迎回来.  The
-				prompt asks for it; this makes sure of it even when the
-				model answers with something else.						*/
+			/*	r385/r391: the reload greeting has to contain 欢迎回来.  The
+				event scene above asks for it explicitly; this is the last
+				resort for a model that still answers with something else. */
 			if ( ai_want_welcome ) {
 				ai_want_welcome = 0;
 				if ( strstr( result, "欢迎回来" ) == NULL ) {
@@ -1526,7 +1526,17 @@ static void ai_start( const char *question, const char *event )
 
 	pthread_mutex_lock( &ai_lock );
 	if ( event != NULL && event[ 0 ] ) {
-		snprintf( scene, sizeof( scene ), "%s\n事件：%s", ai_scene, event );
+		/*	r391: the reload greeting used to be answered off the scene's
+			"最近" row, so the reply talked about the floor while the 欢迎回来
+			guard patched the four characters on top of it.  The greeting is a
+			turn of its own: say it first, do not continue the log.			*/
+		if ( strstr( event, "欢迎回来" ) != NULL )
+			snprintf( scene, sizeof( scene ),
+				"%s\n事件：%s\n（主人刚从存档回来。这是你的第一句话：先问好，"
+				"句子里必须有「欢迎回来」，不要接着讲最近的日志，也不许只输出 SKIP。）",
+				ai_scene, event );
+		else
+			snprintf( scene, sizeof( scene ), "%s\n事件：%s", ai_scene, event );
 	} else {
 		snprintf( scene, sizeof( scene ), "%s", ai_scene );
 	}
