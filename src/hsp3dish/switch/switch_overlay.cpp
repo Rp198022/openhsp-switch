@@ -2232,7 +2232,10 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	w = (float)sw_ovl_cg_w * k;
 	h = (float)sw_ovl_cg_h * k;
 	x = ( (float)win_w - w ) * 0.5f;
-	y = ( (float)win_h - h ) * 0.5f + h;
+	/*	r371: the window-space pass runs y downward as 0 .. -win_h, so the
+		bottom edge of the picture has to be negative - a positive y put the
+		whole quad outside the ortho box and nothing was visible.			*/
+	y = -( ( (float)win_h - h ) * 0.5f + h );
 
 	glMatrixMode( GL_PROJECTION );
 	glLoadIdentity();
