@@ -2513,7 +2513,7 @@ static void sw_ovl_ev_fire( SW_OVL_EV *e )
 	if ( e->cg[ 0 ] ) switch_overlay_cg_request( e->cg );
 	/*	r395: a hand written event must not be overwritten by the routine
 		"about you" lines that come in at priority 4 while it waits.		*/
-	if ( e->text[ 0 ] ) ai_chat_notify_event( e->text, 5 );
+	if ( e->text[ 0 ] ) ai_chat_notify_event( e->text, 6 );	/* r396: above everything */
 	printf( "hsp3switch: event %s fired cg=[%s] text=[%s]\n", e->id, e->cg, e->text );
 	fflush( stdout );
 	if ( e->once ) {
