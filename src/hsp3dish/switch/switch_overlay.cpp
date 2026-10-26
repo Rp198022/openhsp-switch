@@ -3204,6 +3204,8 @@ static void sw_ovl_ai_watch( void )
 					if ( sw_ovl_ai_swap_at != 0 && now - sw_ovl_ai_swap_at < 1800000u )
 						break;
 					sw_ovl_ai_swap_at = now;
+					printf( "hsp3switch: swap event (30 min from now)\n" );
+					fflush( stdout );
 					ai_chat_notify_event( "主人刚刚和你交换了位置", 3 );
 					break;
 				}
