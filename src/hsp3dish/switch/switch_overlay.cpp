@@ -1014,7 +1014,6 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	int right_x, right_w, ly0, ry0, tex2d_was;
 
 	sw_ovl_cg_tick();
-	if ( win_w > 0 && win_h > 0 ) sw_ovl_cg_draw( win_w, win_h );
 
 	if ( sw_ovl_off || sw_ovl_failed ) return;
 	if ( win_w <= 0 || win_h <= 0 ) return;
@@ -1033,6 +1032,10 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		pass, their own build/draw path below.							*/
 	if ( sw_ovl_mode != SW_OVL_MODE_KEY ) {
 		switch_overlay_draw_party( win_w, win_h, origin_x, game_w, right_x, right_w );
+		/*	r374: paint the picture right after the panel.  Drawn before it the
+			quad never reached the screen, even though GL reported no error
+			and the box sat inside the ortho rect.						*/
+		if ( win_w > 0 && win_h > 0 ) sw_ovl_cg_draw( win_w, win_h );
 		return;
 	}
 
