@@ -2266,9 +2266,18 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 		behind a perfectly clean GL error code, so take it out of the way. */
 	glDisable( GL_BLEND );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
+	/*	r375: a second copy and a white block, all in the same pass.  If none
+		of them shows, the pass is not reaching the window; if only the block
+		shows, the picture texture is the problem.							*/
+	sw_ovl_quad( sw_ovl_cg_tex, x + w + 8.0f, y, w, h );
 	{
 		static int dg2 = 0;
-		if ( dg2 < 4 ) { dg2++; printf( "hsp3switch: cg glerr=0x%x\n", sw_glGetError() ); fflush( stdout ); }
+		if ( dg2 < 4 ) {
+			dg2++;
+			printf( "hsp3switch: cg glerr=0x%x bar0=%u\n", sw_glGetError(),
+				(unsigned)sw_ovl_bar_tex[ 0 ] );
+			fflush( stdout );
+		}
 	}
 
 	glBindTexture( GL_TEXTURE_2D, 0 );
