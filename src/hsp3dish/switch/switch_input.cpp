@@ -306,6 +306,63 @@ int switch_input_ask_text( char *out, int outsize )
 #endif
 }
 
+/*	r397: the quick-phrase panel.  The player picks a prepared line with the
+	d-pad and sends it with A, so the system keyboard is only needed for free
+	text.  Lines live in data/chat_phrases.txt, one per line, '#' comments.	*/
+#define SW_PH_MAX	8
+#define SW_PH_LEN	120
+
+static char		sw_ph[ SW_PH_MAX ][ SW_PH_LEN ];
+static int		sw_ph_n = 0, sw_ph_open = 0, sw_ph_cur = 0, sw_ph_loaded = 0;
+static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
+
+static void sw_ph_trim( char *s )
+{
+	size_t l;
+
+	while ( *s == ' ' || *s == '\t' ) memmove( s, s + 1, strlen( s ) );
+	l = strlen( s );
+	while ( l > 0 && ( s[ l - 1 ] == ' ' || s[ l - 1 ] == '\t' ||
+			s[ l - 1 ] == '\r' || s[ l - 1 ] == '\n' ) )
+		s[ --l ] = '\0';
+}
+
+static void sw_ph_load( void )
+{
+	FILE *f;
+
+	if ( sw_ph_loaded ) return;
+	sw_ph_loaded = 1;
+	f = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt", "rb" );
+	if ( f == NULL ) return;
+	while ( sw_ph_n < SW_PH_MAX && fgets( sw_ph[ sw_ph_n ], SW_PH_LEN, f ) != NULL ) {
+		sw_ph_trim( sw_ph[ sw_ph_n ] );
+		if ( sw_ph[ sw_ph_n ][ 0 ] == '\0' || sw_ph[ sw_ph_n ][ 0 ] == '#' ) continue;
+		sw_ph_n++;
+	}
+	fclose( f );
+}
+
+int switch_input_phrase_start( void )
+{
+	sw_ph_load();
+	if ( sw_ph_n <= 0 ) return 0;
+	sw_ph_open = 1;
+	sw_ph_cur = 0;
+	sw_ph_a = sw_ph_b = sw_ph_u = sw_ph_d = 0;
+	return 1;
+}
+
+int switch_input_phrase_active( void ) { return sw_ph_open; }
+int switch_input_phrase_cursor( void ) { return sw_ph_cur; }
+int switch_input_phrase_count( void ) { return sw_ph_n; }
+
+const char *switch_input_phrase_text( int i )
+{
+	if ( i < 0 || i >= sw_ph_n ) return "";
+	return sw_ph[ i ];
+}
+
 void switch_input_poll( void )
 {
 	int i;
@@ -715,63 +772,6 @@ static char sw_stick_key( SDL_GameControllerAxis axis, int *last, char neg, char
 	if ( d < 0 ) c = neg;
 	else if ( d > 0 ) c = pos;
 	return c;
-}
-
-/*	r397: the quick-phrase panel.  The player picks a prepared line with the
-	d-pad and sends it with A, so the system keyboard is only needed for free
-	text.  Lines live in data/chat_phrases.txt, one per line, '#' comments.	*/
-#define SW_PH_MAX	8
-#define SW_PH_LEN	120
-
-static char		sw_ph[ SW_PH_MAX ][ SW_PH_LEN ];
-static int		sw_ph_n = 0, sw_ph_open = 0, sw_ph_cur = 0, sw_ph_loaded = 0;
-static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
-
-static void sw_ph_trim( char *s )
-{
-	size_t l;
-
-	while ( *s == ' ' || *s == '\t' ) memmove( s, s + 1, strlen( s ) );
-	l = strlen( s );
-	while ( l > 0 && ( s[ l - 1 ] == ' ' || s[ l - 1 ] == '\t' ||
-			s[ l - 1 ] == '\r' || s[ l - 1 ] == '\n' ) )
-		s[ --l ] = '\0';
-}
-
-static void sw_ph_load( void )
-{
-	FILE *f;
-
-	if ( sw_ph_loaded ) return;
-	sw_ph_loaded = 1;
-	f = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt", "rb" );
-	if ( f == NULL ) return;
-	while ( sw_ph_n < SW_PH_MAX && fgets( sw_ph[ sw_ph_n ], SW_PH_LEN, f ) != NULL ) {
-		sw_ph_trim( sw_ph[ sw_ph_n ] );
-		if ( sw_ph[ sw_ph_n ][ 0 ] == '\0' || sw_ph[ sw_ph_n ][ 0 ] == '#' ) continue;
-		sw_ph_n++;
-	}
-	fclose( f );
-}
-
-int switch_input_phrase_start( void )
-{
-	sw_ph_load();
-	if ( sw_ph_n <= 0 ) return 0;
-	sw_ph_open = 1;
-	sw_ph_cur = 0;
-	sw_ph_a = sw_ph_b = sw_ph_u = sw_ph_d = 0;
-	return 1;
-}
-
-int switch_input_phrase_active( void ) { return sw_ph_open; }
-int switch_input_phrase_cursor( void ) { return sw_ph_cur; }
-int switch_input_phrase_count( void ) { return sw_ph_n; }
-
-const char *switch_input_phrase_text( int i )
-{
-	if ( i < 0 || i >= sw_ph_n ) return "";
-	return sw_ph[ i ];
 }
 
 int switch_input_take_keys( char *out, int max )
