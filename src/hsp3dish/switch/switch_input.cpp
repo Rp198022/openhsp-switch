@@ -742,12 +742,13 @@ const char *switch_input_phrase_text( int i )
 
 
 void switch_input_poll( void )
-{
-	int i;
 
+{
+
+	int i;
 	/*	r402: field diagnostics.  Eden keeps the game's stdout, so the only
 		way to see whether this frame hook runs and what it can read is a
-		file on the SD card.  Ten-second heartbeat.							*/
+		file on the SD card.  Ten-second heartbeat.						*/
 	{
 		static unsigned int dcalls = 0, dlast = 0;
 
