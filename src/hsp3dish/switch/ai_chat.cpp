@@ -25,7 +25,7 @@
 #define AI_MAX_TEXT		20480	/* request body / answer scratch; three
 								   replayed turns ride along from r283	*/
 #define AI_MAX_LINE		512		/* one spoken line					*/
-#define AI_MAX_PERSONA	2048
+#define AI_MAX_PERSONA	3072	/* r382: room for the event-picture rule */
 #define AI_MAX_MEMORY	4096
 #define AI_EVENT_KINDS	8		/* recent event sentences kept for dedup */
 #define AI_DIR			"sdmc:/switch/openhsp/data/"
@@ -304,6 +304,7 @@ static void ai_load_persona( const char *npc )
 			else if ( strstr( line, "记忆" ) != NULL ) section = 2;
 			else if ( strstr( line, "关系语气" ) != NULL ) section = 3;
 			else if ( strstr( line, "示例" ) != NULL ) section = 4;
+			else if ( strstr( line, "事件图" ) != NULL ) section = 1;
 			else section = 0;
 			continue;
 		}
