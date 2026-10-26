@@ -2270,6 +2270,11 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 		of them shows, the pass is not reaching the window; if only the block
 		shows, the picture texture is the problem.							*/
 	sw_ovl_quad( sw_ovl_cg_tex, x + w + 8.0f, y, w, h );
+	/*	r376: a plain white block from the panel's own 1x1 texture.  This
+		shares every call with the side panel, so if it shows and the picture
+		does not, the picture's texture is at fault; if it does not show, the
+		pass itself is not reaching the window.							*/
+	sw_ovl_quad( sw_ovl_bar_tex[ 0 ], 4.0f, -4.0f, 120.0f, 120.0f );
 	{
 		static int dg2 = 0;
 		if ( dg2 < 4 ) {
