@@ -631,6 +631,9 @@ static char		sw_ph[ SW_PH_MAX ][ SW_PH_LEN ];
 static int		sw_ph_n = 0, sw_ph_open = 0, sw_ph_cur = 0, sw_ph_loaded = 0;
 
 static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
+/*	r409: the press that closed the panel is still held for a few frames;
+	this keeps it out of the game until every one of those keys is up.	*/
+static int	sw_ph_swallow = 0;
 
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
@@ -746,36 +749,6 @@ void switch_input_poll( void )
 {
 
 	int i;
-	/*	r405: pad diagnostics.  Eden has no visible stdout, so the only way to
-		learn what the frame hook actually sees is a file on the SD card.	*/
-	{
-		static Uint32 ph_last = 0;
-		Uint32 ph_now = SDL_GetTicks();
-
-		if ( ph_now - ph_last >= 2000 ) {
-			FILE *df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
-
-			if ( df != NULL ) {
-				if ( sw_pad != NULL ) {
-					SDL_Joystick *js = SDL_GameControllerGetJoystick( sw_pad );
-					unsigned int bits = 0;
-					int b;
-
-					for ( b = 0; b < 32; b++ )
-						if ( js != NULL && SDL_JoystickGetButton( js, b ) ) bits |= 1u << b;
-					fprintf( df, "poll att=%d lt=%d rt=%d raw=%d/%d bits=%08x\n",
-						SDL_GameControllerGetAttached( sw_pad ),
-						SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT ),
-						SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT ),
-						sw_zl_raw, sw_zr_raw, bits );
-				} else {
-					fprintf( df, "poll pad null\n" );
-				}
-				fclose( df );
-			}
-			ph_last = ph_now;
-		}
-	}
 
 
 
@@ -955,17 +928,7 @@ void switch_input_poll( void )
 		static int last_f9 = 0;
 		int f9 = sw_ph_kb_combo();
 
-		if ( f9 && !last_f9 ) {
-			int ok = 0;
-			FILE *df;
-
-			if ( !sw_ph_open ) ok = switch_input_phrase_start();
-			df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
-			if ( df != NULL ) {
-				fprintf( df, "combo open=%d n=%d pad=%p\n", ok, sw_ph_n, (void *)sw_pad );
-				fclose( df );
-			}
-		}
+		if ( f9 && !last_f9 && !sw_ph_open ) switch_input_phrase_start();
 		last_f9 = f9;
 	}
 	/*	r406: the emulator door.  Eden turns its keyboard into pad buttons
@@ -1012,22 +975,35 @@ void switch_input_poll( void )
 		}
 		if ( u && !sw_ph_u && sw_ph_cur > 0 ) sw_ph_cur--;
 		if ( d && !sw_ph_d && sw_ph_cur + 1 < sw_ph_n ) sw_ph_cur++;
-		if ( b && !sw_ph_b ) sw_ph_open = 0;
+		if ( b && !sw_ph_b ) { sw_ph_open = 0; sw_ph_swallow = 1; }
 		if ( a && !sw_ph_a && sw_ph_open ) {
 			char text[ SW_PH_LEN ];
-			FILE *df;
 
 			snprintf( text, sizeof( text ), "%s", sw_ph[ sw_ph_cur ] );
 			sw_ph_open = 0;
+			sw_ph_swallow = 1;
 			ai_chat_ask( text );
-			df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
-			if ( df != NULL ) {
-				fprintf( df, "send [%s]\n", text );
-				fclose( df );
-			}
 		}
 		sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
 		memset( sw_keys, 0, sizeof( sw_keys ) );
+		return;
+	}
+
+	/*	r409: see sw_ph_swallow - consume the close press until it is up.*/
+	if ( sw_ph_swallow ) {
+		Uint8 a = 0, b = 0;
+		const Uint8 *kb;
+
+		if ( sw_pad != NULL ) {
+			SDL_JoystickUpdate();
+			a = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );
+			b = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A );
+		}
+		kb = SDL_GetKeyboardState( NULL );
+		if ( kb != NULL && ( kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ||
+				kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) ) a = 1;
+		memset( sw_keys, 0, sizeof( sw_keys ) );
+		if ( !a && !b ) sw_ph_swallow = 0;
 		return;
 	}
 
@@ -1621,23 +1597,6 @@ int switch_input_take_keys( char *out, int max )
 
 {
 
-	/*	r405: the second probe - take_keys is called from the script loop
-		itself, so its heartbeat proves the shell runs even when no frame is
-		being drawn.															*/
-	{
-		static Uint32 tk_last = 0;
-		Uint32 tk_now = SDL_GetTicks();
-
-		if ( tk_now - tk_last >= 2000 ) {
-			FILE *df = fopen( "sdmc:/switch/openhsp/phrase_diag.txt", "ab" );
-
-			if ( df != NULL ) {
-				fprintf( df, "take pad=%p\n", (void *)sw_pad );
-				fclose( df );
-			}
-			tk_last = tk_now;
-		}
-	}
 	int n = 0;
 	int i, layer;
 	char c;
