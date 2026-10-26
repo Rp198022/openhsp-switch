@@ -2056,7 +2056,7 @@ static int sw_ovl_msg_row( int back, char *out, size_t n )
 #define SW_OVL_AI_LOG_MAX	24
 static int sw_ovl_ai_log_new( const char *mark, char rows[][ 400 ], int max )
 {
-	int i, seen = 0, n = 0;
+	int i, seen = 0, n = 0, hit = 0;
 	const char *s;
 	char u[ 400 ];
 
@@ -2067,12 +2067,17 @@ static int sw_ovl_ai_log_new( const char *mark, char rows[][ 400 ], int max )
 		if ( s == NULL || s[ 0 ] == '\0' ) continue;
 		seen++;
 		snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( s ) );
-		if ( mark != NULL && mark[ 0 ] != '\0' && strcmp( u, mark ) == 0 )
+		if ( mark != NULL && mark[ 0 ] != '\0' && strcmp( u, mark ) == 0 ) {
+			hit = 1;
 			break;						/* rows before this were handled	*/
+		}
 		if ( n >= max ) break;
 		snprintf( rows[ n ], 400, "%s", u );
 		n++;
 	}
+	/*	r389: the mark missing (the log was cleared by a save load) used to
+		pull in every visible row as news; keep only the newest one.		*/
+	if ( mark != NULL && mark[ 0 ] != '\0' && !hit && n > 1 ) n = 1;
 	for ( i = 0; i < n / 2; i++ ) {
 		char tmp[ 400 ];
 		memcpy( tmp, rows[ i ], sizeof( tmp ) );
@@ -2098,7 +2103,12 @@ static void sw_ovl_ai_recent_log( char *out, size_t n )
 
 		if ( !sw_ovl_msg_row( back, raw, sizeof( raw ) ) ) break;
 		snprintf( u, sizeof( u ), "%s", sw_ovl_utf8( raw ) );
-		if ( got > 0 && strcmp( u, rows[ got - 1 ] ) == 0 ) continue;
+		{
+			int dup = 0, j;
+			for ( j = 0; j < got; j++ )
+				if ( strcmp( u, rows[ j ] ) == 0 ) { dup = 1; break; }
+			if ( dup ) continue;
+		}
 		snprintf( rows[ got ], sizeof( rows[ got ] ), "%s", u );
 		got++;
 	}
@@ -3168,7 +3178,7 @@ static void sw_ovl_ai_watch( void )
 	off the same rows and no longer need their own four-row walk.			*/
 	{
 		static char rows[ SW_OVL_AI_LOG_MAX ][ 400 ];
-		int nrows, r, swap_seen = -1;
+		int nrows, r, swap_seen = -1, give_row = -1;
 
 		nrows = sw_ovl_ai_log_new( sw_ovl_ai_w_msg, rows, SW_OVL_AI_LOG_MAX );
 		if ( nrows > 0 ) {
@@ -3192,6 +3202,7 @@ static void sw_ovl_ai_watch( void )
 						if ( note[ c ] == '\n' || note[ c ] == '\r' ) note[ c ] = ' ';
 				}
 				ai_chat_notify_event( note, 4 );
+				give_row = r;
 				transfer = 1;
 			}
 			/*	r385: 换位 gets its own event, but at most once every thirty
@@ -3200,9 +3211,12 @@ static void sw_ovl_ai_watch( void )
 				int swap_row = -1;
 				for ( r = nrows - 1; r >= 0; r-- ) {
 					if ( strstr( rows[ r ], "换位" ) == NULL ) continue;
-					swap_row = r;
+					/*	r389: during the cooldown the row is not ours to report,
+						but it must still reach the "about you" pass below - the
+						30 min limit is on the 换位 event, not on the log line.	*/
 					if ( sw_ovl_ai_swap_at != 0 && now - sw_ovl_ai_swap_at < 1800000u )
 						break;
+					swap_row = r;
 					sw_ovl_ai_swap_at = now;
 					printf( "hsp3switch: swap event (30 min from now)\n" );
 					fflush( stdout );
@@ -3219,7 +3233,7 @@ static void sw_ovl_ai_watch( void )
 				speech = ( r == nrows - 1 && sw_ovl_speaker() == sw_ovl_party_slot[1] &&
 					strchr( rows[ r ], '"' ) != NULL );
 				mine = ( sw_ovl_ai_name_hit( rows[ r ], nm ) || strstr( rows[ r ], "随从" ) != NULL );
-				if ( r == swap_seen ) continue;		/* already reported	*/
+				if ( r == swap_seen || r == give_row ) continue;	/* already reported */
 				if ( speech || !mine ) continue;
 				if ( sw_ovl_battle_on && !sw_ovl_ai_feed_line( rows[ r ] ) ) continue;
 				sw_ovl_ai_self_phrase( rows[ r ], nm, self, sizeof( self ) );
