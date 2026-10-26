@@ -479,6 +479,8 @@ static void ai_take_emotion( char *text )
 	is not current.														*/
 static void ai_take_cg( char *text )
 {
+	printf( "aichat: cg scan in\n" );
+	fflush( stdout );
 	if ( text == NULL ) return;
 	for ( ;; ) {
 		char *p = text, *a, *e, *ns;
@@ -522,7 +524,11 @@ static void ai_take_cg( char *text )
 			memcpy( name, ns, len );
 			name[ len ] = '\0';
 			ai_trim( name );
+			printf( "aichat: cg tag [%s] len=%d\n", name, (int)len );
+			fflush( stdout );
 			if ( name[ 0 ] ) switch_overlay_cg_request( name );
+			printf( "aichat: cg request returned\n" );
+			fflush( stdout );
 		}
 		memmove( a, e + cl, strlen( e + cl ) + 1 );
 		ai_trim( text );
