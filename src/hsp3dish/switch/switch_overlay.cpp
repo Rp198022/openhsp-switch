@@ -2524,8 +2524,8 @@ static void sw_ovl_phrase_draw( int win_w, int win_h )
 	glEnable( GL_TEXTURE_2D );
 	glEnable( GL_BLEND );
 	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-	x = ( (float)win_w - (float)sw_ovl_ph_w ) * 0.5f;
-	y = -( ( (float)win_h - (float)sw_ovl_ph_h ) * 0.5f );
+	x = (float)win_w * 0.04f;
+	y = -( (float)win_h * 0.26f );
 	w = (float)sw_ovl_ph_w;
 	h = (float)sw_ovl_ph_h;
 	sw_ovl_quad( sw_ovl_ph_tex, x, y, w, h );
