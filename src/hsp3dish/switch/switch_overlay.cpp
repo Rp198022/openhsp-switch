@@ -1015,12 +1015,15 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 
 	sw_ovl_cg_tick();
 
-	if ( sw_ovl_off || sw_ovl_failed ) return;
+	/*	r379: the event picture does not depend on the side strips.  It is
+		drawn even when they are switched off or the layout leaves no room
+		for them, so every early exit below lands on cg_pass.				*/
 	if ( win_w <= 0 || win_h <= 0 ) return;
-	if ( origin_x < 48 ) return;					/* no usable strip		*/
+	if ( sw_ovl_off || sw_ovl_failed ) goto cg_pass;
+	if ( origin_x < 48 ) goto cg_pass;				/* no usable strip		*/
 	right_x = origin_x + game_w;
 	right_w = win_w - right_x;
-	if ( right_w < 48 ) return;
+	if ( right_w < 48 ) goto cg_pass;
 
 	/*	r247: pick what to show first.  An engaged enemy overrides the
 		player's choice with the battle sheet; the choice comes back once the
@@ -1035,8 +1038,7 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 		/*	r374: paint the picture right after the panel.  Drawn before it the
 			quad never reached the screen, even though GL reported no error
 			and the box sat inside the ortho rect.						*/
-		if ( win_w > 0 && win_h > 0 ) sw_ovl_cg_draw( win_w, win_h );
-		return;
+		goto cg_pass;
 	}
 
 	/*	Rebuild when the layout changed (docked/undocked switches the strip
@@ -1078,6 +1080,9 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w )
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );
 	if ( !tex2d_was ) glDisable( GL_TEXTURE_2D );
+
+cg_pass:
+	sw_ovl_cg_draw( win_w, win_h );
 }
 /*	==================================================================
 	Party HUD (r185f)
@@ -2154,25 +2159,90 @@ static int sw_ovl_face_load( void )
 	return -1;
 }
 
-/*	r366: full-screen event picture.  data/ai_cg_test.txt holds an anime
-	number ("63" -> graphic/anime63.bmp); the picture is drawn over the
-	game frame for 2.5 s with a short fade.  This file is the manual test
-	path - the AI [[cg:]] tag will feed the very same request.			*/
-#define SW_OVL_CG_MS	4000
+/*	r379: the event picture is held on screen until the player presses the
+	confirm key - there is no timer any more.  switch_input.cpp closes it and
+	swallows that one press so the game does not also act on it.  A tag from
+	the model only sets a request; the texture is built here, on the render
+	thread, because ai_chat.cpp runs on its own worker thread where the GL
+	context is not current.												*/
 static GLuint	sw_ovl_cg_tex = 0;
 static int		sw_ovl_cg_w = 0, sw_ovl_cg_h = 0;
-static unsigned int	sw_ovl_cg_at = 0;
 static char		sw_ovl_cg_req[ 32 ] = "";
 static int		sw_ovl_cg_probe = 0;
+static int		sw_ovl_cg_hold = 0;
+static char		sw_ovl_cg_next[ 40 ] = "";
+static volatile int	sw_ovl_cg_pending = 0;
 
+static int sw_ovl_cg_load( const char *name )
+{
+	char path[ 256 ];
+	SDL_Surface *bmp, *conv;
+
+	if ( name == NULL || name[ 0 ] == 0 ) return -1;
+	/*	A bare number means the anime strip of that index; any other word
+		is taken as a file name under graphic/.							*/
+	if ( name[ 0 ] >= '0' && name[ 0 ] <= '9' )
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/anime%s.bmp", name );
+	else
+		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/%s.bmp", name );
+	bmp = SDL_LoadBMP( path );
+	if ( bmp == NULL ) {
+		printf( "hsp3switch: cg miss %s\n", path );
+		fflush( stdout );
+		return -1;
+	}
+	conv = SDL_ConvertSurfaceFormat( bmp, SDL_PIXELFORMAT_ABGR8888, 0 );
+	SDL_FreeSurface( bmp );
+	if ( conv == NULL ) return -1;
+	if ( sw_ovl_cg_tex != 0 ) { glDeleteTextures( 1, &sw_ovl_cg_tex ); sw_ovl_cg_tex = 0; }
+	sw_ovl_cg_tex = sw_ovl_upload_rgba( conv, &sw_ovl_cg_w, &sw_ovl_cg_h );
+	SDL_FreeSurface( conv );
+	if ( sw_ovl_cg_tex == 0 ) return -1;
+	printf( "hsp3switch: cg %s (%dx%d)\n", path, sw_ovl_cg_w, sw_ovl_cg_h );
+	fflush( stdout );
+	return 0;
+}
+
+void switch_overlay_cg_request( const char *name )
+{
+	if ( name == NULL || name[ 0 ] == 0 ) return;
+	snprintf( sw_ovl_cg_next, sizeof( sw_ovl_cg_next ), "%s", name );
+	sw_ovl_cg_pending = 1;
+}
+
+int switch_overlay_cg_active( void )
+{
+	return sw_ovl_cg_hold;
+}
+
+void switch_overlay_cg_dismiss( void )
+{
+	sw_ovl_cg_hold = 0;
+}
+
+static void sw_ovl_cg_show( const char *name )
+{
+	if ( sw_ovl_cg_load( name ) != 0 ) return;
+	snprintf( sw_ovl_cg_req, sizeof( sw_ovl_cg_req ), "%s", name );
+	sw_ovl_cg_hold = 1;
+}
+
+/*	Debug channel: data/ai_cg_test.txt.  A change there shows the picture,
+	so the draw path can be exercised without the model.				*/
 static void sw_ovl_cg_tick( void )
 {
 	FILE *fp;
 	char buf[ 32 ];
 	int n, i;
-	unsigned int now;
 
-	now = SDL_GetTicks();
+	if ( sw_ovl_cg_pending ) {
+		char name[ 40 ];
+
+		sw_ovl_cg_pending = 0;
+		snprintf( name, sizeof( name ), "%s", sw_ovl_cg_next );
+		sw_ovl_cg_show( name );
+		return;
+	}
 	if ( sw_ovl_cg_probe > 0 ) { sw_ovl_cg_probe--; return; }
 	sw_ovl_cg_probe = 12;
 	fp = fopen( "sdmc:/switch/openhsp/data/ai_cg_test.txt", "rb" );
@@ -2188,49 +2258,17 @@ static void sw_ovl_cg_tick( void )
 		}
 	if ( buf[ 0 ] == 0 ) return;
 	if ( strcmp( buf, sw_ovl_cg_req ) == 0 ) return;
-	snprintf( sw_ovl_cg_req, sizeof( sw_ovl_cg_req ), "%s", buf );
-	{
-		char path[ 256 ];
-		SDL_Surface *bmp, *conv;
-
-		/*	r370: a bare number means the anime strip of that index; any
-			other word is taken as a file name under graphic/.			*/
-		if ( buf[ 0 ] >= '0' && buf[ 0 ] <= '9' )
-			snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/anime%s.bmp", buf );
-		else
-			snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/%s.bmp", buf );
-		bmp = SDL_LoadBMP( path );
-		if ( bmp == NULL ) {
-			printf( "hsp3switch: cg miss %s\n", path );
-			fflush( stdout );
-			return;
-		}
-		conv = SDL_ConvertSurfaceFormat( bmp, SDL_PIXELFORMAT_ABGR8888, 0 );
-		SDL_FreeSurface( bmp );
-		if ( conv == NULL ) return;
-		if ( sw_ovl_cg_tex != 0 ) { glDeleteTextures( 1, &sw_ovl_cg_tex ); sw_ovl_cg_tex = 0; }
-		sw_ovl_cg_tex = sw_ovl_upload_rgba( conv, &sw_ovl_cg_w, &sw_ovl_cg_h );
-		SDL_FreeSurface( conv );
-		if ( sw_ovl_cg_tex == 0 ) return;
-		sw_ovl_cg_at = now;
-		printf( "hsp3switch: cg %s (%dx%d)\n", path, sw_ovl_cg_w, sw_ovl_cg_h );
-		fflush( stdout );
-	}
+	sw_ovl_cg_show( buf );
 }
 
 static void sw_ovl_cg_draw( int win_w, int win_h )
 {
-	unsigned int now;
 	float k, w, h, x, y;
 	int tex2d_was;
 
+	if ( sw_ovl_cg_hold == 0 ) return;
 	if ( sw_ovl_cg_tex == 0 || sw_ovl_cg_w <= 0 || sw_ovl_cg_h <= 0 ) return;
-	now = SDL_GetTicks();
-	if ( now - sw_ovl_cg_at > (unsigned int)SW_OVL_CG_MS ) return;
 
-	/*	r373: parked in the top-left corner for the test - that strip is known
-		to show overlay output, so a picture here separates "the draw path
-		works" from "the centre is being covered by the game frame".		*/
 	/*	r378: an event picture covers the window, scaled up to fill it and
 		centred, the way the game frames its own event art.				*/
 	k = (float)win_w / (float)sw_ovl_cg_w;
@@ -2240,8 +2278,7 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	h = (float)sw_ovl_cg_h * k;
 	x = ( (float)win_w - w ) * 0.5f;
 	/*	r371: the window-space pass runs y downward as 0 .. -win_h, so the
-		bottom edge of the picture has to be negative - a positive y put the
-		whole quad outside the ortho box and nothing was visible.			*/
+		bottom edge of the picture has to be negative.					*/
 	y = -( ( (float)win_h - h ) * 0.5f );
 
 	glMatrixMode( GL_PROJECTION );
@@ -2251,32 +2288,12 @@ static void sw_ovl_cg_draw( int win_w, int win_h )
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
 
-	{
-		static int dbg = 0;
-		if ( dbg < 4 ) {
-			dbg++;
-			printf( "hsp3switch: cg draw win=%dx%d pic=%dx%d at %.0f,%.0f box %.0fx%.0f\n",
-				win_w, win_h, sw_ovl_cg_w, sw_ovl_cg_h, x, y, w, h );
-			fflush( stdout );
-		}
-	}
 	glDisableClientState( GL_COLOR_ARRAY );
 	sw_glColorKey( 0, 0 );
 	tex2d_was = sw_texture2d_on();
 	glEnable( GL_TEXTURE_2D );
-	/*	r372: draw it opaque first.  Blending here hides an alpha problem
-		behind a perfectly clean GL error code, so take it out of the way. */
 	glDisable( GL_BLEND );
 	sw_ovl_quad( sw_ovl_cg_tex, x, y, w, h );
-	{
-		static int dg2 = 0;
-		if ( dg2 < 4 ) {
-			dg2++;
-			printf( "hsp3switch: cg glerr=0x%x bar0=%u\n", sw_glGetError(),
-				(unsigned)sw_ovl_bar_tex[ 0 ] );
-			fflush( stdout );
-		}
-	}
 
 	glBindTexture( GL_TEXTURE_2D, 0 );
 	glDisable( GL_BLEND );

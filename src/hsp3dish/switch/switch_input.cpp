@@ -142,6 +142,7 @@ static SDL_Scancode			sw_inject_sc[SW_KEYMAP_N];	/* scancode that entry owns now
 static int					sw_installed;
 #define SW_KEY_STATE_MAX	512
 static Uint8				sw_keys[SW_KEY_STATE_MAX];
+static int					sw_cg_swallow = 0;	/* r379: confirm press closes the picture */
 static unsigned int			sw_poll_no;
 static unsigned int			sw_push_no;
 
@@ -373,6 +374,27 @@ void switch_input_poll( void )
 			if ( arrows[a] < SW_KEY_STATE_MAX ) sw_keys[ arrows[a] ] = (Uint8)nw;
 		}
 	}
+	/*	r379: an event picture holds the screen until the confirm key is
+		pressed.  Physical A arrives as SDL's B button (the mapping above),
+		the desktop as Enter.  That whole press belongs to the picture: the
+		swallow flag keeps it out of the game until the key is released.	*/
+	{
+		static int last_ok = 0;
+		const Uint8 *ks;
+		int ok = 0;
+
+		SDL_PumpEvents();
+		ks = SDL_GetKeyboardState( NULL );
+		if ( ks != NULL && ( ks[ SDL_SCANCODE_RETURN ] || ks[ SDL_SCANCODE_KP_ENTER ] ) ) ok = 1;
+		if ( sw_pad != NULL &&
+			SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B ) ) ok = 1;
+		if ( ok && !last_ok && switch_overlay_cg_active() ) {
+			switch_overlay_cg_dismiss();
+			sw_cg_swallow = 1;
+		}
+		if ( !ok ) sw_cg_swallow = 0;
+		last_ok = ok;
+	}
 	if ( sw_pad == NULL ) return;
 
 	/*	SDL refreshes the joystick/controller state from inside the event
@@ -392,7 +414,8 @@ void switch_input_poll( void )
 			sw_inject_sc[i] = SDL_SCANCODE_UNKNOWN;
 			sw_state[i] = 0;
 		}
-		if ( sc != SDL_SCANCODE_UNKNOWN && sc < SW_KEY_STATE_MAX ) sw_keys[sc] = now;
+		if ( sc != SDL_SCANCODE_UNKNOWN && sc < SW_KEY_STATE_MAX &&
+			!( sw_cg_swallow && sc == SDL_SCANCODE_RETURN ) ) sw_keys[sc] = now;
 		if ( now == sw_state[i] ) continue;
 		sw_state[i] = now;
 

@@ -26,4 +26,13 @@ void switch_overlay_draw( int win_w, int win_h, int origin_x, int game_w );
 	here - they mean nothing to the new context.						*/
 void switch_overlay_ctx_reset( void );
 
+/*	r379: event picture.  A request names graphic/<name>.bmp (a bare number
+	means graphic/anime<N>.bmp); the picture covers the window and stays up
+	until the player presses confirm, whatever the side strips are doing.
+	The request only records the name - the texture is built on the render
+	thread, so ai_chat.cpp may call it from its worker.					*/
+void switch_overlay_cg_request( const char *name );
+int  switch_overlay_cg_active( void );
+void switch_overlay_cg_dismiss( void );
+
 #endif

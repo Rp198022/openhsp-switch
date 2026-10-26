@@ -20,6 +20,7 @@
 #include <curl/curl.h>
 
 #include "ai_chat.h"
+#include "switch_overlay.h"
 
 #define AI_MAX_TEXT		20480	/* request body / answer scratch; three
 								   replayed turns ride along from r283	*/
@@ -468,6 +469,63 @@ static void ai_take_emotion( char *text )
 			continue;
 		}
 		break;
+	}
+}
+
+/*	r379: the model stages a scene with [[cg:标签]].  Like the expression
+	tag it is metadata: it is cut out of the line, the picture it names is
+	held on screen until the player presses confirm.  Only a request is
+	recorded here - this runs on the worker thread, where the GL context
+	is not current.														*/
+static void ai_take_cg( char *text )
+{
+	if ( text == NULL ) return;
+	for ( ;; ) {
+		char *p = text, *a, *e, *ns;
+		char name[ 32 ];
+		size_t len, cl;
+		int found = 0;
+
+		while ( ( p = strstr( p, "cg" ) ) != NULL ) {
+			if ( p > text && p[ -1 ] == '[' ) {
+				int colon = 0;
+
+				if ( p[ 2 ] == ':' ) colon = 1;
+				else if ( (unsigned char)p[ 2 ] == 0xEF && (unsigned char)p[ 3 ] == 0xBC &&
+						(unsigned char)p[ 4 ] == 0x9A ) colon = 1;
+				if ( colon ) { found = 1; break; }
+			}
+			p += 2;
+		}
+		if ( !found ) break;
+		a = p;
+		while ( a > text && a[ -1 ] == '[' ) a--;
+		{
+			char *half = strchr( p, ']' );
+			char *full = strstr( p, "\xEF\xBC\xBD" );		/* ］				*/
+
+			e = half;
+			cl = 1;
+			if ( full != NULL && ( e == NULL || full < e ) ) { e = full; cl = 3; }
+		}
+		if ( e == NULL ) {
+			*a = '\0';
+			ai_trim( text );
+			break;
+		}
+		ns = p + 2;
+		if ( ns[ 0 ] == ':' ) ns += 1;
+		else if ( (unsigned char)ns[ 0 ] == 0xEF && (unsigned char)ns[ 1 ] == 0xBC &&
+				(unsigned char)ns[ 2 ] == 0x9A ) ns += 3;
+		len = (size_t)( e - ns );
+		if ( len > 0 && len < sizeof( name ) ) {
+			memcpy( name, ns, len );
+			name[ len ] = '\0';
+			ai_trim( name );
+			if ( name[ 0 ] ) switch_overlay_cg_request( name );
+		}
+		memmove( a, e + cl, strlen( e + cl ) + 1 );
+		ai_trim( text );
 	}
 }
 
@@ -1346,6 +1404,7 @@ static void ai_request( char *body, int mode, const char *question )
 				or from a name outside the whitelist.						*/
 			ai_log_line( "raw", result );
 			ai_take_emotion( result );
+			ai_take_cg( result );
 			/*	r312: an answer that was only a tag (or only brackets) leaves
 				nothing to say.  Push it as an action line instead of an empty
 				row: the panel paints a fully bracketed line green.			*/
