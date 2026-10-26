@@ -2190,7 +2190,12 @@ static void sw_ovl_cg_tick( void )
 		char path[ 256 ];
 		SDL_Surface *bmp, *conv;
 
-		snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/anime%s.bmp", buf );
+		/*	r370: a bare number means the anime strip of that index; any
+			other word is taken as a file name under graphic/.			*/
+		if ( buf[ 0 ] >= '0' && buf[ 0 ] <= '9' )
+			snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/anime%s.bmp", buf );
+		else
+			snprintf( path, sizeof( path ), "sdmc:/switch/openhsp/graphic/%s.bmp", buf );
 		bmp = SDL_LoadBMP( path );
 		if ( bmp == NULL ) {
 			printf( "hsp3switch: cg miss %s\n", path );
