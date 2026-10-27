@@ -645,7 +645,7 @@ static int sw_ph_kb_combo( void )
 	const Uint8 *k = SDL_GetKeyboardState( NULL );
 
 	if ( k == NULL ) return 0;
-	return k[ SDL_SCANCODE_F9 ] || k[ SDL_SCANCODE_B ];
+	return k[ SDL_SCANCODE_F9 ];
 }
 
 
@@ -970,8 +970,8 @@ void switch_input_poll( void )
 		if ( kb != NULL ) {
 			if ( kb[ SDL_SCANCODE_UP ] ) u = 1;
 			if ( kb[ SDL_SCANCODE_DOWN ] ) d = 1;
-			if ( kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ) a = 1;
-			if ( kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) b = 1;
+			if ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ) a = 1;
+			if ( kb[ SDL_SCANCODE_B ] || kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) b = 1;
 		}
 		if ( u && !sw_ph_u && sw_ph_cur > 0 ) sw_ph_cur--;
 		if ( d && !sw_ph_d && sw_ph_cur + 1 < sw_ph_n ) sw_ph_cur++;
@@ -1004,7 +1004,8 @@ void switch_input_poll( void )
 					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT ) ) a = 1;
 		}
 		kb = SDL_GetKeyboardState( NULL );
-		if ( kb != NULL && ( kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ||
+		if ( kb != NULL && ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_B ] ||
+				kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ||
 				kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ||
 				kb[ SDL_SCANCODE_UP ] || kb[ SDL_SCANCODE_DOWN ] ||
 				kb[ SDL_SCANCODE_LEFT ] || kb[ SDL_SCANCODE_RIGHT ] ) ) a = 1;
