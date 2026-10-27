@@ -386,9 +386,6 @@ static void sw_pc_tick( void )
 		if ( sc == SDL_SCANCODE_5 ) sw_pc_keys[ SDL_SCANCODE_KP_5 ] = now;
 		if ( !now ) continue;
 		c = sw_pc_char( (SDL_Scancode)sc, shift, caps );
-		if ( c >= '0' && c <= '9' )
-			printf( "hsp3switch: diag digit sc=%d prompt=%d\n", sc,
-				switch_input_prompt_active() );
 		if ( c >= '0' && c <= '9' && !switch_input_prompt_active() ) c = 0;
 		if ( c != 0 ) sw_pc_push( c );
 	}
