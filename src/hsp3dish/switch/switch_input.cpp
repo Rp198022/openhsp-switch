@@ -366,6 +366,15 @@ static void sw_pc_tick( void )
 		char c;
 		if ( now == sw_pc_last[ sc ] ) continue;
 		sw_pc_last[ sc ] = now;
+		/*	r427: the emulator door into the phrase panel.  Eden keeps F9
+			for its own hotkeys and never passes it on, and ';' is the one key
+			Elona binds nothing to that it does deliver - so that opens the
+			panel and its character is dropped, leaving the game nothing to
+			answer as an unassigned key.  A prompt keeps the semicolon.		*/
+		if ( sc == SDL_SCANCODE_SEMICOLON && !switch_input_prompt_active() ) {
+			if ( now ) switch_input_phrase_start();
+			continue;
+		}
 		if ( sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_TAB ||
 			 sc == SDL_SCANCODE_KP_5 || sc == SDL_SCANCODE_RETURN ) {
 			if ( sc < SW_KEY_STATE_MAX ) sw_pc_keys[ sc ] = now;
@@ -377,6 +386,9 @@ static void sw_pc_tick( void )
 		if ( sc == SDL_SCANCODE_5 ) sw_pc_keys[ SDL_SCANCODE_KP_5 ] = now;
 		if ( !now ) continue;
 		c = sw_pc_char( (SDL_Scancode)sc, shift, caps );
+		if ( c >= '0' && c <= '9' )
+			printf( "hsp3switch: diag digit sc=%d prompt=%d\n", sc,
+				switch_input_prompt_active() );
 		if ( c >= '0' && c <= '9' && !switch_input_prompt_active() ) c = 0;
 		if ( c != 0 ) sw_pc_push( c );
 	}
