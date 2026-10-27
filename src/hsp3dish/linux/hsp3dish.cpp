@@ -43,6 +43,10 @@ struct engine;
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_image.h"
 
+#if defined(__SWITCH__)
+#include "../switch/switch_input.h"
+#endif
+
 //#define USE_OBAQ
 
 #ifdef USE_OBAQ
@@ -238,6 +242,14 @@ static int handleEvent( void ) {
 		case SDL_KEYDOWN:
 			{
 			int wparam = 0;
+#if defined(__SWITCH__)
+			/*	r414: the phrase panel owns the input while it is up.		*/
+			if ( switch_input_panel_blocks() ) {
+				if ( (int)event.key.keysym.scancode < SDLK_SCANCODE_MAX )
+					keys[ (int)event.key.keysym.scancode ] = false;
+				break;
+			}
+#endif
 			int code = (int)event.key.keysym.scancode;
 			if (code < SDLK_SCANCODE_MAX) {
 				keys[code] = true;
@@ -346,6 +358,10 @@ static int handleEvent( void ) {
 
 		case SDL_TEXTINPUT:
 			{
+#if defined(__SWITCH__)
+				/*	r414: no typing into the story while the panel is up. */
+				if ( switch_input_panel_blocks() ) break;
+#endif
 				Bmscr *bm;
 				bm = (Bmscr *)exinfo->HspFunc_getbmscr(0);
 				strcpy((char *)bm->keybuf,event.text.text);
@@ -1123,3 +1139,15 @@ void hsp3dish_modname( char *modname )
 
 
 
+
+
+#if defined(__SWITCH__)
+/*	r414: called when the phrase panel opens; a key that was held before
+	it appeared must not keep reading as pressed.							*/
+void hsp3dish_clear_keys( void )
+{
+	int i;
+
+	for ( i = 0; i < SDLK_SCANCODE_MAX; i++ ) keys[ i ] = false;
+}
+#endif

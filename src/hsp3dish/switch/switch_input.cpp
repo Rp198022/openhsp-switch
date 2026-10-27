@@ -704,6 +704,10 @@ static void sw_ph_load( void )
 
 
 
+#if defined(__SWITCH__)
+extern void hsp3dish_clear_keys( void );	/* linux/hsp3dish.cpp */
+#endif
+
 int switch_input_phrase_start( void )
 
 {
@@ -720,6 +724,11 @@ int switch_input_phrase_start( void )
 		still pushed while the panel opens does not send the first line. */
 	sw_ph_a = 1;
 	sw_ph_b = sw_ph_u = sw_ph_d = 0;
+#if defined(__SWITCH__)
+	/*	r414: a key held when the panel appeared must not still read as
+		pressed inside the story - clear the glue's own table. */
+	hsp3dish_clear_keys();
+#endif
 
 	return 1;
 
@@ -728,6 +737,10 @@ int switch_input_phrase_start( void )
 
 
 int switch_input_phrase_active( void ) { return sw_ph_open; }
+
+/*	r414: the glue-level keys and the text buffer are separate from this
+	module's own tables, so it needs one question it can ask.			*/
+int switch_input_panel_blocks( void ) { return sw_ph_open || sw_ph_swallow; }
 
 int switch_input_phrase_cursor( void ) { return sw_ph_cur; }
 

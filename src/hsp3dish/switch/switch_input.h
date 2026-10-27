@@ -38,6 +38,9 @@ int switch_input_key_state( int scancode );
 	While it is open every game key is held off.							*/
 int  switch_input_phrase_start( void );
 int  switch_input_phrase_active( void );
+/*	1 while the panel owns the input, including the press that closes it.
+	The linux glue asks this before letting a keystroke reach the script. */
+int  switch_input_panel_blocks( void );
 int  switch_input_phrase_cursor( void );
 int  switch_input_phrase_count( void );
 const char *switch_input_phrase_text( int i );
