@@ -371,6 +371,8 @@ static void sw_pc_tick( void )
 		if ( sc == SDL_SCANCODE_5 ) sw_pc_keys[ SDL_SCANCODE_KP_5 ] = now;
 		if ( !now ) continue;
 		c = sw_pc_char( (SDL_Scancode)sc, shift, caps );
+		if ( c != 0 )
+			printf( "hsp3switch: diag pc key sc=%d c=%d\n", sc, (int)c );
 		if ( c != 0 ) sw_pc_push( c );
 	}
 }
@@ -555,6 +557,9 @@ void switch_input_poll( void )
 		ks = SDL_GetKeyboardState( NULL );
 		for ( a = 0; a < 4; a++ ) {
 			int nw = sw_pc_dir( ks, a );
+			printf( "hsp3switch: diag pc dir a=%d nw=%d k2=%d k5=%d k8=%d\n",
+				a, nw, ks[ SDL_SCANCODE_2 ], ks[ SDL_SCANCODE_5 ],
+				ks[ SDL_SCANCODE_8 ] );
 			if ( nw != last[a] ) { sw_push_key( arrows[a], nw ); last[a] = nw; }
 			/*	r187v: the stick channel reads sw_keys[], not the synthetic
 				events - hgio_stick()'s sw_input_key() is get_key_state(sc) ||
