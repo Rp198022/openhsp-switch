@@ -244,50 +244,6 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	SDL_TEXTINPUT, which a plain key press never produces, so those characters
 	are collected here and handed over by switch_input_take_keys().  Hardware
 	has no keyboard: the SDL state stays all-zero and none of this ever runs. */
-/*	r418 DIAGNOSTIC - remove before the release.  Records every SDL key
-	event and every piece of text the guest sees, so the emulator's own
-	keyboard translation can be read back off the card.				*/
-static int sw_pc_watch( void *userdata, SDL_Event *ev )
-{
-	FILE *f;
-	(void)userdata;
-	if ( ev->type != SDL_KEYDOWN && ev->type != SDL_KEYUP &&
-		 ev->type != SDL_TEXTINPUT ) return 1;
-	f = fopen( "sdmc:/switch/openhsp/pckey.txt", "ab" );
-	if ( f != NULL ) {
-		if ( ev->type == SDL_TEXTINPUT )
-			fprintf( f, "text '%s'\n", ev->text.text );
-		else
-			fprintf( f, "%s sc=%d %s\n",
-				ev->type == SDL_KEYDOWN ? "down" : "up",
-				ev->key.keysym.scancode,
-				SDL_GetScancodeName( ev->key.keysym.scancode ) );
-		fclose( f );
-	}
-	return 1;
-}
-/*	r419 DIAGNOSTIC - remove before the release.					*/
-extern bool get_key_state( int sym );	/*	linux/hsp3dish.cpp		*/
-static void sw_pc_probe( void )
-{
-	static int last = -1;
-	const Uint8 *ks = SDL_GetKeyboardState( NULL );
-	int a = ( ks != NULL && ks[ SDL_SCANCODE_C ] ) ? 1 : 0;
-	int b = ( ks != NULL && ks[ SDL_SCANCODE_KP_8 ] ) ? 1 : 0;
-	int c = get_key_state( SDL_SCANCODE_UP ) ? 1 : 0;
-	int d = get_key_state( SDL_SCANCODE_C ) ? 1 : 0;
-	int e = get_key_state( SDL_SCANCODE_KP_8 ) ? 1 : 0;
-	int now = a | ( b << 1 ) | ( c << 2 ) | ( d << 3 ) | ( e << 4 );
-	FILE *f;
-	if ( now == last ) return;
-	last = now;
-	f = fopen( "sdmc:/switch/openhsp/probe.txt", "ab" );
-	if ( f != NULL ) {
-		fprintf( f, "sdlC=%d sdlKP8=%d glueUP=%d glueC=%d glueKP8=%d\n",
-			a, b, c, d, e );
-		fclose( f );
-	}
-}
 #define SW_PC_BUF_MAX	32
 static char		sw_pc_buf[ SW_PC_BUF_MAX ];
 static int		sw_pc_head, sw_pc_tail;
@@ -321,7 +277,10 @@ static char sw_pc_char( SDL_Scancode sc, int shift, int caps )
 	} else if ( sc == SDL_SCANCODE_MINUS ) {
 		c = shift ? '_' : '-';	/* key_pagedown						*/
 	} else if ( sc == SDL_SCANCODE_EQUALS ) {
-		c = shift ? '+' : '=';
+		/*	Eden's keyboard has no keypad scancodes - it reports the
+			keypad's + as '=' - and config.txt pages lists with '+', which is
+			not a key Elona binds any other way, so '=' types the plus.		*/
+		c = '+';
 	} else if ( sc == SDL_SCANCODE_LEFTBRACKET ) {
 		c = shift ? '{' : '[';	/* key_alter							*/
 	} else if ( sc == SDL_SCANCODE_RIGHTBRACKET ) {
@@ -360,15 +319,29 @@ static char sw_pc_char( SDL_Scancode sc, int shift, int caps )
 	8/2/4/6 straight and 7/9/1/3 diagonal.									*/
 static int sw_pc_dir( const Uint8 *ks, int a )
 {
+	/*	The keypad is part of this on purpose: Elona moves with its digits
+		(config.txt key_north..key_southeast), and Eden never reports the
+		keypad's own scancodes - a press arrives as the matching digit - so
+		the top-row digit keys stand in for the keypad here.  In a text box
+		the digit is typed as well and nothing reads stick(), so prompts keep
+		working; in the field key_check() lets the direction override it.	*/
 	if ( ks == NULL ) return 0;
 	if ( a == 0 ) return ( ks[ SDL_SCANCODE_UP ] || ks[ SDL_SCANCODE_KP_8 ] ||
-		ks[ SDL_SCANCODE_KP_7 ] || ks[ SDL_SCANCODE_KP_9 ] ) ? 1 : 0;
+		ks[ SDL_SCANCODE_KP_7 ] || ks[ SDL_SCANCODE_KP_9 ] ||
+		ks[ SDL_SCANCODE_8 ] || ks[ SDL_SCANCODE_7 ] ||
+		ks[ SDL_SCANCODE_9 ] ) ? 1 : 0;
 	if ( a == 1 ) return ( ks[ SDL_SCANCODE_LEFT ] || ks[ SDL_SCANCODE_KP_4 ] ||
-		ks[ SDL_SCANCODE_KP_7 ] || ks[ SDL_SCANCODE_KP_1 ] ) ? 1 : 0;
+		ks[ SDL_SCANCODE_KP_7 ] || ks[ SDL_SCANCODE_KP_1 ] ||
+		ks[ SDL_SCANCODE_4 ] || ks[ SDL_SCANCODE_7 ] ||
+		ks[ SDL_SCANCODE_1 ] ) ? 1 : 0;
 	if ( a == 2 ) return ( ks[ SDL_SCANCODE_DOWN ] || ks[ SDL_SCANCODE_KP_2 ] ||
-		ks[ SDL_SCANCODE_KP_1 ] || ks[ SDL_SCANCODE_KP_3 ] ) ? 1 : 0;
+		ks[ SDL_SCANCODE_KP_1 ] || ks[ SDL_SCANCODE_KP_3 ] ||
+		ks[ SDL_SCANCODE_2 ] || ks[ SDL_SCANCODE_1 ] ||
+		ks[ SDL_SCANCODE_3 ] ) ? 1 : 0;
 	return ( ks[ SDL_SCANCODE_RIGHT ] || ks[ SDL_SCANCODE_KP_6 ] ||
-		ks[ SDL_SCANCODE_KP_9 ] || ks[ SDL_SCANCODE_KP_3 ] ) ? 1 : 0;
+		ks[ SDL_SCANCODE_KP_9 ] || ks[ SDL_SCANCODE_KP_3 ] ||
+		ks[ SDL_SCANCODE_6 ] || ks[ SDL_SCANCODE_9 ] ||
+		ks[ SDL_SCANCODE_3 ] ) ? 1 : 0;
 }
 /*	Once per poll: hand over what the physical keyboard just pressed.  The
 	keys Elona reads as scancodes - Escape (key_cancel), Tab (key_next), the
@@ -392,6 +365,10 @@ static void sw_pc_tick( void )
 			if ( sc < SW_KEY_STATE_MAX ) sw_pc_keys[ sc ] = now;
 			continue;
 		}
+		/*	The keypad's 5 is the wait key, and getkey 12 reads it there
+			(key_map in hgiox_switch.cpp).  Eden sends the plain digit, so
+			that one stands in for it too.										*/
+		if ( sc == SDL_SCANCODE_5 ) sw_pc_keys[ SDL_SCANCODE_KP_5 ] = now;
 		if ( !now ) continue;
 		c = sw_pc_char( (SDL_Scancode)sc, shift, caps );
 		if ( c != 0 ) sw_pc_push( c );
@@ -525,7 +502,6 @@ const char *switch_input_phrase_text( int i )
 void switch_input_poll( void )
 {
 	int i;
-	sw_pc_probe();
 	/*	r270: remember when the pad last moved.  Elona is turn based, so the
 		game data changes only while somebody is playing - but a player who
 		walks around without touching anything the panel tracks still counts
@@ -1113,14 +1089,6 @@ void switch_input_install( void *hspctx )
 						   here and polled from the GL clear, not from msgfunc */
 	if ( !sw_installed ) {
 		sw_installed = 1;
-		{
-			FILE *f = fopen( "sdmc:/switch/openhsp/inst.txt", "wb" );
-			if ( f != NULL ) {
-				SDL_AddEventWatch( sw_pc_watch, NULL );
-				fprintf( f, "install ok\n" );
-				fclose( f );
-			}
-		}
 		memset( sw_state, 0, sizeof( sw_state ) );
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 		/*	The window is double buffered, and HSP's redraw model expects the
