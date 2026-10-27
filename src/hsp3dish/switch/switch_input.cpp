@@ -479,9 +479,9 @@ static int	sw_ph_swallow = 0;
 static int	sw_hub_open = 0, sw_hub_cur = 0;
 static int	sw_ph_edit = 0;
 static const char *sw_hub_lines[ SW_HUB_N ] = {
-	输入法说话（同伴）,
-	打开对话短语,
-	编辑对话短语
+	"输入法说话（同伴）",
+	"打开对话短语",
+	"编辑对话短语"
 };
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
