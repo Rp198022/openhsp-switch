@@ -2439,6 +2439,11 @@ static int			sw_ovl_ev_save_seen = -1;
 static int			sw_ovl_ev_area_seen = -2;
 static char			sw_ovl_ev_manual[ 40 ] = "";
 
+/*	r433: the history card is larger than the phrase card and uses the
+	smaller font, so sixteen or so lines fit on one page.			*/
+#define SW_OVL_HIST_W	1100
+#define SW_OVL_HIST_H	640
+#define SW_OVL_HIST_PAGE	24
 /*	r397: the quick-phrase panel.  A dark card in the middle of the screen
 	with the prepared lines, the chosen one highlighted.  It is drawn above
 	everything, including an event picture, because the player is using it.	*/
@@ -2461,45 +2466,81 @@ static void sw_ovl_ph_text( SDL_Surface *dst, const char *s, int x, int y,
 	SDL_BlitSurface( t, NULL, dst, &d );
 	SDL_FreeSurface( t );
 }
+/*	r433: the history card needs a step down in size to fit six pages. */
+static void sw_ovl_ph_text_small( SDL_Surface *dst, const char *s, int x, int y,
+		Uint8 r, Uint8 g, Uint8 b )
+{
+	TTF_Font *font = ( sw_ovl_font_chat != NULL ) ? sw_ovl_font_chat : sw_ovl_font;
+	SDL_Color col;
+	SDL_Surface *t;
+	SDL_Rect d;
 
-static void sw_ovl_ph_build( int cur, int cnt )
+	if ( font == NULL || dst == NULL || s == NULL ) return;
+	col.r = r; col.g = g; col.b = b; col.a = 255;
+	t = TTF_RenderUTF8_Blended( font, s, col );
+	if ( t == NULL ) return;
+	d.x = x; d.y = y; d.w = 0; d.h = 0;
+	SDL_BlitSurface( t, NULL, dst, &d );
+	SDL_FreeSurface( t );
+}
+
+static void sw_ovl_ph_build( int cur, int cnt, int w, int h )
 {
 	SDL_Surface *s, *conv;
-	int i, top = 34, lh = 28, h;
+	int i, top = 34, lh, hist = switch_input_history_active();
 
-	h = top + cnt * lh + 14;
-	s = SDL_CreateRGBSurfaceWithFormat( 0, 540, h, 32, SDL_PIXELFORMAT_ABGR8888 );
+	lh = hist ? 24 : 28;
+	if ( !hist ) h = top + cnt * lh + 14;
+	if ( w < 200 ) w = 200;
+	s = SDL_CreateRGBSurfaceWithFormat( 0, w, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( s == NULL ) return;
 	/*	r432: parchment: a warm sheet with a dark brown frame.			*/
 	SDL_FillRect( s, NULL, SDL_MapRGBA( s->format, 238, 226, 198, 246 ) );
 	{
 		SDL_Rect fr;
 		Uint32 pen = SDL_MapRGBA( s->format, 120, 92, 60, 255 );
-		fr.x = 0; fr.y = 0; fr.w = 540; fr.h = 2; SDL_FillRect( s, &fr, pen );
+		fr.x = 0; fr.y = 0; fr.w = w; fr.h = 2; SDL_FillRect( s, &fr, pen );
 		fr.y = h - 2; SDL_FillRect( s, &fr, pen );
 		fr.y = 0; fr.w = 2; fr.h = h; SDL_FillRect( s, &fr, pen );
-		fr.x = 538; SDL_FillRect( s, &fr, pen );
+		fr.x = w - 2; SDL_FillRect( s, &fr, pen );
 	}
 	if ( switch_input_hub_active() )
 		sw_ovl_ph_text( s, "对话菜单    上下选择    A 确定    B 关闭", 16, 8, 122, 88, 48 );
 	else if ( switch_input_history_active() )
-		sw_ovl_ph_text( s, "对话历史    A/B 关闭", 16, 8, 122, 88, 48 );
+		sw_ovl_ph_text_small( s, "对话历史    上下滚动    左右翻页    A/B 返回", 16, 8, 122, 88, 48 );
 	else if ( switch_input_phrase_editing() )
 		sw_ovl_ph_text( s, "编辑短语    上下选择    A 保存    B 关闭", 16, 8, 122, 88, 48 );
 	else
 		sw_ovl_ph_text( s, "快捷对话    上下选择    A 发送    B 关闭", 16, 8, 122, 88, 48 );
-	for ( i = 0; i < cnt; i++ ) {
-		char line[ 200 ];
-		SDL_Rect bar;
+	if ( hist ) {
+		int top_row = switch_input_history_top();
+		int rows = switch_input_history_rows();
+		int pages = ( rows + SW_OVL_HIST_PAGE - 1 ) / SW_OVL_HIST_PAGE;
+		char page[ 64 ];
 
-		if ( i == cur ) {
-			bar.x = 10; bar.y = top + i * lh - 4; bar.w = 520; bar.h = lh - 2;
-			SDL_FillRect( s, &bar, SDL_MapRGBA( s->format, 212, 186, 142, 255 ) );
-			snprintf( line, sizeof( line ), "> %s", switch_input_phrase_text( i ) );
-			sw_ovl_ph_text( s, line, 16, top + i * lh, 92, 44, 20 );
-		} else {
-			snprintf( line, sizeof( line ), "   %s", switch_input_phrase_text( i ) );
-			sw_ovl_ph_text( s, line, 16, top + i * lh, 74, 58, 38 );
+		if ( pages < 1 ) pages = 1;
+		for ( i = 0; i < cnt; i++ ) {
+			if ( top_row + i >= rows ) break;
+			sw_ovl_ph_text_small( s, switch_input_history_line( top_row + i ),
+				16, top + i * lh, 74, 58, 38 );
+		}
+		snprintf( page, sizeof( page ), "第 %d/%d 页",
+			top_row / SW_OVL_HIST_PAGE + 1, pages );
+		sw_ovl_ph_text_small( s, page, 16, h - 26, 122, 88, 48 );
+	} else {
+		for ( i = 0; i < cnt; i++ ) {
+			char line[ 200 ];
+			SDL_Rect bar;
+
+			if ( i == cur ) {
+				bar.x = 10; bar.y = top + i * lh - 4; bar.w = w - 20; bar.h = lh - 2;
+				SDL_FillRect( s, &bar, SDL_MapRGBA( s->format, 212, 186, 142, 255 ) );
+				snprintf( line, sizeof( line ), "> %s", switch_input_phrase_text( i ) );
+				sw_ovl_ph_text( s, line, 16, top + i * lh, 92, 44, 20 );
+			} else {
+				snprintf( line, sizeof( line ), "   %s", switch_input_phrase_text( i ) );
+				sw_ovl_ph_text( s, line, 16, top + i * lh, 74, 58, 38 );
+			}
 		}
 	}
 	conv = SDL_ConvertSurfaceFormat( s, SDL_PIXELFORMAT_ABGR8888, 0 );
@@ -2520,14 +2561,28 @@ static void sw_ovl_phrase_draw( int win_w, int win_h )
 		sw_ovl_ph_sig = -1;
 		return;
 	}
+	int cw, ch;
+
 	cnt = switch_input_phrase_count();
 	cur = switch_input_phrase_cursor();
-	if ( cnt <= 0 || win_w <= 0 || win_h <= 0 ) return;
+	if ( win_w <= 0 || win_h <= 0 ) return;
+	if ( switch_input_history_active() ) {
+		cw = ( win_w - 60 < SW_OVL_HIST_W ) ? win_w - 60 : SW_OVL_HIST_W;
+		if ( cw < 420 ) cw = 420;
+		ch = ( win_h - 60 < SW_OVL_HIST_H ) ? win_h - 60 : SW_OVL_HIST_H;
+		if ( ch < 300 ) ch = 300;
+	} else {
+		if ( cnt <= 0 ) return;
+		cw = 540;
+		ch = 34 + cnt * 28 + 14;
+	}
 	sig = cur * 64 + cnt + ( switch_input_hub_active() ? 100000 : 0 ) +
 		( switch_input_phrase_editing() ? 200000 : 0 ) +
-		( switch_input_history_active() ? 300000 : 0 );
+		( switch_input_history_active() ?
+			300000 + switch_input_history_top() * 1000 + switch_input_history_rows() : 0 ) +
+		cw * 7 + ch * 13;
 	if ( sig != sw_ovl_ph_sig || sw_ovl_ph_tex == 0 ) {
-		sw_ovl_ph_build( cur, cnt );
+		sw_ovl_ph_build( cur, cnt, cw, ch );
 		sw_ovl_ph_sig = sig;
 	}
 	if ( sw_ovl_ph_tex == 0 ) return;

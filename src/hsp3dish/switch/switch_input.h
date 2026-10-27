@@ -53,6 +53,9 @@ int  switch_input_hub_active( void );
 /*	1 while the list is open as an editor (A saves instead of sends).	*/
 int  switch_input_phrase_editing( void );
 int  switch_input_history_active( void );
+int  switch_input_history_top( void );
+int  switch_input_history_rows( void );
+const char *switch_input_history_line( int i );
 
 
 /*	DirectInput-shaped pad state for Elona's own gamepad path: bits 0-3 are

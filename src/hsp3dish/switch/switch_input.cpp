@@ -469,6 +469,7 @@ static int switch_input_ask_text_init( char *out, int outsize, const char *init 
 static char		sw_ph[ SW_PH_MAX ][ SW_PH_LEN ];
 static int		sw_ph_n = 0, sw_ph_open = 0, sw_ph_cur = 0, sw_ph_loaded = 0;
 static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
+static Uint8	sw_ph_l = 0, sw_ph_r = 0;
 /*	r409: the press that closed the panel is still held for a few frames;
 	this keeps it out of the game until every one of those keys is up.	*/
 static int	sw_ph_swallow = 0;
@@ -486,10 +487,15 @@ static const char *sw_hub_lines[ SW_HUB_N ] = {
 };
 /*	r432: the log card.  data/npc_log.txt already holds every line the
 	companion said, tagged ask/say, so the history needs no new file. */
-#define SW_HIST_MAX	12
-#define SW_HIST_LEN	96
+#define SW_HIST_MAX	96
+#define SW_HIST_LEN	200
+#define SW_HIST_COLS	64
+#define SW_HIST_PAGE	24
+#define SW_HIST_ROWS	( SW_HIST_PAGE * 6 )
 static char	sw_hist[ SW_HIST_MAX ][ SW_HIST_LEN ];
-static int	sw_hist_n = 0, sw_hist_open = 0;
+static char	sw_hlines[ SW_HIST_ROWS ][ SW_HIST_LEN ];
+static int	sw_hist_n = 0, sw_hist_rows = 0, sw_hist_top = 0, sw_hist_open = 0;
+static int	sw_card_hub_parent = 0;
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
 	controller there, so ZR+ZL cannot reach this port.  F9/B are free in
@@ -623,11 +629,42 @@ static int switch_input_phrase_edit_start( void )
 /*	r432: the companion log keeps every row as "name|tag|text".  Read the
 	tail of the file and keep the newest ask/say pairs for the card: an
 	"ask" row is what the player typed, a "say" row is the answer.		*/
+/*	r433: fold one entry into the visual rows.  UTF-8 aware, so a cut
+	never lands inside a character; continuation rows are indented.	*/
+static void sw_hist_fold( const char *text )
+{
+	int len = (int)strlen( text );
+	int pos = 0, first = 1;
+
+	while ( pos < len && sw_hist_rows < SW_HIST_ROWS ) {
+		int c = 0, i = pos, bytes;
+		char *dst = sw_hlines[ sw_hist_rows ];
+
+		while ( i < len && c < SW_HIST_COLS ) {
+			unsigned char b = (unsigned char)text[ i ];
+			int nb = ( b < 0x80 ) ? 1 : ( ( b & 0xE0 ) == 0xC0 ) ? 2 :
+				( ( b & 0xF0 ) == 0xE0 ) ? 3 : 4;
+			i += nb;
+			c++;
+		}
+		bytes = i - pos;
+		if ( first )
+			snprintf( dst, SW_HIST_LEN, "%.*s", bytes, text + pos );
+		else
+			snprintf( dst, SW_HIST_LEN, "  %.*s", bytes, text + pos );
+		while ( dst[ 0 ] != 0 && ( dst[ strlen( dst ) - 1 ] == '\r' ||
+			dst[ strlen( dst ) - 1 ] == '\n' ) )
+			dst[ strlen( dst ) - 1 ] = 0;
+		sw_hist_rows++;
+		pos = i;
+		first = 0;
+	}
+}
 static void sw_hist_load( void )
 {
 	FILE *f;
-	char buf[ 8192 ];
-	char *lines[ 160 ];
+	static char buf[ 32768 ];
+	char *lines[ 512 ];
 	int n, cnt = 0, i, k;
 	long len, off = 0;
 
@@ -646,7 +683,7 @@ static void sw_hist_load( void )
 			p = strchr( buf, '\n' );
 			p = ( p != NULL ) ? p + 1 : buf;
 		}
-		while ( p != NULL && *p != 0 && cnt < 160 ) {
+		while ( p != NULL && *p != 0 && cnt < 512 ) {
 			char *e = strchr( p, '\n' );
 			if ( e != NULL ) *e = 0;
 			lines[ cnt++ ] = p;
@@ -678,10 +715,15 @@ static void sw_hist_load( void )
 	sw_hist_n = SW_HIST_MAX - k;
 	if ( k > 0 && sw_hist_n > 0 )
 		memmove( sw_hist[ 0 ], sw_hist[ k ], (size_t)sw_hist_n * SW_HIST_LEN );
+	sw_hist_rows = 0;
+	for ( i = 0; i < sw_hist_n && sw_hist_rows < SW_HIST_ROWS; i++ )
+		sw_hist_fold( sw_hist[ i ] );
 }
 static int sw_hist_start( void )
 {
 	sw_hist_n = 0;
+	sw_hist_rows = 0;
+	sw_hist_top = 0;
 	sw_hist_load();
 	sw_hist_open = 1;
 	sw_hub_open = 0;
@@ -700,13 +742,25 @@ int switch_input_history_active( void ) { return sw_hist_open; }
 static void sw_hub_pick( void )
 {
 	int pick = sw_hub_cur;
+
 	sw_hub_open = 0;
 	sw_ph_open = 0;
 	sw_ph_swallow = 1;
-	if ( pick == 0 ) sw_ai_free();
-	else if ( pick == 1 ) switch_input_phrase_start();
-	else if ( pick == 2 ) switch_input_phrase_edit_start();
-	else sw_hist_start();
+	/*	r433: the cards the hub opens go back to the hub on cancel.	*/
+	sw_card_hub_parent = 1;
+	if ( pick == 0 ) {
+		sw_ai_free();
+		sw_card_hub_parent = 0;
+		switch_input_hub_start();
+		sw_ph_a = 1;
+		sw_ph_b = 1;
+	} else if ( pick == 1 ) {
+		switch_input_phrase_start();
+	} else if ( pick == 2 ) {
+		switch_input_phrase_edit_start();
+	} else {
+		sw_hist_start();
+	}
 }
 int switch_input_hub_start( void )
 {
@@ -714,6 +768,7 @@ int switch_input_hub_start( void )
 	sw_hub_cur = 0;
 	sw_ph_edit = 0;
 	sw_hist_open = 0;
+	sw_card_hub_parent = 0;
 	sw_ph_open = 1;
 	sw_ph_a = 1;
 	sw_ph_b = sw_ph_u = sw_ph_d = 0;
@@ -724,22 +779,53 @@ int switch_input_hub_start( void )
 }
 int switch_input_hub_active( void ) { return sw_hub_open; }
 int switch_input_phrase_active( void ) { return sw_ph_open; }
+/*	r433: close the card on top.  A card opened from the hub returns
+	there instead of dropping straight back into the game.				*/
+static void sw_card_close( void )
+{
+	int back = sw_card_hub_parent;
+
+	sw_card_hub_parent = 0;
+	sw_hub_open = 0;
+	sw_hist_open = 0;
+	sw_ph_edit = 0;
+	sw_ph_open = 0;
+	sw_ph_swallow = 1;
+	if ( back ) {
+		switch_input_hub_start();
+		/*	the key that closed the card is still down: hold both the
+			confirm and the cancel trackers so the fresh menu does not
+			read it as a press.										*/
+		sw_ph_a = 1;
+		sw_ph_b = 1;
+		sw_ph_u = sw_ph_d = sw_ph_l = sw_ph_r = 0;
+	}
+}
 /*	r414: the glue-level keys and the text buffer are separate from this
 	module's own tables, so it needs one question it can ask.			*/
 int switch_input_panel_blocks( void ) { return sw_ph_open || sw_ph_swallow; }
 int switch_input_phrase_cursor( void ) { return sw_hub_open ? sw_hub_cur : ( sw_hist_open ? -1 : sw_ph_cur ); }
-int switch_input_phrase_count( void ) { return sw_hub_open ? SW_HUB_N : ( sw_hist_open ? sw_hist_n : sw_ph_n ); }
+int switch_input_phrase_count( void )
+{
+	if ( sw_hub_open ) return SW_HUB_N;
+	if ( sw_hist_open ) return ( sw_hist_rows < SW_HIST_PAGE ) ? sw_hist_rows : SW_HIST_PAGE;
+	return sw_ph_n;
+}
 int switch_input_phrase_editing( void ) { return sw_ph_edit; }
+int switch_input_history_top( void ) { return sw_hist_top; }
+int switch_input_history_rows( void ) { return sw_hist_rows; }
+const char *switch_input_history_line( int i )
+{
+	if ( i < 0 || i >= sw_hist_rows ) return "";
+	return sw_hlines[ i ];
+}
 const char *switch_input_phrase_text( int i )
 {
 	if ( sw_hub_open ) {
 		if ( i < 0 || i >= SW_HUB_N ) return "";
 		return sw_hub_lines[ i ];
 	}
-	if ( sw_hist_open ) {
-		if ( i < 0 || i >= sw_hist_n ) return "";
-		return sw_hist[ i ];
-	}
+	if ( sw_hist_open ) return switch_input_history_line( sw_hist_top + i );
 	if ( i < 0 || i >= sw_ph_n ) return "";
 	return sw_ph[ i ];
 }
@@ -868,13 +954,15 @@ void switch_input_poll( void )
 		where SDL's controller API cannot see it) drives the panel from the
 		keyboard instead - arrows move, C/Enter send, X/Esc close.			*/
 	if ( sw_ph_open ) {
-		Uint8 u = 0, d = 0, a = 0, b = 0;
+		Uint8 u = 0, d = 0, a = 0, b = 0, l = 0, r = 0;
 		const Uint8 *kb;
 		SDL_PumpEvents();
 		if ( sw_pad != NULL ) {
 			SDL_JoystickUpdate();
 			u = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP );
 			d = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN );
+			l = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT );
+			r = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT );
 			a = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );	/* confirm */
 			/*	r413: Eden binds the keyboard's A to the left stick (WASD), so
 				A is that direction and nothing else while the panel is up.		*/
@@ -886,6 +974,8 @@ void switch_input_poll( void )
 		if ( kb != NULL ) {
 			if ( kb[ SDL_SCANCODE_UP ] ) u = 1;
 			if ( kb[ SDL_SCANCODE_DOWN ] ) d = 1;
+			if ( kb[ SDL_SCANCODE_LEFT ] ) l = 1;
+			if ( kb[ SDL_SCANCODE_RIGHT ] ) r = 1;
 			if ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ) a = 1;
 			if ( kb[ SDL_SCANCODE_B ] || kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) b = 1;
 		}
@@ -898,23 +988,30 @@ void switch_input_poll( void )
 			if ( b && !sw_ph_b ) {
 				sw_hub_open = 0;
 				sw_ph_open = 0;
+				sw_card_hub_parent = 0;
 				sw_ph_swallow = 1;
 			}
 			if ( a && !sw_ph_a && sw_hub_open ) sw_hub_pick();
 			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+			sw_ph_l = l; sw_ph_r = r;
 			memset( sw_keys, 0, sizeof( sw_keys ) );
 			memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
 			return;
 		}
-		/*	r432: the log card fits every row it loads, so the arrows do
-			nothing and either the confirm or the cancel key closes it.	*/
+		/*	r433: up/down scroll a line at a time, left/right turn a page;
+			six pages at most.  A and B both go back.					*/
 		if ( sw_hist_open ) {
-			if ( ( a && !sw_ph_a ) || ( b && !sw_ph_b ) ) {
-				sw_hist_open = 0;
-				sw_ph_open = 0;
-				sw_ph_swallow = 1;
-			}
+			int last = sw_hist_rows - SW_HIST_PAGE;
+			if ( last < 0 ) last = 0;
+			if ( u && !sw_ph_u && sw_hist_top > 0 ) sw_hist_top--;
+			if ( d && !sw_ph_d && sw_hist_top < last ) sw_hist_top++;
+			if ( l && !sw_ph_l ) sw_hist_top -= SW_HIST_PAGE;
+			if ( r && !sw_ph_r ) sw_hist_top += SW_HIST_PAGE;
+			if ( sw_hist_top < 0 ) sw_hist_top = 0;
+			if ( sw_hist_top > last ) sw_hist_top = last;
+			if ( ( a && !sw_ph_a ) || ( b && !sw_ph_b ) ) sw_card_close();
 			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+			sw_ph_l = l; sw_ph_r = r;
 			memset( sw_keys, 0, sizeof( sw_keys ) );
 			memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
 			return;
@@ -925,7 +1022,7 @@ void switch_input_poll( void )
 			sw_ph_cur = ( sw_ph_cur + sw_ph_n - 1 ) % sw_ph_n;
 		if ( d && !sw_ph_d && sw_ph_n > 0 )
 			sw_ph_cur = ( sw_ph_cur + 1 ) % sw_ph_n;
-		if ( b && !sw_ph_b ) { sw_ph_open = 0; sw_ph_swallow = 1; }
+		if ( b && !sw_ph_b ) sw_card_close();
 		if ( a && !sw_ph_a && sw_ph_open ) {
 			if ( sw_ph_edit ) sw_ph_edit_current();
 			else {
@@ -937,6 +1034,7 @@ void switch_input_poll( void )
 			}
 		}
 		sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+		sw_ph_l = l; sw_ph_r = r;
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 		memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
 		return;
