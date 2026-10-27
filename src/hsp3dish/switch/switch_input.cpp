@@ -1022,6 +1022,16 @@ void switch_input_poll( void )
 					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN ) ||
 					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT ) ||
 					SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT ) ) a = 1;
+			/*	r415: the sticks type letters too - the left stick's 'c' opens
+				the character sheet - so they stay swallowed as well.			*/
+			if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX ) <=
+					-SW_STICK_DEADZONE ||
+					SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX ) >=
+					SW_STICK_DEADZONE ||
+					SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY ) <=
+					-SW_STICK_DEADZONE ||
+					SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTY ) >=
+					SW_STICK_DEADZONE ) a = 1;
 		}
 		kb = SDL_GetKeyboardState( NULL );
 		if ( kb != NULL && ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_B ] ||
