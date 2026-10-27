@@ -475,14 +475,21 @@ static int	sw_ph_swallow = 0;
 /*	r430: the dialog hub.  It borrows sw_ph_open (the "a card owns the
 	input" flag) and the panel's edge-triggered key trackers, and only
 	swaps the lines and what the confirm key does.						*/
-#define SW_HUB_N	3
+#define SW_HUB_N	4
 static int	sw_hub_open = 0, sw_hub_cur = 0;
 static int	sw_ph_edit = 0;
 static const char *sw_hub_lines[ SW_HUB_N ] = {
 	"输入法说话（同伴）",
 	"打开对话短语",
-	"编辑对话短语"
+	"编辑对话短语",
+	"查看对话历史"
 };
+/*	r432: the log card.  data/npc_log.txt already holds every line the
+	companion said, tagged ask/say, so the history needs no new file. */
+#define SW_HIST_MAX	12
+#define SW_HIST_LEN	96
+static char	sw_hist[ SW_HIST_MAX ][ SW_HIST_LEN ];
+static int	sw_hist_n = 0, sw_hist_open = 0;
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
 	controller there, so ZR+ZL cannot reach this port.  F9/B are free in
@@ -528,6 +535,7 @@ int switch_input_phrase_start( void )
 	sw_ph_cur = 0;
 	sw_hub_open = 0;
 	sw_ph_edit = 0;
+	sw_hist_open = 0;
 	/*	r413: treat the confirm key as already down, so a stick that is
 		still pushed while the panel opens does not send the first line. */
 	sw_ph_a = 1;
@@ -612,6 +620,81 @@ static int switch_input_phrase_edit_start( void )
 	sw_ph_edit = 1;
 	return 1;
 }
+/*	r432: the companion log keeps every row as "name|tag|text".  Read the
+	tail of the file and keep the newest ask/say pairs for the card: an
+	"ask" row is what the player typed, a "say" row is the answer.		*/
+static void sw_hist_load( void )
+{
+	FILE *f;
+	char buf[ 8192 ];
+	char *lines[ 160 ];
+	int n, cnt = 0, i, k;
+	long len, off = 0;
+
+	f = fopen( "sdmc:/switch/openhsp/data/npc_log.txt", "rb" );
+	if ( f == NULL ) return;
+	fseek( f, 0, SEEK_END );
+	len = ftell( f );
+	if ( len > (long)sizeof( buf ) - 1 ) off = len - (long)sizeof( buf ) + 1;
+	fseek( f, off, SEEK_SET );
+	n = (int)fread( buf, 1, sizeof( buf ) - 1, f );
+	fclose( f );
+	buf[ n ] = 0;
+	{
+		char *p = buf;
+		if ( off > 0 ) {
+			p = strchr( buf, '\n' );
+			p = ( p != NULL ) ? p + 1 : buf;
+		}
+		while ( p != NULL && *p != 0 && cnt < 160 ) {
+			char *e = strchr( p, '\n' );
+			if ( e != NULL ) *e = 0;
+			lines[ cnt++ ] = p;
+			p = ( e != NULL ) ? e + 1 : NULL;
+		}
+	}
+	k = SW_HIST_MAX;
+	for ( i = cnt - 1; i >= 0 && k > 0; i-- ) {
+		char *l = lines[ i ];
+		char *s1 = strchr( l, '|' );
+		char *s2, *tag, *txt;
+
+		if ( s1 == NULL ) continue;
+		s2 = strchr( s1 + 1, '|' );
+		if ( s2 == NULL ) continue;
+		tag = s1 + 1;
+		*s2 = 0;
+		txt = s2 + 1;
+		if ( strcmp( tag, "ask" ) == 0 ) {
+			snprintf( sw_hist[ k - 1 ], SW_HIST_LEN, "我：%s", txt );
+		} else if ( strcmp( tag, "say" ) == 0 ) {
+			*s1 = 0;
+			snprintf( sw_hist[ k - 1 ], SW_HIST_LEN, "%s：%s", l, txt );
+		} else {
+			continue;
+		}
+		k--;
+	}
+	sw_hist_n = SW_HIST_MAX - k;
+	if ( k > 0 && sw_hist_n > 0 )
+		memmove( sw_hist[ 0 ], sw_hist[ k ], (size_t)sw_hist_n * SW_HIST_LEN );
+}
+static int sw_hist_start( void )
+{
+	sw_hist_n = 0;
+	sw_hist_load();
+	sw_hist_open = 1;
+	sw_hub_open = 0;
+	sw_ph_edit = 0;
+	sw_ph_open = 1;
+	sw_ph_a = 1;
+	sw_ph_b = sw_ph_u = sw_ph_d = 0;
+#if defined(__SWITCH__)
+	hsp3dish_clear_keys();
+#endif
+	return 1;
+}
+int switch_input_history_active( void ) { return sw_hist_open; }
 /*	r430: what the hub's confirm key runs.  The card closes first, then
 	the chosen action opens its own.									*/
 static void sw_hub_pick( void )
@@ -622,13 +705,15 @@ static void sw_hub_pick( void )
 	sw_ph_swallow = 1;
 	if ( pick == 0 ) sw_ai_free();
 	else if ( pick == 1 ) switch_input_phrase_start();
-	else switch_input_phrase_edit_start();
+	else if ( pick == 2 ) switch_input_phrase_edit_start();
+	else sw_hist_start();
 }
 int switch_input_hub_start( void )
 {
 	sw_hub_open = 1;
 	sw_hub_cur = 0;
 	sw_ph_edit = 0;
+	sw_hist_open = 0;
 	sw_ph_open = 1;
 	sw_ph_a = 1;
 	sw_ph_b = sw_ph_u = sw_ph_d = 0;
@@ -642,14 +727,18 @@ int switch_input_phrase_active( void ) { return sw_ph_open; }
 /*	r414: the glue-level keys and the text buffer are separate from this
 	module's own tables, so it needs one question it can ask.			*/
 int switch_input_panel_blocks( void ) { return sw_ph_open || sw_ph_swallow; }
-int switch_input_phrase_cursor( void ) { return sw_hub_open ? sw_hub_cur : sw_ph_cur; }
-int switch_input_phrase_count( void ) { return sw_hub_open ? SW_HUB_N : sw_ph_n; }
+int switch_input_phrase_cursor( void ) { return sw_hub_open ? sw_hub_cur : ( sw_hist_open ? -1 : sw_ph_cur ); }
+int switch_input_phrase_count( void ) { return sw_hub_open ? SW_HUB_N : ( sw_hist_open ? sw_hist_n : sw_ph_n ); }
 int switch_input_phrase_editing( void ) { return sw_ph_edit; }
 const char *switch_input_phrase_text( int i )
 {
 	if ( sw_hub_open ) {
 		if ( i < 0 || i >= SW_HUB_N ) return "";
 		return sw_hub_lines[ i ];
+	}
+	if ( sw_hist_open ) {
+		if ( i < 0 || i >= sw_hist_n ) return "";
+		return sw_hist[ i ];
 	}
 	if ( i < 0 || i >= sw_ph_n ) return "";
 	return sw_ph[ i ];
@@ -800,12 +889,12 @@ void switch_input_poll( void )
 			if ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ) a = 1;
 			if ( kb[ SDL_SCANCODE_B ] || kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) b = 1;
 		}
-		/*	r430: the hub reuses this card.  Its three lines lead to the
-			system keyboard, the phrase list and the phrase editor, so the
-			confirm key dispatches instead of sending a line.			*/
+		/*	r430: the hub reuses this card.  Its lines lead to the system
+			keyboard, the phrase list, the phrase editor and the log, so
+			the confirm key dispatches instead of sending a line.		*/
 		if ( sw_hub_open ) {
-			if ( u && !sw_ph_u && sw_hub_cur > 0 ) sw_hub_cur--;
-			if ( d && !sw_ph_d && sw_hub_cur + 1 < SW_HUB_N ) sw_hub_cur++;
+			if ( u && !sw_ph_u ) sw_hub_cur = ( sw_hub_cur + SW_HUB_N - 1 ) % SW_HUB_N;
+			if ( d && !sw_ph_d ) sw_hub_cur = ( sw_hub_cur + 1 ) % SW_HUB_N;
 			if ( b && !sw_ph_b ) {
 				sw_hub_open = 0;
 				sw_ph_open = 0;
@@ -817,8 +906,25 @@ void switch_input_poll( void )
 			memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
 			return;
 		}
-		if ( u && !sw_ph_u && sw_ph_cur > 0 ) sw_ph_cur--;
-		if ( d && !sw_ph_d && sw_ph_cur + 1 < sw_ph_n ) sw_ph_cur++;
+		/*	r432: the log card fits every row it loads, so the arrows do
+			nothing and either the confirm or the cancel key closes it.	*/
+		if ( sw_hist_open ) {
+			if ( ( a && !sw_ph_a ) || ( b && !sw_ph_b ) ) {
+				sw_hist_open = 0;
+				sw_ph_open = 0;
+				sw_ph_swallow = 1;
+			}
+			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+			memset( sw_keys, 0, sizeof( sw_keys ) );
+			memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
+			return;
+		}
+		/*	r432: the list wraps - up from the first row lands on the last
+			one and down from the last lands on the first.			*/
+		if ( u && !sw_ph_u && sw_ph_n > 0 )
+			sw_ph_cur = ( sw_ph_cur + sw_ph_n - 1 ) % sw_ph_n;
+		if ( d && !sw_ph_d && sw_ph_n > 0 )
+			sw_ph_cur = ( sw_ph_cur + 1 ) % sw_ph_n;
 		if ( b && !sw_ph_b ) { sw_ph_open = 0; sw_ph_swallow = 1; }
 		if ( a && !sw_ph_a && sw_ph_open ) {
 			if ( sw_ph_edit ) sw_ph_edit_current();
