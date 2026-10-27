@@ -266,6 +266,28 @@ static int sw_pc_watch( void *userdata, SDL_Event *ev )
 	}
 	return 1;
 }
+/*	r419 DIAGNOSTIC - remove before the release.					*/
+extern bool get_key_state( int sym );	/*	linux/hsp3dish.cpp		*/
+static void sw_pc_probe( void )
+{
+	static int last = -1;
+	const Uint8 *ks = SDL_GetKeyboardState( NULL );
+	int a = ( ks != NULL && ks[ SDL_SCANCODE_C ] ) ? 1 : 0;
+	int b = ( ks != NULL && ks[ SDL_SCANCODE_KP_8 ] ) ? 1 : 0;
+	int c = get_key_state( SDL_SCANCODE_UP ) ? 1 : 0;
+	int d = get_key_state( SDL_SCANCODE_C ) ? 1 : 0;
+	int e = get_key_state( SDL_SCANCODE_KP_8 ) ? 1 : 0;
+	int now = a | ( b << 1 ) | ( c << 2 ) | ( d << 3 ) | ( e << 4 );
+	FILE *f;
+	if ( now == last ) return;
+	last = now;
+	f = fopen( "sdmc:/switch/openhsp/probe.txt", "ab" );
+	if ( f != NULL ) {
+		fprintf( f, "sdlC=%d sdlKP8=%d glueUP=%d glueC=%d glueKP8=%d\n",
+			a, b, c, d, e );
+		fclose( f );
+	}
+}
 #define SW_PC_BUF_MAX	32
 static char		sw_pc_buf[ SW_PC_BUF_MAX ];
 static int		sw_pc_head, sw_pc_tail;
@@ -503,6 +525,7 @@ const char *switch_input_phrase_text( int i )
 void switch_input_poll( void )
 {
 	int i;
+	sw_pc_probe();
 	/*	r270: remember when the pad last moved.  Elona is turn based, so the
 		game data changes only while somebody is playing - but a player who
 		walks around without touching anything the panel tracks still counts
@@ -1090,7 +1113,14 @@ void switch_input_install( void *hspctx )
 						   here and polled from the GL clear, not from msgfunc */
 	if ( !sw_installed ) {
 		sw_installed = 1;
-		SDL_AddEventWatch( sw_pc_watch, NULL );
+		{
+			FILE *f = fopen( "sdmc:/switch/openhsp/inst.txt", "wb" );
+			if ( f != NULL ) {
+				fprintf( f, "install watch=%d\n",
+					SDL_AddEventWatch( sw_pc_watch, NULL ) );
+				fclose( f );
+			}
+		}
 		memset( sw_state, 0, sizeof( sw_state ) );
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 		/*	The window is double buffered, and HSP's redraw model expects the
