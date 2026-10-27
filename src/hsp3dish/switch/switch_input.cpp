@@ -569,9 +569,6 @@ void switch_input_poll( void )
 				event behind them at all.  */
 			if ( arrows[a] < SW_KEY_STATE_MAX ) sw_pc_keys[ arrows[a] ] = (Uint8)nw;
 		}
-		/*	r424 DIAGNOSTIC - 12s..24s force the down bit, no key in sight	*/
-		if ( SDL_GetTicks() > 12000 && SDL_GetTicks() < 24000 )
-			sw_pc_keys[ SDL_SCANCODE_DOWN ] = 1;
 	}
 	/*	r379: an event picture holds the screen until the confirm key is
 		pressed.  Physical A arrives as SDL's B button (the mapping above),
