@@ -244,6 +244,28 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	SDL_TEXTINPUT, which a plain key press never produces, so those characters
 	are collected here and handed over by switch_input_take_keys().  Hardware
 	has no keyboard: the SDL state stays all-zero and none of this ever runs. */
+/*	r418 DIAGNOSTIC - remove before the release.  Records every SDL key
+	event and every piece of text the guest sees, so the emulator's own
+	keyboard translation can be read back off the card.				*/
+static int sw_pc_watch( void *userdata, SDL_Event *ev )
+{
+	FILE *f;
+	(void)userdata;
+	if ( ev->type != SDL_KEYDOWN && ev->type != SDL_KEYUP &&
+		 ev->type != SDL_TEXTINPUT ) return 1;
+	f = fopen( "sdmc:/switch/openhsp/pckey.txt", "ab" );
+	if ( f != NULL ) {
+		if ( ev->type == SDL_TEXTINPUT )
+			fprintf( f, "text '%s'\n", ev->text.text );
+		else
+			fprintf( f, "%s sc=%d %s\n",
+				ev->type == SDL_KEYDOWN ? "down" : "up",
+				ev->key.keysym.scancode,
+				SDL_GetScancodeName( ev->key.keysym.scancode ) );
+		fclose( f );
+	}
+	return 1;
+}
 #define SW_PC_BUF_MAX	32
 static char		sw_pc_buf[ SW_PC_BUF_MAX ];
 static int		sw_pc_head, sw_pc_tail;
@@ -343,14 +365,6 @@ static void sw_pc_tick( void )
 		char c;
 		if ( now == sw_pc_last[ sc ] ) continue;
 		sw_pc_last[ sc ] = now;
-		if ( now ) {	/*	r417 DIAGNOSTIC - remove with the release	*/
-			FILE *lf = fopen( "sdmc:/switch/openhsp/pckey.txt", "ab" );
-			if ( lf != NULL ) {
-				fprintf( lf, "sc=%d %s\n", sc,
-					SDL_GetScancodeName( (SDL_Scancode)sc ) );
-				fclose( lf );
-			}
-		}
 		if ( sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_TAB ||
 			 sc == SDL_SCANCODE_KP_5 || sc == SDL_SCANCODE_RETURN ) {
 			if ( sc < SW_KEY_STATE_MAX ) sw_pc_keys[ sc ] = now;
@@ -1076,6 +1090,7 @@ void switch_input_install( void *hspctx )
 						   here and polled from the GL clear, not from msgfunc */
 	if ( !sw_installed ) {
 		sw_installed = 1;
+		SDL_AddEventWatch( sw_pc_watch, NULL );
 		memset( sw_state, 0, sizeof( sw_state ) );
 		memset( sw_keys, 0, sizeof( sw_keys ) );
 		/*	The window is double buffered, and HSP's redraw model expects the
