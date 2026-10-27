@@ -1930,6 +1930,10 @@ int hgio_stick( int actsw )
 	int ckey = 0;
 
 	sw_input_refresh();
+	/*	r430: a card (hub or phrase editor) owns the input, so the
+		gamepad directions must not reach the map while the player
+		picks a line.  The card reads SDL itself and still navigates. */
+	if ( switch_input_panel_blocks() ) return 0;
 #if defined(HSPLINUX) || defined(HSPEMSCRIPTEN)
 #ifndef HSPRASPBIAN
 	if ( sw_input_key(SDL_SCANCODE_LEFT) )  ckey|=1;		// [left]
@@ -2015,6 +2019,8 @@ bool hgio_getkey( int kcode )
 	bool res = false;
 
 	sw_input_refresh();
+	/*	r430: same rule for getkey - the card's own reading is separate. */
+	if ( switch_input_panel_blocks() ) return false;
 	switch( kcode ){
 		case 1: res = (mouse_btn & SDL_BUTTON_LMASK) > 0; break;
 		case 2: res = (mouse_btn & SDL_BUTTON_RMASK) > 0; break;

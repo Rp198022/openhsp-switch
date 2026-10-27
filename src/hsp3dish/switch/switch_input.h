@@ -45,6 +45,14 @@ int  switch_input_phrase_cursor( void );
 int  switch_input_phrase_count( void );
 const char *switch_input_phrase_text( int i );
 
+/*	r430: the dialog hub.  One key opens a three-line card that leads to
+	the system keyboard, the phrase list or the phrase editor.  It shares
+	the phrase panel's card and input handling.						*/
+int  switch_input_hub_start( void );
+int  switch_input_hub_active( void );
+/*	1 while the list is open as an editor (A saves instead of sends).	*/
+int  switch_input_phrase_editing( void );
+
 
 /*	DirectInput-shaped pad state for Elona's own gamepad path: bits 0-3 are
 	the hat (up, down, left, right) and bits 4..15 the twelve buttons, which its

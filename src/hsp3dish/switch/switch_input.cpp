@@ -382,7 +382,7 @@ static void sw_pc_tick( void )
 			the right bracket flips the three side sheets.  Elona binds
 			neither key, and a prompt keeps both as ordinary characters. */
 		if ( sc == SDL_SCANCODE_APOSTROPHE && !switch_input_prompt_active() ) {
-			if ( now ) sw_ai_open();
+			if ( now ) switch_input_hub_start();
 			continue;
 		}
 		if ( sc == SDL_SCANCODE_RIGHTBRACKET && !switch_input_prompt_active() ) {
@@ -424,7 +424,13 @@ static int sw_pc_pop( void )
 	instance) - the caller then leaves the pad's letters as the only path.
 	A cancel must stay distinct from "no keyboard": the caller re-raises the
 	keyboard on a cancel, but must not retry one that cannot open.			*/
+static int switch_input_ask_text_init( char *out, int outsize, const char *init );
 int switch_input_ask_text( char *out, int outsize )
+{
+	return switch_input_ask_text_init( out, outsize, NULL );
+}
+/*	r430: the phrase editor wants the current line already in the box.	*/
+static int switch_input_ask_text_init( char *out, int outsize, const char *init )
 {
 #if defined(__SWITCH__)
 	/*	SwkbdConfig is several KB (a union of every swkbd arg version) and
@@ -437,6 +443,7 @@ int switch_input_ask_text( char *out, int outsize )
 	rc = swkbdCreate( &kbd, (size_t)outsize );
 	if ( R_FAILED( rc ) ) return -2;
 	swkbdConfigMakePresetDefault( &kbd );
+	if ( init != NULL && init[ 0 ] != 0 ) swkbdConfigSetInitialText( &kbd, init );
 	/*	The preset leaves the type at SwkbdType_Normal, which only offers the
 		Latin layout - Chinese, Japanese and Korean would be unreachable.  The
 		"all language keyboards" type turns every layout on; the keyboard's own
@@ -450,6 +457,7 @@ int switch_input_ask_text( char *out, int outsize )
 #else
 	(void)out;
 	(void)outsize;
+	(void)init;
 	return -2;
 #endif
 }
@@ -464,6 +472,17 @@ static Uint8	sw_ph_a = 0, sw_ph_b = 0, sw_ph_u = 0, sw_ph_d = 0;
 /*	r409: the press that closed the panel is still held for a few frames;
 	this keeps it out of the game until every one of those keys is up.	*/
 static int	sw_ph_swallow = 0;
+/*	r430: the dialog hub.  It borrows sw_ph_open (the "a card owns the
+	input" flag) and the panel's edge-triggered key trackers, and only
+	swaps the lines and what the confirm key does.						*/
+#define SW_HUB_N	3
+static int	sw_hub_open = 0, sw_hub_cur = 0;
+static int	sw_ph_edit = 0;
+static const char *sw_hub_lines[ SW_HUB_N ] = {
+	输入法说话（同伴）,
+	打开对话短语,
+	编辑对话短语
+};
 /*	r400: the emulator's own door into the panel.  Eden feeds a pad-shaped
 	view of the keyboard to the emulated console internally; SDL never sees a
 	controller there, so ZR+ZL cannot reach this port.  F9/B are free in
@@ -507,6 +526,8 @@ int switch_input_phrase_start( void )
 	if ( sw_ph_n <= 0 ) return 0;
 	sw_ph_open = 1;
 	sw_ph_cur = 0;
+	sw_hub_open = 0;
+	sw_ph_edit = 0;
 	/*	r413: treat the confirm key as already down, so a stick that is
 		still pushed while the panel opens does not send the first line. */
 	sw_ph_a = 1;
@@ -536,14 +557,100 @@ static void sw_ai_open( void )
 			ai_chat_ask( text );
 	}
 }
+/*	r430: first menu line - straight to the system keyboard, with no
+	phrase list in between.  The marker still turns it off.			*/
+static void sw_ai_free( void )
+{
+	FILE *f;
+	char text[ 512 ];
+	f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
+	if ( f != NULL ) { fclose( f ); return; }
+	if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
+		if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
+			ai_chat_remember( text + strlen( "/设定" ) );
+		else
+			ai_chat_ask( text );
+	}
+}
+/*	r430: rewrite the phrase file from memory.  The loader drops comments
+	and blank lines, so the previous file is kept as .bak before the save. */
+static void sw_ph_save( void )
+{
+	FILE *f, *b;
+	char buf[ 512 ];
+	size_t n;
+	int i;
+	f = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt", "rb" );
+	if ( f != NULL ) {
+		b = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt.bak", "wb" );
+		if ( b != NULL ) {
+			while ( ( n = fread( buf, 1, sizeof( buf ), f ) ) > 0 )
+				fwrite( buf, 1, n, b );
+			fclose( b );
+		}
+		fclose( f );
+	}
+	f = fopen( "sdmc:/switch/openhsp/data/chat_phrases.txt", "wb" );
+	if ( f == NULL ) return;
+	for ( i = 0; i < sw_ph_n; i++ ) fprintf( f, "%s\n", sw_ph[ i ] );
+	fclose( f );
+}
+/*	r430: edit the highlighted line in place, then write it back.		*/
+static void sw_ph_edit_current( void )
+{
+	char text[ SW_PH_LEN ];
+	if ( sw_ph_cur < 0 || sw_ph_cur >= sw_ph_n ) return;
+	if ( switch_input_ask_text_init( text, sizeof( text ), sw_ph[ sw_ph_cur ] ) != 1 )
+		return;
+	snprintf( sw_ph[ sw_ph_cur ], SW_PH_LEN, "%s", text );
+	sw_ph_save();
+}
+/*	r430: third menu line - the list becomes an editor.				*/
+static int switch_input_phrase_edit_start( void )
+{
+	if ( !switch_input_phrase_start() ) return 0;
+	sw_ph_edit = 1;
+	return 1;
+}
+/*	r430: what the hub's confirm key runs.  The card closes first, then
+	the chosen action opens its own.									*/
+static void sw_hub_pick( void )
+{
+	int pick = sw_hub_cur;
+	sw_hub_open = 0;
+	sw_ph_open = 0;
+	sw_ph_swallow = 1;
+	if ( pick == 0 ) sw_ai_free();
+	else if ( pick == 1 ) switch_input_phrase_start();
+	else switch_input_phrase_edit_start();
+}
+int switch_input_hub_start( void )
+{
+	sw_hub_open = 1;
+	sw_hub_cur = 0;
+	sw_ph_edit = 0;
+	sw_ph_open = 1;
+	sw_ph_a = 1;
+	sw_ph_b = sw_ph_u = sw_ph_d = 0;
+#if defined(__SWITCH__)
+	hsp3dish_clear_keys();
+#endif
+	return 1;
+}
+int switch_input_hub_active( void ) { return sw_hub_open; }
 int switch_input_phrase_active( void ) { return sw_ph_open; }
 /*	r414: the glue-level keys and the text buffer are separate from this
 	module's own tables, so it needs one question it can ask.			*/
 int switch_input_panel_blocks( void ) { return sw_ph_open || sw_ph_swallow; }
-int switch_input_phrase_cursor( void ) { return sw_ph_cur; }
-int switch_input_phrase_count( void ) { return sw_ph_n; }
+int switch_input_phrase_cursor( void ) { return sw_hub_open ? sw_hub_cur : sw_ph_cur; }
+int switch_input_phrase_count( void ) { return sw_hub_open ? SW_HUB_N : sw_ph_n; }
+int switch_input_phrase_editing( void ) { return sw_ph_edit; }
 const char *switch_input_phrase_text( int i )
 {
+	if ( sw_hub_open ) {
+		if ( i < 0 || i >= SW_HUB_N ) return "";
+		return sw_hub_lines[ i ];
+	}
 	if ( i < 0 || i >= sw_ph_n ) return "";
 	return sw_ph[ i ];
 }
@@ -693,18 +800,39 @@ void switch_input_poll( void )
 			if ( kb[ SDL_SCANCODE_A ] || kb[ SDL_SCANCODE_C ] || kb[ SDL_SCANCODE_RETURN ] ) a = 1;
 			if ( kb[ SDL_SCANCODE_B ] || kb[ SDL_SCANCODE_X ] || kb[ SDL_SCANCODE_ESCAPE ] ) b = 1;
 		}
+		/*	r430: the hub reuses this card.  Its three lines lead to the
+			system keyboard, the phrase list and the phrase editor, so the
+			confirm key dispatches instead of sending a line.			*/
+		if ( sw_hub_open ) {
+			if ( u && !sw_ph_u && sw_hub_cur > 0 ) sw_hub_cur--;
+			if ( d && !sw_ph_d && sw_hub_cur + 1 < SW_HUB_N ) sw_hub_cur++;
+			if ( b && !sw_ph_b ) {
+				sw_hub_open = 0;
+				sw_ph_open = 0;
+				sw_ph_swallow = 1;
+			}
+			if ( a && !sw_ph_a && sw_hub_open ) sw_hub_pick();
+			sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
+			memset( sw_keys, 0, sizeof( sw_keys ) );
+			memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
+			return;
+		}
 		if ( u && !sw_ph_u && sw_ph_cur > 0 ) sw_ph_cur--;
 		if ( d && !sw_ph_d && sw_ph_cur + 1 < sw_ph_n ) sw_ph_cur++;
 		if ( b && !sw_ph_b ) { sw_ph_open = 0; sw_ph_swallow = 1; }
 		if ( a && !sw_ph_a && sw_ph_open ) {
-			char text[ SW_PH_LEN ];
-			snprintf( text, sizeof( text ), "%s", sw_ph[ sw_ph_cur ] );
-			sw_ph_open = 0;
-			sw_ph_swallow = 1;
-			ai_chat_ask( text );
+			if ( sw_ph_edit ) sw_ph_edit_current();
+			else {
+				char text[ SW_PH_LEN ];
+				snprintf( text, sizeof( text ), "%s", sw_ph[ sw_ph_cur ] );
+				sw_ph_open = 0;
+				sw_ph_swallow = 1;
+				ai_chat_ask( text );
+			}
 		}
 		sw_ph_u = u; sw_ph_d = d; sw_ph_a = a; sw_ph_b = b;
 		memset( sw_keys, 0, sizeof( sw_keys ) );
+		memset( sw_pc_keys, 0, sizeof( sw_pc_keys ) );
 		return;
 	}
 	/*	r409: see sw_ph_swallow - consume the close press until it is up.*/

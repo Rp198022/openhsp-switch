@@ -2471,7 +2471,12 @@ static void sw_ovl_ph_build( int cur, int cnt )
 	s = SDL_CreateRGBSurfaceWithFormat( 0, 540, h, 32, SDL_PIXELFORMAT_ABGR8888 );
 	if ( s == NULL ) return;
 	SDL_FillRect( s, NULL, SDL_MapRGBA( s->format, 18, 14, 10, 238 ) );
-	sw_ovl_ph_text( s, "快捷对话    上下选择    A 发送    B 关闭", 16, 8, 210, 198, 166 );
+	if ( switch_input_hub_active() )
+		sw_ovl_ph_text( s, "对话菜单    上下选择    A 确定    B 关闭", 16, 8, 210, 198, 166 );
+	else if ( switch_input_phrase_editing() )
+		sw_ovl_ph_text( s, "编辑短语    上下选择    A 保存    B 关闭", 16, 8, 210, 198, 166 );
+	else
+		sw_ovl_ph_text( s, "快捷对话    上下选择    A 发送    B 关闭", 16, 8, 210, 198, 166 );
 	for ( i = 0; i < cnt; i++ ) {
 		char line[ 200 ];
 
@@ -2504,7 +2509,8 @@ static void sw_ovl_phrase_draw( int win_w, int win_h )
 	cnt = switch_input_phrase_count();
 	cur = switch_input_phrase_cursor();
 	if ( cnt <= 0 || win_w <= 0 || win_h <= 0 ) return;
-	sig = cur * 64 + cnt;
+	sig = cur * 64 + cnt + ( switch_input_hub_active() ? 100000 : 0 ) +
+		( switch_input_phrase_editing() ? 200000 : 0 );
 	if ( sig != sw_ovl_ph_sig || sw_ovl_ph_tex == 0 ) {
 		sw_ovl_ph_build( cur, cnt );
 		sw_ovl_ph_sig = sig;
