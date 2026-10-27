@@ -244,6 +244,12 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	SDL_TEXTINPUT, which a plain key press never produces, so those characters
 	are collected here and handed over by switch_input_take_keys().  Hardware
 	has no keyboard: the SDL state stays all-zero and none of this ever runs. */
+/*	r426: whether the game is waiting for text in one of its prompt boxes.
+	Digits are movement keys in the field and typed characters in a box, and
+	typing them in the field would only make the game answer "not assigned"
+	and hold the press until it is released - the direction is lost.  The
+	answer lives in hsp3gr_dish_switch.cpp, next to the objsel bookkeeping.	*/
+extern int switch_input_prompt_active( void );
 #define SW_PC_BUF_MAX	32
 static char		sw_pc_buf[ SW_PC_BUF_MAX ];
 static int		sw_pc_head, sw_pc_tail;
@@ -371,6 +377,7 @@ static void sw_pc_tick( void )
 		if ( sc == SDL_SCANCODE_5 ) sw_pc_keys[ SDL_SCANCODE_KP_5 ] = now;
 		if ( !now ) continue;
 		c = sw_pc_char( (SDL_Scancode)sc, shift, caps );
+		if ( c >= '0' && c <= '9' && !switch_input_prompt_active() ) c = 0;
 		if ( c != 0 ) sw_pc_push( c );
 	}
 }

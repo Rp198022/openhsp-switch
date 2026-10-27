@@ -666,6 +666,13 @@ static int sw_kbd_disabled( void )
 	return sw_kbd_off_cached;
 }
 
+/*	r426: read by switch_input.cpp to tell a field key from a text prompt -
+	the digit keys move in one and type in the other.					*/
+int switch_input_prompt_active( void )
+{
+	return ( sw_objsel_id > 0 ) ? 1 : 0;
+}
+
 static void sw_kbd_offer( void )
 {
 	/*	File scope, not stack: sw_key_tick() runs on every extended command,
