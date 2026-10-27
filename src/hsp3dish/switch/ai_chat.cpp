@@ -1069,8 +1069,7 @@ SYS_CAT( "只输出中文台词，第一人称。"
 			DYN_CAT( "这句话问的是世界设定里的东西，按上面给的资料回答，"
 				"不要推说没去过、不知道。" );
 	}
-	if ( question != NULL ) {
-			/*	r412: scene first, then the dynamic tail.  The redundant question line
+	/*	r412: scene first, then the dynamic tail.  The redundant question line
 		stays at the very end so the model answers that and not the log.		*/
 	snprintf( usr, sizeof( usr ), "%s\n%s", scene != NULL ? scene : "", dyn );
 	if ( question != NULL ) {
