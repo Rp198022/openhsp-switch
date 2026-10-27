@@ -250,6 +250,8 @@ static void sw_push_key( SDL_Scancode sc, int down )
 	and hold the press until it is released - the direction is lost.  The
 	answer lives in hsp3gr_dish_switch.cpp, next to the objsel bookkeeping.	*/
 extern int switch_input_prompt_active( void );
+/*	r429: the companion chat, one door for the pad and the keyboard. */
+static void sw_ai_open( void );
 #define SW_PC_BUF_MAX	32
 static char		sw_pc_buf[ SW_PC_BUF_MAX ];
 static int		sw_pc_head, sw_pc_tail;
@@ -373,6 +375,18 @@ static void sw_pc_tick( void )
 			answer as an unassigned key.  A prompt keeps the semicolon.		*/
 		if ( sc == SDL_SCANCODE_SEMICOLON && !switch_input_prompt_active() ) {
 			if ( now ) switch_input_phrase_start();
+			continue;
+		}
+		/*	r429: keyboard doors for the two pad-only panel functions.  The
+			apostrophe opens the companion chat exactly as ZR+ZL does, and
+			the right bracket flips the three side sheets.  Elona binds
+			neither key, and a prompt keeps both as ordinary characters. */
+		if ( sc == SDL_SCANCODE_APOSTROPHE && !switch_input_prompt_active() ) {
+			if ( now ) sw_ai_open();
+			continue;
+		}
+		if ( sc == SDL_SCANCODE_RIGHTBRACKET && !switch_input_prompt_active() ) {
+			if ( now ) switch_overlay_toggle();
 			continue;
 		}
 		if ( sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_TAB ||
@@ -503,6 +517,24 @@ int switch_input_phrase_start( void )
 	hsp3dish_clear_keys();
 #endif
 	return 1;
+}
+/*	r429: the companion chat, opened the same way from ZR+ZL and the
+	keyboard: the prepared lines first, the system keyboard only when no
+	phrase file exists (the noswkbd marker marks an emulator without
+	applet support).													*/
+static void sw_ai_open( void )
+{
+	FILE *f;
+	char text[ 512 ];
+	if ( switch_input_phrase_start() ) return;
+	f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
+	if ( f != NULL ) { fclose( f ); return; }
+	if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
+		if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
+			ai_chat_remember( text + strlen( "/设定" ) );
+		else
+			ai_chat_ask( text );
+	}
 }
 int switch_input_phrase_active( void ) { return sw_ph_open; }
 /*	r414: the glue-level keys and the text buffer are separate from this
@@ -1015,21 +1047,8 @@ int switch_input_take_keys( char *out, int max )
 	if ( layer == 2 && sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) &&
 			!sw_ai_key_held ) {
 		sw_ai_key_held = 1;
-		/*	r397: the prepared phrases cover the everyday lines; the system
-			keyboard is opened only when no phrase file is present.			*/
-		if ( !switch_input_phrase_start() ) {
-			FILE *f = fopen( "sdmc:/switch/openhsp/noswkbd", "rb" );
-			if ( f != NULL ) fclose( f );
-			else {
-				char text[ 512 ];
-				if ( switch_input_ask_text( text, sizeof( text ) ) == 1 ) {
-					if ( strncmp( text, "/设定", strlen( "/设定" ) ) == 0 )
-						ai_chat_remember( text + strlen( "/设定" ) );
-					else
-						ai_chat_ask( text );
-				}
-			}
-		}
+		/*	r429: same door as the apostrophe, see sw_ai_open().			*/
+		sw_ai_open();
 	} else if ( !sw_trigger_held( SDL_CONTROLLER_AXIS_TRIGGERLEFT, sw_zl_raw ) ) {
 		sw_ai_key_held = 0;
 	}
