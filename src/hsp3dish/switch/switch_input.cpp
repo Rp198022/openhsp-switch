@@ -1116,8 +1116,8 @@ void switch_input_install( void *hspctx )
 		{
 			FILE *f = fopen( "sdmc:/switch/openhsp/inst.txt", "wb" );
 			if ( f != NULL ) {
-				fprintf( f, "install watch=%d\n",
-					SDL_AddEventWatch( sw_pc_watch, NULL ) );
+				SDL_AddEventWatch( sw_pc_watch, NULL );
+				fprintf( f, "install ok\n" );
 				fclose( f );
 			}
 		}
