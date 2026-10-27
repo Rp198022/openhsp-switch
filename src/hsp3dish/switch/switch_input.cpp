@@ -716,7 +716,10 @@ int switch_input_phrase_start( void )
 
 	sw_ph_cur = 0;
 
-	sw_ph_a = sw_ph_b = sw_ph_u = sw_ph_d = 0;
+	/*	r413: treat the confirm key as already down, so a stick that is
+		still pushed while the panel opens does not send the first line. */
+	sw_ph_a = 1;
+	sw_ph_b = sw_ph_u = sw_ph_d = 0;
 
 	return 1;
 
@@ -964,6 +967,10 @@ void switch_input_poll( void )
 			u = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_UP );
 			d = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN );
 			a = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_B );	/* confirm */
+			/*	r413: Eden binds the keyboard's A to the left stick (WASD), so
+				A is that direction and nothing else while the panel is up.		*/
+			if ( SDL_GameControllerGetAxis( sw_pad, SDL_CONTROLLER_AXIS_LEFTX ) <
+					-SW_STICK_DEADZONE ) a = 1;
 			b = SDL_GameControllerGetButton( sw_pad, SDL_CONTROLLER_BUTTON_A );	/* cancel  */
 		}
 		kb = SDL_GetKeyboardState( NULL );
