@@ -560,8 +560,14 @@ void switch_input_poll( void )
 				events - hgio_stick()'s sw_input_key() is get_key_state(sc) ||
 				switch_input_key_state(sc), and that reads this table.  A pushed
 				SDL event never reached it, so a physical arrow key moved nobody
-				on Eden; write the state on top of the push.  */
-			if ( arrows[a] < SW_KEY_STATE_MAX ) sw_keys[ arrows[a] ] = (Uint8)nw;
+				on Eden; write the state on top of the push.
+				r422: into sw_pc_keys, not sw_keys - the pad pass below rewrites
+				every scancode sw_keymap owns (the d-pad's four directions among
+				them) on each poll, so a direction that only the keyboard holds
+				was cleared again before the script ever read it.  The keypad's
+				digits move through the same table, and they have no synthetic
+				event behind them at all.  */
+			if ( arrows[a] < SW_KEY_STATE_MAX ) sw_pc_keys[ arrows[a] ] = (Uint8)nw;
 		}
 	}
 	/*	r379: an event picture holds the screen until the confirm key is
