@@ -343,6 +343,14 @@ static void sw_pc_tick( void )
 		char c;
 		if ( now == sw_pc_last[ sc ] ) continue;
 		sw_pc_last[ sc ] = now;
+		if ( now ) {	/*	r417 DIAGNOSTIC - remove with the release	*/
+			FILE *lf = fopen( "sdmc:/switch/openhsp/pckey.txt", "ab" );
+			if ( lf != NULL ) {
+				fprintf( lf, "sc=%d %s\n", sc,
+					SDL_GetScancodeName( (SDL_Scancode)sc ) );
+				fclose( lf );
+			}
+		}
 		if ( sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_TAB ||
 			 sc == SDL_SCANCODE_KP_5 || sc == SDL_SCANCODE_RETURN ) {
 			if ( sc < SW_KEY_STATE_MAX ) sw_pc_keys[ sc ] = now;
