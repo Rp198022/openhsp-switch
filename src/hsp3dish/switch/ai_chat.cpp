@@ -886,7 +886,8 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		system block now has room for the whole persona + memory - at 8 KB
 		a long memory pushed the rules at the end out of the prompt.	*/
 	static char sys[ AI_MAX_TEXT ], sys_esc[ AI_MAX_TEXT + 1024 ];
-	static char usr[ 4096 ], usr_esc[ 8192 ];
+	static char usr[ AI_MAX_TEXT ], usr_esc[ AI_MAX_TEXT * 2 + 1024 ];
+	static char dyn[ AI_MAX_TEXT ], dyn_esc[ AI_MAX_TEXT * 2 + 1024 ];
 	size_t l;
 	int world_hit = 0;
 	int shape_v = -1;			/* r312: reply shape for a scene remark		*/
@@ -894,89 +895,31 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 
 	battle = ( scene != NULL && strstr( scene, "战斗：正在交战" ) != NULL );
 
-#define AI_CAT( ... ) do { \
+#define SYS_CAT( ... ) do { \
 		l = strlen( sys ); \
 		snprintf( sys + l, sizeof( sys ) - l, __VA_ARGS__ ); \
 	} while ( 0 )
+#define DYN_CAT( ... ) do { \
+		l = strlen( dyn ); \
+		snprintf( dyn + l, sizeof( dyn ) - l, __VA_ARGS__ ); \
+	} while ( 0 )
 
+	/*	r412: only the stable half goes into the system message - persona,
+		tone, examples, the fixed rules.  DeepSeek caches an exact prefix,
+		so anything that changes per request must stay out of here.		*/
 	sys[ 0 ] = '\0';
-	AI_CAT( "你是《Elona》中主人的随从「%s」。\n", ai_npc );
-	if ( persona[ 0 ] ) AI_CAT( "人设：\n%s\n", persona );
-	if ( tone[ 0 ] )    AI_CAT( "关系语气：\n%s\n", tone );
+	SYS_CAT( "你是《Elona》中主人的随从「%s」。\n", ai_npc );
+	if ( persona[ 0 ] ) SYS_CAT( "人设：\n%s\n", persona );
+	if ( tone[ 0 ] )    SYS_CAT( "关系语气：\n%s\n", tone );
 	if ( example[ 0 ] )
-		AI_CAT( "说话示例（照这些示例的语气和长度，不要照抄内容）：\n%s\n", example );
-	if ( memory[ 0 ] )
-		AI_CAT( "记忆（越靠后越新；前后矛盾时以靠后的为准）：\n%s\n", memory );
-	{
-		/*	r286: a few world-book entries, but only the ones this request
-			touches.  On a miss nothing is added at all.					*/
-		static char world[ 3072 ];
-		world_hit = ai_world_block( question, scene, world, sizeof( world ) ) > 0;
-		if ( world_hit )
-			AI_CAT( "世界设定（下面这些是你本来就知道的事。主人问到时就按它回答，"
-				"用你自己的口气说，别照读原文，别说不知道）：\n%s\n", world );
-	}
-	AI_CAT( "只输出中文台词，第一人称。"
+		SYS_CAT( "说话示例（照这些示例的语气和长度，不要照抄内容）：\n%s\n", example );
+SYS_CAT( "只输出中文台词，第一人称。"
 		/*	r311: short by default.  "as long as the content needs" made every
 			line three or four clauses long, which reads like a monologue.	*/
 		"长度：大多数时候只说一两句，10~25 字就够；"
 		"只有讲世界知识、劝他做某件事、或情绪上来时才用长一点，最多三四句。"
 		"每句都要说完整，不要用省略号断在半截。" );
-	/*	r322: in a fight she watches the fight.  The scene block says whether
-		an enemy is engaged, and the whole remark is then tied to it - no
-		weather, no lore, no idle chatter while something is swinging.		*/
-	if ( battle ) {
-		AI_CAT( "现在是战斗中。这一句只能和眼前的战斗有关："
-			"提醒主人、报出敌人的方位或动作、喊一句短促的战术、或报自己的伤。"
-			"一句就够，不要闲聊，不要讲世界知识，不要提天气、肚子和往事。" );
-		shape_v = 4;
-	}
-	/*	r312: not every line is speech.  Days alone with the player make a
-		constant narrator read like a visual novel; sometimes she just moves,
-		or says one syllable.  The shape is picked here rather than left to
-		the model, because "feel free" was ignored in practice.				*/
-	if ( question == NULL && !battle ) {
-		int shape = ( ai_seq + ai_hist_n * 3 + (int)( ai_now() / 9.0 ) ) % 10;
-
-		shape_v = shape;
-		if ( shape < 5 ) {
-			AI_CAT( "这一句正常说台词。" );
-		} else if ( shape == 9 ) {
-			AI_CAT( "这一句只写极短的反应，六个字以内，"
-				"例如「……」「嗯。」「啧。」，不要完整句子。" );
-		} else {
-			/*	r313: the non-speech shapes.  A follower alone with the player
-				mostly watches, mutters and remembers; letting her narrate every
-				change is what made her read like a visual novel.			*/
-			switch ( ( shape + ai_seq ) % 6 ) {
-			case 0:
-				AI_CAT( "这一句只写一个括号动作，不要任何台词，"
-					"例如「（摸了摸扁下去的肚子）」。短，只写一个。" );
-				break;
-			case 1:
-				AI_CAT( "这一句只写你看到的东西，陈述一句，"
-					"既不提醒也不发问，例如「那边的草在动。」" );
-				break;
-			case 2:
-				AI_CAT( "这一句是自言自语，不是对主人说的，"
-					"例如「这味道……熟。」可以说半句。" );
-				break;
-			case 3:
-				AI_CAT( "这一句只是一个想不起来的小片段，只一句，"
-					"例如「这条街，我好像走过。」不要解释。" );
-				break;
-			case 4:
-				AI_CAT( "这一句只报一个事实，不带建议，"
-					"例如「剑钝了。」「靴子进水了。」" );
-				break;
-			default:
-				AI_CAT( "这一句只写两个连续的小动作，不要台词，"
-					"例如「（停步，侧耳）」。两个动作要有先后。" );
-				break;
-			}
-		}
-	}
-	AI_CAT( "不要解释、不要旁白。"
+	SYS_CAT( "不要解释、不要旁白。"
 		/*	r307: the game is flat 2D pixels, so a written gesture is the only
 			body language the player can see.  Kept sparse - one in every few
 			lines - and limited to things that do not move the scene.		*/
@@ -1001,6 +944,83 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		/*	r308: one topic per line.  The weather sits in every scene block,
 			so without this she says the same thing four times in a row.	*/
 		"同一件事不要连着说两遍：上一句提了天气，这一句就换别的；没什么可说就短一点。" );
+	/*	r303: expression tag.  Chooses the portrait the panel draws.
+		r309: the exact shape is spelled out - the model kept writing a single
+		bracket, which the old parser did not recognise.					*/
+	if ( ai_emotion_n > 0 )
+		SYS_CAT( "情绪：台词最后另起一个标记，格式必须是双中括号加半角冒号 "
+			"[[emo:词]]，例如 [[emo:平静]]；它不算台词，但必须写。"
+			"词只能从下面选一个，拿不准就用「%s」。可用：%s\n",
+			ai_emotion_default, ai_emotion_list );
+		/*	r412: everything that varies per request now goes after the history,
+		at the tail: memory, world book, battle/shape hints, the last lines
+		she said, and the question itself.									*/
+	dyn[ 0 ] = '\0';
+	if ( memory[ 0 ] )
+		DYN_CAT( "记忆（越靠后越新；前后矛盾时以靠后的为准）：\n%s\n", memory );
+	{
+		/*	r286: a few world-book entries, but only the ones this request
+			touches.  On a miss nothing is added at all.					*/
+		static char world[ 3072 ];
+		world_hit = ai_world_block( question, scene, world, sizeof( world ) ) > 0;
+		if ( world_hit )
+			DYN_CAT( "世界设定（下面这些是你本来就知道的事。主人问到时就按它回答，"
+				"用你自己的口气说，别照读原文，别说不知道）：\n%s\n", world );
+	}
+	/*	r322: in a fight she watches the fight.  The scene block says whether
+		an enemy is engaged, and the whole remark is then tied to it - no
+		weather, no lore, no idle chatter while something is swinging.		*/
+	if ( battle ) {
+		DYN_CAT( "现在是战斗中。这一句只能和眼前的战斗有关："
+			"提醒主人、报出敌人的方位或动作、喊一句短促的战术、或报自己的伤。"
+			"一句就够，不要闲聊，不要讲世界知识，不要提天气、肚子和往事。" );
+		shape_v = 4;
+	}
+	/*	r312: not every line is speech.  Days alone with the player make a
+		constant narrator read like a visual novel; sometimes she just moves,
+		or says one syllable.  The shape is picked here rather than left to
+		the model, because "feel free" was ignored in practice.				*/
+	if ( question == NULL && !battle ) {
+		int shape = ( ai_seq + ai_hist_n * 3 + (int)( ai_now() / 9.0 ) ) % 10;
+
+		shape_v = shape;
+		if ( shape < 5 ) {
+			DYN_CAT( "这一句正常说台词。" );
+		} else if ( shape == 9 ) {
+			DYN_CAT( "这一句只写极短的反应，六个字以内，"
+				"例如「……」「嗯。」「啧。」，不要完整句子。" );
+		} else {
+			/*	r313: the non-speech shapes.  A follower alone with the player
+				mostly watches, mutters and remembers; letting her narrate every
+				change is what made her read like a visual novel.			*/
+			switch ( ( shape + ai_seq ) % 6 ) {
+			case 0:
+				DYN_CAT( "这一句只写一个括号动作，不要任何台词，"
+					"例如「（摸了摸扁下去的肚子）」。短，只写一个。" );
+				break;
+			case 1:
+				DYN_CAT( "这一句只写你看到的东西，陈述一句，"
+					"既不提醒也不发问，例如「那边的草在动。」" );
+				break;
+			case 2:
+				DYN_CAT( "这一句是自言自语，不是对主人说的，"
+					"例如「这味道……熟。」可以说半句。" );
+				break;
+			case 3:
+				DYN_CAT( "这一句只是一个想不起来的小片段，只一句，"
+					"例如「这条街，我好像走过。」不要解释。" );
+				break;
+			case 4:
+				DYN_CAT( "这一句只报一个事实，不带建议，"
+					"例如「剑钝了。」「靴子进水了。」" );
+				break;
+			default:
+				DYN_CAT( "这一句只写两个连续的小动作，不要台词，"
+					"例如「（停步，侧耳）」。两个动作要有先后。" );
+				break;
+			}
+		}
+	}
 	/*	r308: she never heard her own last lines, so she kept repeating the
 		weather.  Two remembered sentences plus an explicit "don't repeat"
 		give the model negative feedback instead of a blank slate.			*/
@@ -1015,9 +1035,9 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 		}
 		pthread_mutex_unlock( &ai_lock );
 		if ( sn > 0 ) {
-			AI_CAT( "你刚才说过的话（不要重复这些说法，也不要连着两次提同一件事）：\n" );
+			DYN_CAT( "你刚才说过的话（不要重复这些说法，也不要连着两次提同一件事）：\n" );
 			for ( i = sn - 1; i >= 0; i-- )
-				if ( said[ i ][ 0 ] ) AI_CAT( "- 「%s」\n", said[ i ] );
+				if ( said[ i ][ 0 ] ) DYN_CAT( "- 「%s」\n", said[ i ] );
 		}
 	}
 	/*	r311: only block an action when the last three lines already used two
@@ -1033,42 +1053,31 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 				cnt++;
 		pthread_mutex_unlock( &ai_lock );
 		if ( cnt >= 2 )
-			AI_CAT( "最近几句动作写得太多了。这一句直接说台词，不要加动作。\n" );
+			DYN_CAT( "最近几句动作写得太多了。这一句直接说台词，不要加动作。\n" );
 		else
-			AI_CAT( "动作可有可无，不必每句都带。\n" );
+			DYN_CAT( "动作可有可无，不必每句都带。\n" );
 	}
-	/*	r303: expression tag.  Chooses the portrait the panel draws.
-		r309: the exact shape is spelled out - the model kept writing a single
-		bracket, which the old parser did not recognise.					*/
-	if ( ai_emotion_n > 0 )
-		AI_CAT( "情绪：台词最后另起一个标记，格式必须是双中括号加半角冒号 "
-			"[[emo:词]]，例如 [[emo:平静]]；它不算台词，但必须写。"
-			"词只能从下面选一个，拿不准就用「%s」。可用：%s\n",
-			ai_emotion_default, ai_emotion_list );
-	AI_CAT( "%s",
+	DYN_CAT( "%s",
 		question != NULL ? "主人正在跟你说话，必须用一句话回应，绝对不要输出 SKIP。"
 			: "若此刻不适合说话，只输出 SKIP。" );
 	if ( question != NULL ) {
 		/*	Said twice on purpose - once in the system prompt, once in the
 			user turn - because this model otherwise drifts back to whatever
 			the persona was complaining about.								*/
-		AI_CAT( "主人刚刚问你：「%s」。回答必须针对这句话。", question );
+		DYN_CAT( "主人刚刚问你：「%s」。回答必须针对这句话。", question );
 		if ( world_hit )		/*	r290: the data is right above it	*/
-			AI_CAT( "这句话问的是世界设定里的东西，按上面给的资料回答，"
+			DYN_CAT( "这句话问的是世界设定里的东西，按上面给的资料回答，"
 				"不要推说没去过、不知道。" );
 	}
 	if ( question != NULL ) {
-		/*	Only the first scene line (where and when) goes with a question:
-			the full snapshot carries the newest log row, and the model kept
-			answering that instead of what the player actually typed.		*/
-		/*	r365: one rule for both channels - a question turn now carries the
-			same scene block a scene remark does, gear lines included.  The
-			trailing sentence still keeps the answer on the question.		*/
-		snprintf( usr, sizeof( usr ),
-			"%s\n主人对你说：「%s」\n只回答这句话，一句话，不要描述四周、不要提日志。",
-			scene, question );
-	} else {
-		snprintf( usr, sizeof( usr ), "%s", scene );
+			/*	r412: scene first, then the dynamic tail.  The redundant question line
+		stays at the very end so the model answers that and not the log.		*/
+	snprintf( usr, sizeof( usr ), "%s\n%s", scene != NULL ? scene : "", dyn );
+	if ( question != NULL ) {
+		size_t ul = strlen( usr );
+		snprintf( usr + ul, sizeof( usr ) - ul,
+			"\n主人对你说：「%s」\n只回答这句话，一句话，不要描述四周、不要提日志。",
+			question );
 	}
 	ai_json_escape( sys, sys_esc, sizeof( sys_esc ) );
 	ai_json_escape( usr, usr_esc, sizeof( usr_esc ) );
@@ -1112,7 +1121,8 @@ static void ai_build_body( char *out, size_t n, const char *scene,
 				usr_esc );
 		}
 	}
-#undef AI_CAT
+#undef SYS_CAT
+#undef DYN_CAT
 }
 
 /*	Save / restore the question/answer pairs next to the persona, so a
